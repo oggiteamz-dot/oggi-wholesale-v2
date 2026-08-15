@@ -29,17 +29,7 @@ import { recordReceiptCost } from "../data/landed-cost.js";
 import { getPickProgress, scanPickItem, undoPickItem } from "../data/picking.js";
 import { advanceOrderStatus } from "../data/wholesaler-orders.js";
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-function pageHeader(title, desc) {
-  const el = document.createElement("div");
-  el.className = "page-header";
-  el.innerHTML = `<div class="page-title-group"><h1>${title}</h1><p>${desc}</p></div>`;
-  return el;
-}
-
+import { esc, pageHeader } from "../lib/utils.js";
 /** Scan input shared by both screens: big, autofocused, submits on Enter,
  * clears and refocuses itself after every submit so a warehouse worker can
  * keep scanning without touching the screen between items. Also wires the

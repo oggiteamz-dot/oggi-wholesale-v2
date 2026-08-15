@@ -8,15 +8,7 @@ import { getWholesalerOrders } from "../data/wholesaler-orders.js";
 import { cart } from "../data/cart.js";
 import { listClientOverrides, setClientOverride, removeClientOverride, listVariantsForPicker } from "../data/client-pricing.js";
 
-function pageHeader(title, desc, actionsHtml = "") {
-  const el = document.createElement("div");
-  el.className = "page-header";
-  el.innerHTML = `<div class="page-title-group"><h1>${title}</h1><p>${desc}</p></div><div class="page-actions">${actionsHtml}</div>`;
-  return el;
-}
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
+import { esc, pageHeader } from "../lib/utils.js";
 function timeAgo(iso) {
   if (!iso) return "Never ordered";
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -183,7 +175,7 @@ async function renderClientPricingPanel(panel, wid, client) {
     overrides.forEach((o) => {
       const r = document.createElement("div");
       r.style.cssText = "display:flex;align-items:center;gap:10px;font-size:13px;padding:4px 0;";
-      r.innerHTML = `<div style="flex:1;">${escapeHtmlSp(o.productName)} <span style="color:var(--text-tertiary);">(${escapeHtmlSp(o.color)}/${escapeHtmlSp(o.size)})</span> — <s style="color:var(--text-tertiary);">$${o.basePrice.toFixed(2)}</s> <strong>$${o.overridePrice.toFixed(2)}</strong>${o.note ? ` · ${escapeHtmlSp(o.note)}` : ""}</div>`;
+      r.innerHTML = `<div style="flex:1;">${esc(o.productName)} <span style="color:var(--text-tertiary);">(${esc(o.color)}/${esc(o.size)})</span> — <s style="color:var(--text-tertiary);">$${o.basePrice.toFixed(2)}</s> <strong>$${o.overridePrice.toFixed(2)}</strong>${o.note ? ` · ${esc(o.note)}` : ""}</div>`;
       const rmBtn = document.createElement("button");
       rmBtn.className = "btn btn-ghost btn-sm";
       rmBtn.textContent = "Remove";
@@ -206,7 +198,7 @@ async function renderClientPricingPanel(panel, wid, client) {
   const select = document.createElement("select");
   select.className = "input";
   select.style.width = "260px";
-  select.innerHTML = variants.map((v) => `<option value="${v.variantId}">${escapeHtmlSp(v.productName)} (${escapeHtmlSp(v.color)}/${escapeHtmlSp(v.size)}) — $${v.price.toFixed(2)}</option>`).join("");
+  select.innerHTML = variants.map((v) => `<option value="${v.variantId}">${esc(v.productName)} (${esc(v.color)}/${esc(v.size)}) — $${v.price.toFixed(2)}</option>`).join("");
   const priceInput = document.createElement("input");
   priceInput.className = "input"; priceInput.type = "number"; priceInput.min = "0"; priceInput.step = "0.01"; priceInput.placeholder = "Your price"; priceInput.style.width = "110px";
   const noteInput = document.createElement("input");
@@ -237,10 +229,6 @@ async function renderClientPricingPanel(panel, wid, client) {
     addRow.appendChild(addBtn);
   }
   panel.appendChild(addRow);
-}
-
-function escapeHtmlSp(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // ---------- Orders (rep's view of all orders for this wholesaler) ----------

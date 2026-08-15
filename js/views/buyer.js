@@ -14,13 +14,7 @@ import { filterAndSortCatalog, defaultCatalogFilters } from "../data/catalog-fil
 import { renderTrustBadges } from "../components/trust-badges.js";
 import { showOrderCelebration } from "../lib/animations/order-celebration.js";
 
-function pageHeader(title, desc, actionsHtml = "") {
-  const el = document.createElement("div");
-  el.className = "page-header";
-  el.innerHTML = `<div class="page-title-group"><h1>${title}</h1><p>${desc}</p></div><div class="page-actions">${actionsHtml}</div>`;
-  return el;
-}
-
+import { esc, pageHeader } from "../lib/utils.js";
 async function defaultLocation(wid) {
   const { data } = await sbCall(
     supabase.from("v2_locations").select("id,name").eq("wid", wid).eq("is_default", true).maybeSingle()
@@ -154,7 +148,7 @@ async function suppliers(outlet) {
     const c = document.createElement("div");
     c.className = "card";
     c.style.cssText = "padding:18px;display:flex;flex-direction:column;gap:10px;";
-    c.innerHTML = `<h4>${escapeHtml(w.brand || w.name)}</h4><div style="font-size:12px;color:var(--text-tertiary);">wid: ${w.wid}</div>`;
+    c.innerHTML = `<h4>${esc(w.brand || w.name)}</h4><div style="font-size:12px;color:var(--text-tertiary);">wid: ${w.wid}</div>`;
     const btn = document.createElement("button");
     btn.className = "btn btn-primary btn-sm";
     btn.textContent = "Browse catalog";
@@ -234,7 +228,7 @@ async function cartView(outlet) {
         row.innerHTML = `
           <span class="badge badge-info" style="flex:none;">Pack</span>
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:600;font-size:14px;">${escapeHtml(line.packName)}${line.packColor ? ` — ${escapeHtml(line.packColor)}` : ""}</div>
+            <div style="font-weight:600;font-size:14px;">${esc(line.packName)}${line.packColor ? ` — ${esc(line.packColor)}` : ""}</div>
             <div style="font-size:12px;color:var(--text-secondary);">${breakdown} · ${currency}${line.price.toFixed(2)} each pack</div>
           </div>
         `;
@@ -276,8 +270,8 @@ async function cartView(outlet) {
       row.innerHTML = `
         <span class="dot" style="width:18px;height:18px;border-radius:5px;background:${line.colorHex};flex:none;"></span>
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;font-size:14px;">${escapeHtml(line.productName)}</div>
-          <div style="font-size:12px;color:var(--text-secondary);">${escapeHtml(line.color)} · ${escapeHtml(line.size)} · ${currency}${line.price.toFixed(2)} each</div>
+          <div style="font-weight:600;font-size:14px;">${esc(line.productName)}</div>
+          <div style="font-size:12px;color:var(--text-secondary);">${esc(line.color)} · ${esc(line.size)} · ${currency}${line.price.toFixed(2)} each</div>
         </div>
       `;
       const qtyInput = document.createElement("input");
@@ -427,7 +421,7 @@ async function ordersView(outlet) {
         </div>
         <div style="font-weight:700;">${currency}${order.subtotal.toFixed(2)}</div>
       </div>
-      <div style="font-size:13px;color:var(--text-secondary);">${order.items.map((i) => i.isPack ? `${i.packQty}× ${escapeHtml(i.productName)} pack` : `${i.qty}× ${escapeHtml(i.productName)} (${escapeHtml(i.color)}/${escapeHtml(i.size)})`).join(", ")}</div>
+      <div style="font-size:13px;color:var(--text-secondary);">${order.items.map((i) => i.isPack ? `${i.packQty}× ${esc(i.productName)} pack` : `${i.qty}× ${esc(i.productName)} (${esc(i.color)}/${esc(i.size)})`).join(", ")}</div>
     `;
     const reorderBtn = document.createElement("button");
     reorderBtn.className = "btn btn-secondary btn-sm";
@@ -507,8 +501,3 @@ export function registerBuyerRoutes(router) {
   router.register("/buyer/suppliers", (outlet) => suppliers(outlet));
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}

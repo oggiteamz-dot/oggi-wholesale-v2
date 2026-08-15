@@ -20,16 +20,7 @@ import {
   getConnectAuthorizeUrl, inboundWebhookUrl,
 } from "../data/integrations.js";
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-function pageHeader(title, desc) {
-  const el = document.createElement("div");
-  el.className = "page-header";
-  el.innerHTML = `<div class="page-title-group"><h1>${title}</h1><p>${desc}</p></div>`;
-  return el;
-}
-
+import { esc, pageHeader } from "../lib/utils.js";
 const META = {
   zapier: { label: "Zapier / Webhooks", icon: "⚡", blurb: "Point any Zapier zap, Make.com scenario, or your own listener at a webhook URL you control. We POST a JSON payload on new orders and shipped orders." },
   shopify: { label: "Shopify", icon: "🛍️", blurb: "Inbound: Shopify order webhooks decrement your OGGI stock automatically. Outbound: OGGI stock changes push back to Shopify (needs a saved access token and per-SKU mapping)." },

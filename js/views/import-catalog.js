@@ -9,16 +9,7 @@ import { parseCsv, planImport, commitImport } from "../data/csv-import.js";
 import { extractCatalogFromImage } from "../data/ai-catalog-import.js";
 import { getLocations } from "../data/inventory-admin.js";
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-function pageHeader(title, desc) {
-  const el = document.createElement("div");
-  el.className = "page-header";
-  el.innerHTML = `<div class="page-title-group"><h1>${title}</h1><p>${desc}</p></div>`;
-  return el;
-}
-
+import { esc, pageHeader } from "../lib/utils.js";
 const ACTION_LABEL = {
   create_product: { text: "New product", cls: "badge-success" },
   add_variant: { text: "New variant → existing product", cls: "badge-info" },

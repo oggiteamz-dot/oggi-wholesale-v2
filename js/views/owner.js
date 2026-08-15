@@ -9,16 +9,7 @@ import {
 } from "../data/owner.js";
 import { rowsToCsv, downloadCsv } from "../data/csv-export.js";
 
-function pageHeader(title, desc, actionsHtml = "") {
-  const el = document.createElement("div");
-  el.className = "page-header";
-  el.innerHTML = `<div class="page-title-group"><h1>${title}</h1><p>${desc}</p></div><div class="page-actions">${actionsHtml}</div>`;
-  return el;
-}
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
+import { esc, pageHeader } from "../lib/utils.js";
 // ---------- Dashboard ----------
 
 async function dashboard(outlet) {

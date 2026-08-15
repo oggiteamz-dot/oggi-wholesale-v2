@@ -15,16 +15,7 @@ import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
 import { listPortalAccounts, setPortalAccountActive } from "../data/team.js";
 
-function pageHeader(title, desc, actionsHtml = "") {
-  const el = document.createElement("div");
-  el.className = "page-header";
-  el.innerHTML = `<div class="page-title-group"><h1>${title}</h1><p>${desc}</p></div><div class="page-actions">${actionsHtml}</div>`;
-  return el;
-}
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
+import { esc, money, pageHeader } from "../lib/utils.js";
 // ---------- Dashboard ----------
 
 async function dashboard(outlet) {
@@ -363,7 +354,7 @@ async function renderPricingPanel(panel, product) {
   pricing.variants.forEach((v) => {
     const row = document.createElement("div");
     row.style.cssText = "display:flex;align-items:center;gap:10px;font-size:12px;padding:4px 0;";
-    row.innerHTML = `<div style="flex:1;">${escapeHtmlLocal(v.sku)} <span style="color:var(--text-tertiary);">(${escapeHtmlLocal(v.color)}/${escapeHtmlLocal(v.size)}) · $${v.price.toFixed(2)} wholesale</span></div>`;
+    row.innerHTML = `<div style="flex:1;">${esc(v.sku)} <span style="color:var(--text-tertiary);">(${esc(v.color)}/${esc(v.size)}) · $${v.price.toFixed(2)} wholesale</span></div>`;
     const moqInput = document.createElement("input");
     moqInput.className = "input"; moqInput.type = "number"; moqInput.min = "1"; moqInput.value = v.moqQty; moqInput.style.width = "70px"; moqInput.title = "SKU MOQ";
     moqInput.addEventListener("change", async () => {
@@ -503,7 +494,7 @@ async function renderPacksPanel(panel, wid, product) {
     const row = document.createElement("div");
     row.style.cssText = "display:flex;align-items:center;gap:10px;font-size:13px;padding:6px 0;";
     const breakdown = pack.components.map((c) => `${c.qtyPerPack}×${c.size || c.sku}`).join("/");
-    row.innerHTML = `<div style="flex:1;">${escapeHtmlLocal(pack.name)}${pack.color ? ` — ${escapeHtmlLocal(pack.color)}` : ""} <span style="color:var(--text-tertiary);">(${breakdown}) · $${pack.price.toFixed(2)}/pack${pack.isFlatPrice ? "" : " (sum of components)"}</span></div>`;
+    row.innerHTML = `<div style="flex:1;">${esc(pack.name)}${pack.color ? ` — ${esc(pack.color)}` : ""} <span style="color:var(--text-tertiary);">(${breakdown}) · $${pack.price.toFixed(2)}/pack${pack.isFlatPrice ? "" : " (sum of components)"}</span></div>`;
     const archiveBtn = document.createElement("button");
     archiveBtn.className = "btn btn-ghost btn-sm";
     archiveBtn.textContent = "Archive";
@@ -540,7 +531,7 @@ async function renderPacksPanel(panel, wid, product) {
   product.variants.forEach((v) => {
     const row = document.createElement("div");
     row.style.cssText = "display:flex;align-items:center;gap:10px;font-size:12px;padding:3px 0;";
-    row.innerHTML = `<div style="flex:1;">${escapeHtmlLocal(v.sku)} <span style="color:var(--text-tertiary);">(${escapeHtmlLocal(v.extra_attrs?.color)}/${escapeHtmlLocal(v.extra_attrs?.size)})</span></div>`;
+    row.innerHTML = `<div style="flex:1;">${esc(v.sku)} <span style="color:var(--text-tertiary);">(${esc(v.extra_attrs?.color)}/${esc(v.extra_attrs?.size)})</span></div>`;
     const qtyInput = document.createElement("input");
     qtyInput.className = "input"; qtyInput.type = "number"; qtyInput.min = "0"; qtyInput.value = "0"; qtyInput.style.width = "70px";
     qtyInputs.set(v.id, qtyInput);
@@ -579,10 +570,6 @@ async function renderPacksPanel(panel, wid, product) {
     await renderPacksPanel(panel, wid, product);
   });
   panel.appendChild(createBtn);
-}
-
-function escapeHtmlLocal(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // ---------- Inventory ----------
@@ -670,10 +657,6 @@ function dedupeVariants(stock) {
   return [...seen.values()];
 }
 
-function moneyLocal(n) {
-  return `$${Number(n ?? 0).toFixed(2)}`;
-}
-
 async function intelligenceView(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
@@ -742,7 +725,7 @@ async function intelligenceView(outlet) {
         <div style="flex:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.sku)} <span style="color:var(--text-tertiary);">${esc(r.productName)}</span></div>
         <div style="width:36px;">${tierBadge}</div>
         <div style="width:60px;text-align:right;">${r.unitsSold}</div>
-        <div style="width:80px;text-align:right;">${moneyLocal(r.revenue)}</div>
+        <div style="width:80px;text-align:right;">${money(r.revenue)}</div>
         <div style="width:70px;text-align:right;">${r.gmroi != null ? r.gmroi.toFixed(2) : "—"}</div>
         <div style="width:70px;text-align:right;">${r.sellThroughPct != null ? r.sellThroughPct + "%" : "—"}</div>
         <div style="width:90px;text-align:right;">${esc(r.agingBucket)}</div>
@@ -818,7 +801,7 @@ async function intelligenceView(outlet) {
       const breakdown = k.components.map((c) => `${c.qtyPerKit}×${c.sku}`).join(" + ");
       row.innerHTML = `
         <div style="flex:1;min-width:200px;">
-          <div style="font-weight:600;">${esc(k.name)} <span style="color:var(--text-tertiary);font-weight:400;">→ ${esc(k.kitSku)}${k.kitPrice != null ? ` · ${moneyLocal(k.kitPrice)}` : ""}</span></div>
+          <div style="font-weight:600;">${esc(k.name)} <span style="color:var(--text-tertiary);font-weight:400;">→ ${esc(k.kitSku)}${k.kitPrice != null ? ` · ${money(k.kitPrice)}` : ""}</span></div>
           <div style="color:var(--text-tertiary);">${esc(breakdown)}</div>
         </div>
       `;
