@@ -30,11 +30,8 @@
 
 import { prefersReducedMotion, watchReducedMotion } from "./motion-prefs.js";
 
+import { esc } from "../utils.js";
 const AUTO_ROTATE_INTERVAL_MS = 160;
-
-function escapeAttr(s) {
-  return String(s ?? "").replace(/"/g, "&quot;");
-}
 
 function placeholderSilhouetteSvg(colorHex) {
   // A simple, generic garment silhouette (works reasonably for tops,
@@ -44,7 +41,7 @@ function placeholderSilhouetteSvg(colorHex) {
   const c = colorHex || "#9AA0C9";
   return `
     <svg viewBox="0 0 200 200" width="62%" height="62%" aria-hidden="true">
-      <path fill="${escapeAttr(c)}" opacity="0.85" d="M100 12c-10 0-19 6-23 15l-27 10-22 26 16 20 18-12v101c0 9 7 16 16 16h44c9 0 16-7 16-16V71l18 12 16-20-22-26-27-10c-4-9-13-15-23-15z"/>
+      <path fill="${esc(c)}" opacity="0.85" d="M100 12c-10 0-19 6-23 15l-27 10-22 26 16 20 18-12v101c0 9 7 16 16 16h44c9 0 16-7 16-16V71l18 12 16-20-22-26-27-10c-4-9-13-15-23-15z"/>
       <path fill="#ffffff" opacity="0.18" d="M100 12c-10 0-19 6-23 15l-27 10-22 26 16 20 18-12v10l38-49c8 0 8 0 0 0z"/>
     </svg>
   `;
@@ -224,7 +221,7 @@ export function openHologramModal({ images = [], colorHex, productName = "Produc
 
   const header = document.createElement("div");
   header.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;";
-  header.innerHTML = `<h4 style="margin:0;">${escapeAttr(productName)}</h4>`;
+  header.innerHTML = `<h4 style="margin:0;">${esc(productName)}</h4>`;
   const closeBtn = document.createElement("button");
   closeBtn.className = "btn btn-ghost btn-sm";
   closeBtn.textContent = "✕";

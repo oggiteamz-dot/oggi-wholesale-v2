@@ -16,6 +16,7 @@
 
 import { prefersReducedMotion } from "./motion-prefs.js";
 
+import { esc } from "../utils.js";
 const CONFETTI_COLORS = ["#4F46E5", "#12B76A", "#F79009", "#2E90FA", "#F04438", "#7A5AF8"];
 
 function launchConfetti(count = 26) {
@@ -67,7 +68,7 @@ export function showOrderCelebration({ message = "Order placed!" } = {}) {
           <circle class="v2-celebration-check-circle" cx="26" cy="26" r="24" />
           <path class="v2-celebration-check-mark" d="M14 27l7 7 17-17" />
         </svg>
-        <div style="font-size:18px;font-weight:700;color:var(--text-primary);">${escapeHtml(message)}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--text-primary);">${esc(message)}</div>
         <div style="font-size:12px;color:var(--text-tertiary);">Tap anywhere to continue</div>
       </div>
     `;
@@ -95,6 +96,3 @@ export function showOrderCelebration({ message = "Order placed!" } = {}) {
   });
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
