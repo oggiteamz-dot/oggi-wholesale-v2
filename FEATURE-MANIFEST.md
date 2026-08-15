@@ -125,3 +125,44 @@ it was zero.
 3. **The cart snapshots pack composition at add-to-cart time.** Editing a pack
    while it sits in a cart now fails checkout (correct since migration 028) with
    an unhelpful message.
+
+---
+
+## Addendum — 15 August 2026, Session 2 (first real human walkthrough)
+
+The morning reconciliation above was all logic/static verification. This session
+was the first time a human logged in and walked a full order on real data. It
+confirmed several ✅ rows for real AND surfaced one buyer-only defect that static
+verification could never catch.
+
+**Now verified by a REAL buyer order (not just logic):**
+- Row 6–10 (selling models). A full-series pack of "Merino Crew Knit" (16 SKUs,
+  4 colours × 4 sizes) was added to a real buyer cart (reserving stock for all 16
+  variants) and submitted → order `d2ed59d9-…`, status `new`, $384, 16 order items
+  under 1 pack line, visible in the buyer's "My Orders". The series selling model
+  works end to end through the actual UI, not just at the SQL layer.
+- Row 24 (real auth): owner (Supabase Auth / `v2_user_profiles`) and buyer
+  (`v2_buyer_login` RPC / `v2_portal_accounts`) both authenticate and are correctly
+  isolated into two different auth systems.
+
+**Defect found + fixed this session (migration 033):**
+Buyers could not read `v2_pack_definitions`, so EVERY series/prepack/ratio product
+showed "no bundles set up" and was unorderable. Cause: the read policy required
+`v2_my_wid()`, which is NULL for a buyer (buyers have no `auth.uid()`).
+`v2_products` already grants the anon/buyer case via an `(auth.uid() IS NULL)`
+clause; `v2_pack_definitions` was missing it. Migration 033 gives pack definitions
+the same read visibility products have (reads add the anon clause; writes stay
+owner/wholesaler-scoped — anon INSERT re-tested and still blocked).
+
+### Known silent-loss vector (new)
+4. **Buyer-role RLS parity.** Any table the buyer catalogue/cart reads MUST carry
+   the same `(auth.uid() IS NULL)` read allowance that `v2_products` does, because
+   buyers authenticate outside Supabase Auth and have no `auth.uid()`/`v2_my_wid()`.
+   A table that omits it is invisible to buyers with NO error — exactly how the
+   pack-definitions gap hid. Audit every buyer-read table against this before trust.
+
+### Repo/DB migration drift (action for next session)
+The repo `supabase/migrations/` files stop at `029` and skip `028`, `030`, `031`,
+`032` — those are applied in the live DB but were never saved as files. Migration
+`033` (this fix) is committed. Back-fill 028/030/031/032 from the live DB so the
+repo can rebuild the database from scratch.
