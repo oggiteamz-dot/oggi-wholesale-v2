@@ -10,10 +10,7 @@ import { tierForQty, nextTier, effectivePrice, productMoqStatus, variantMoqStatu
 import { flyToCart } from "../lib/animations/fly-to-cart.js";
 import { openHologramModal } from "../lib/animations/product-hologram.js";
 
-function money(n, currency = "$") {
-  return `${currency}${Number(n).toFixed(2)}`;
-}
-
+import { esc, money } from "../lib/utils.js";
 /** Sum of this product's qty already in the cart, across every colour/
  * size -- the "aggregated across colorways" basis for both tiered pricing
  * and product-level MOQ (Batch 6). */
@@ -39,7 +36,7 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   const header = document.createElement("div");
   header.innerHTML = `
     <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">${badges.join("")}</div>
-    <h4 style="margin-bottom:2px;">${escapeHtml(product.name)}</h4>
+    <h4 style="margin-bottom:2px;">${esc(product.name)}</h4>
     <div style="color:var(--text-secondary);font-size:13px;">${
       product.minPrice === product.maxPrice ? money(product.minPrice, currency) : `${money(product.minPrice, currency)} – ${money(product.maxPrice, currency)}`
     }</div>
@@ -99,7 +96,7 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
       const breakdown = pack.components.map((c) => `${c.qtyPerPack}×${c.size || c.sku}`).join("/");
       row.innerHTML = `
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;">${escapeHtml(pack.name)}${pack.color ? ` — ${escapeHtml(pack.color)}` : ""}</div>
+          <div style="font-weight:600;">${esc(pack.name)}${pack.color ? ` — ${esc(pack.color)}` : ""}</div>
           <div style="color:var(--text-tertiary);">${breakdown} (${pack.unitCount} units) · ${money(pack.price, currency)}/pack</div>
         </div>
       `;
@@ -275,8 +272,3 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   return el;
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}

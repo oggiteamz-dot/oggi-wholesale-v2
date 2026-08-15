@@ -3,6 +3,7 @@ import { devAuth } from "../lib/dev-auth.js";
 import { ROLE_LABEL } from "../lib/nav-config.js";
 import { cart } from "../data/cart.js";
 
+import { esc } from "../lib/utils.js";
 /** Batch 13: a real cart icon + live item-count badge for the buyer role —
  * this build had no cart indicator in the topbar at all before this batch.
  * It doubles as the landing target for the "add to cart" fly animation
@@ -58,7 +59,7 @@ export function renderTopbar(container, { onLogout } = {}) {
 
     const who = document.createElement("div");
     who.className = "who";
-    who.innerHTML = `<span>${ROLE_LABEL[session.role] || session.role}</span> · <strong>${escapeHtml(session.wholesalerName || session.wid)}</strong>`;
+    who.innerHTML = `<span>${ROLE_LABEL[session.role] || session.role}</span> · <strong>${esc(session.wholesalerName || session.wid)}</strong>`;
     right.appendChild(who);
 
     const logoutBtn = document.createElement("button");
@@ -75,8 +76,3 @@ export function renderTopbar(container, { onLogout } = {}) {
   container.appendChild(right);
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}

@@ -9,10 +9,7 @@
 // shown when the wholesaler has actually filled it in -- never a fabricated
 // default that would misrepresent their real policy.
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
+import { esc } from "../lib/utils.js";
 /** `compact` renders just the 3 generic badges inline (used at the top of
  * the catalog grid); the full card (used in the cart) also shows
  * wholesaler-specific payment terms / return policy when set. */
