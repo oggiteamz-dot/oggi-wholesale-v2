@@ -73,9 +73,30 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   swatchBar.appendChild(hologramBtn);
   el.appendChild(swatchBar);
 
+  // How is this product sold? 'open' means pick any quantity of any size.
+  // Anything else means it is sold as a fixed bundle, and the per-size
+  // stepper must NOT be offered -- the server rejects loose lines for those
+  // products (migrations 029, 030), so showing the stepper would let a buyer
+  // build an order that cannot be submitted.
+  const sellingModel = product.sellingModel || "open";
+  const isBundleOnly = sellingModel !== "open";
+
   const sizeRow = document.createElement("div");
   sizeRow.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;";
-  el.appendChild(sizeRow);
+  if (!isBundleOnly) el.appendChild(sizeRow);
+
+  // Say plainly how this product is sold, so the absence of a size stepper
+  // reads as a rule rather than a missing feature.
+  if (isBundleOnly) {
+    const note = document.createElement("div");
+    note.style.cssText = "font-size:12px;color:var(--text-secondary);background:var(--surface-2,rgba(0,0,0,.03));border-radius:6px;padding:6px 8px;";
+    note.textContent = {
+      series:  "Sold as a full series — every colour and size together.",
+      prepack: "Sold in fixed cartons. Choose a colour and how many cartons.",
+      ratio:   "Sold in ratio packs — the wholesaler sets the size mix. Choose a colour and how many packs.",
+    }[sellingModel] || "Sold as a fixed bundle.";
+    el.appendChild(note);
+  }
 
   const footer = document.createElement("div");
   footer.style.cssText = "margin-top:auto;display:flex;justify-content:flex-end;";
@@ -85,8 +106,20 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   // ("2x Boutique Pack – Style ABC, Blue"). Shown for every pack defined
   // on this product regardless of the colour swatch currently selected
   // above (a pack is its own fixed bundle, not a variant of the open-mix
-  // selector) -- the open per-size stepper above always stays available
-  // as the "build your own mix" fallback per Research 3.
+  // selector).
+  //
+  // CHANGED 15 Aug 2026: the open per-size stepper is NO LONGER an always-on
+  // fallback. For a series/prepack/ratio product it is hidden entirely,
+  // because the server now refuses loose lines for those products. Offering
+  // a control whose result the server rejects is worse than offering none.
+  // For an open-stock product nothing changes.
+  if (isBundleOnly && !packs.length) {
+    const warn = document.createElement("div");
+    warn.style.cssText = "font-size:12px;color:var(--danger,#b42318);margin-top:8px;";
+    warn.textContent = "This product has no bundles set up yet, so it cannot be ordered. Ask the wholesaler to add one.";
+    el.appendChild(warn);
+  }
+
   if (packs.length) {
     const packSection = document.createElement("div");
     packSection.style.cssText = "border-top:1px solid var(--border-subtle);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:8px;";
@@ -151,6 +184,10 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   function renderSizes() {
     sizeRow.innerHTML = "";
     footer.innerHTML = "";
+    // Bundle-only products (series / prepack / ratio) get no per-size chips and
+    // no quantity stepper -- the server refuses loose lines for them, so the
+    // only honest control is the pack selector rendered further down.
+    if (isBundleOnly) return;
     const sizesForColor = product.variants.filter((v) => v.color === selectedColor);
     sizesForColor.forEach((v) => {
       const chip = document.createElement("button");
