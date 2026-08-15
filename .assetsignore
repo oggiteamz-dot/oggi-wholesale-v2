@@ -19,3 +19,9 @@ docs/
 .gitignore
 node_modules/
 *.md
+
+# Behaviour checks (added 2026-08-15) -- test scripts, SQL fixtures and
+# seed data. Not part of the app and must not be served publicly. Note
+# *.md already covers checks/README.md, but the .sh/.sql/.mjs files here
+# would otherwise be uploaded and served as static assets.
+checks/
