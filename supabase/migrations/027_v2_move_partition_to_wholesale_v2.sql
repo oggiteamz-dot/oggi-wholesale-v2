@@ -1,0 +1,12 @@
+-- Follow-up correction to migration 026: contrary to that migration's
+-- original assumption, Postgres does NOT automatically move a
+-- partitioned table's partitions when the parent is SET SCHEMA'd --
+-- confirmed live immediately after 026 was applied: v2_inventory_movements
+-- (relkind 'p') moved to wholesale_v2 as expected, but its partition
+-- v2_inventory_movements_2026_08 (relkind 'r', a distinct relation from
+-- the partitioned parent) stayed behind in public. Moving it explicitly
+-- here. Indexes on a partition move automatically with the partition
+-- itself (same rule as any ordinary table's indexes), so no separate
+-- statement is needed for v2_inventory_movements_2026_08_pkey or the
+-- other two indexes on this partition.
+alter table public.v2_inventory_movements_2026_08 set schema wholesale_v2;
