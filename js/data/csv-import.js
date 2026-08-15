@@ -190,7 +190,14 @@ export async function commitImport(wid, plannedRows, defaultLocationId) {
           product_id: productId, sku: row.sku, price: row.price, cost: row.cost,
           retail_price: row.retailPrice != null && row.retailPrice !== "" ? Number(row.retailPrice) : null,
           moq_qty: row.moqQty || 1, barcode: row.barcode,
-          extra_attrs: { color: row.color, size: row.size, sellMode: "open" },
+          // Do NOT hardcode the selling model here. Until 15 Aug 2026 this
+          // said sellMode: "open", so every CSV import silently overwrote
+          // whatever the wholesaler had set -- a catalogue sold in ratio packs
+          // came back as loose open stock with nothing reporting the change.
+          // The selling model belongs to the PRODUCT (v2_products.selling_model,
+          // migrations 029/030), not to each variant, so a variant import must
+          // not express an opinion about it at all.
+          extra_attrs: { color: row.color, size: row.size },
         }).select().single()
       );
       if (error || !newVariant) throw new Error(error?.message || "Failed to create variant");

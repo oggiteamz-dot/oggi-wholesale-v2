@@ -37,7 +37,7 @@ export async function listWholesalers() {
   return data || [];
 }
 
-/** Returns [{ id, name, description, createdAt, isNew, variants: [{id, sku, price, cost, compareAtPrice, color, colorHex, size, sellMode, available, onHand, reserved}] }] */
+/** Returns [{ id, name, description, createdAt, isNew, sellingModel, variants: [{id, sku, price, cost, compareAtPrice, color, colorHex, size, sellMode, available, onHand, reserved}] }] */
 export async function getCatalog(wid) {
   const { data: products } = await sbCall(
     supabase.from("v2_products").select("*").eq("wid", wid).eq("archived", false).order("created_at", { ascending: false })
@@ -100,6 +100,13 @@ export async function getCatalog(wid) {
       name: p.name,
       description: p.description,
       createdAt: p.created_at,
+      // Migration 029/030: the selling model is now a real, constrained column
+      // on the product rather than a loose key inside each variant's jsonb.
+      // The buyer card uses it to decide WHICH buying control to show; the
+      // server enforces the same value at checkout, so the two cannot drift
+      // into the state where the app offers a purchase the server refuses.
+      sellingModel: p.selling_model || "open",
+      ratioCurve: p.ratio_curve || null,
       isNew,
       lowStock,
       outOfStock,
