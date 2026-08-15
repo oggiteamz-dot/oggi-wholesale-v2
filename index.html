@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OGGI Wholesale — v2</title>
+<meta name="color-scheme" content="light" />
+<!-- Baseline CSP (Batch 14): active immediately in any environment,
+     including local testing, with zero deploy step. This is defense in
+     depth, not the primary mechanism -- a <meta> CSP can't set
+     frame-ancestors (browsers ignore that directive here per spec) and
+     doesn't apply to non-HTML responses, so the REAL, authoritative
+     policy is the HTTP header set by _headers or worker.js's fetch
+     handler once v2 is actually deployed -- see
+     docs/BATCH-14-SCHEMA-MIGRATION-RECORD.md §5. Keep this tag's policy
+     in sync with those two files by hand if it ever changes. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' https://olaipgdckbgjediddloj.supabase.co wss://olaipgdckbgjediddloj.supabase.co; base-uri 'self'; form-action 'self'; object-src 'none'" />
+
+<!-- PWA / installability (added for the Cloudflare Workers + TWA build --
+     see docs/PWA-AND-TWA.md). manifest.json + an active service worker
+     (registered below) are both required before Chrome/Android will
+     offer an install prompt or before Bubblewrap can build a Trusted
+     Web Activity against this site; theme-color and the Apple tags are
+     the iOS equivalent of the same "looks/behaves like an app" signal. -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#00A576" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="OGGI Wholesale" />
+
+<link rel="stylesheet" href="css/tokens.css" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/components.css" />
+<link rel="stylesheet" href="css/layout.css" />
+<link rel="stylesheet" href="css/animations.css" />
+</head>
+<body>
+<div id="app-root"></div>
+<!-- Vendored locally (not CDN-imported) -- see js/lib/supabase-client.js
+     header comment for why. Must load before app.js since app.js's module
+     graph reads window.supabase at import time. -->
+<script src="js/lib/vendor/supabase-js.umd.js"></script>
+<script type="module" src="js/app.js"></script>
+<script src="js/register-sw.js"></script>
+</body>
+</html>

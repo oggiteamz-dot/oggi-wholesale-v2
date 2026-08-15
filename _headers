@@ -1,0 +1,25 @@
+# OGGI Wholesale v2 — real HTTP security headers
+#
+# Hosting is Cloudflare Workers (per Hadi's explicit instruction --
+# "don't do Pages, do Workers"), NOT Cloudflare Pages. This file is kept
+# because Cloudflare's Workers static-assets server natively honors a
+# _headers file in the assets directory using the exact same format
+# Pages used -- it is not a Pages-only mechanism. worker.js's fetch
+# handler (see its header comment) is the authoritative source for this
+# policy and sets these same headers explicitly on every response via
+# `run_worker_first = true` in wrangler.toml; this file is a second,
+# native layer of defense in case that ever changes. Keep both in sync
+# by hand if the policy changes (see docs/BATCH-14-DEPLOY-RECORD.md and
+# docs/BATCH-14-SCHEMA-MIGRATION-RECORD.md).
+#
+# Policy rationale (script-src strict, style-src needs 'unsafe-inline'
+# for this build's extensive inline style="..." attributes, img-src open
+# to any https host since wholesalers set arbitrary product photo URLs)
+# is documented in full in worker.js's header comment -- this is the
+# same policy, just in the native _headers file format.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' https://olaipgdckbgjediddloj.supabase.co wss://olaipgdckbgjediddloj.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), camera=(), microphone=()

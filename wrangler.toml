@@ -1,0 +1,45 @@
+# OGGI Wholesale v2 — Cloudflare Workers deployment config
+#
+# REBUILT per Hadi's explicit instruction: "Don't do pages. Do workers."
+# This deploys v2 as a Worker with a bound static-assets directory (the
+# `[assets]` block below) -- Cloudflare serves index.html/css/js
+# directly out of this Worker, no separate Pages project and no proxy to
+# an external host.
+#
+# One-time setup:
+#   1. npx wrangler login
+#   2. npx wrangler deploy   (run from this directory, the project root)
+#   3. Once a production domain exists, uncomment and edit `routes` below.
+#
+# Local preview: npx wrangler dev
+
+name = "oggi-wholesale-v2"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[assets]
+# Project root -- index.html, css/, js/, and _headers live here. Backend-
+# only material (supabase/ migrations, docs/, this wrangler.toml, and
+# worker.js itself) is excluded from the deployed bundle via
+# .assetsignore in this same directory, so none of it is ever served
+# publicly.
+directory = "."
+binding = "ASSETS"
+# v2 uses hash-based routing (#/path -- see js/app.js), so the server
+# only ever sees requests for "/" itself or a real static file; this is
+# still set defensively so any unmatched path falls back to index.html
+# instead of a bare 404.
+not_found_handling = "single-page-application"
+# Guarantees worker.js's fetch handler runs on every request (including
+# ones that match a static file), so the security headers it sets are
+# always applied -- see worker.js's header comment.
+run_worker_first = true
+
+# Uncomment and set to the real production domain once v2 has one:
+# routes = [
+#   { pattern = "app.oggiwholesale.com/*", zone_name = "oggiwholesale.com" }
+# ]
+
+# No KV/D1/R2 bindings -- v2's only backend is Supabase, called directly
+# from the browser client (js/lib/supabase-client.js), not proxied
+# through this Worker.

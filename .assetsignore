@@ -1,0 +1,21 @@
+# Excludes backend-only / non-deployable material from the Cloudflare
+# Workers static-assets bundle. Same syntax as .gitignore. Everything
+# NOT listed here (index.html, css/, js/, _headers) gets uploaded and
+# served publicly by `wrangler deploy` -- keep this list accurate if new
+# top-level backend folders are ever added.
+
+# Deployment config itself -- not meant to be served as a public file.
+wrangler.toml
+worker.js
+
+# Database migrations and SQL -- server-side only, must never be public.
+supabase/
+
+# Internal build/deploy documentation -- not part of the app.
+docs/
+
+# Standard excludes.
+.git/
+.gitignore
+node_modules/
+*.md
