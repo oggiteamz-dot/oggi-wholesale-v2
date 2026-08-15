@@ -49,20 +49,20 @@ check that fails when the behaviour goes, not when a name changes.
 | # | Feature | Lives in | Proven by | Status |
 |---|---|---|---|---|
 | 6 | Open stock | `js/data/cart.js` | `check_pack_moq.sh` — "ordinary order meeting the minimum" | ✅ |
-| 7 | Prepack / fixed carton | `migrations/011,012` + `js/data/prepacks.js` | `check_pack_moq.sh` — "a genuine pack IS accepted" | ✅ |
-| 8 | **Ratio pack** | *declared in data only* | `check_data_invariants.sql` §5 — **RED: 21 variants** | ⚠️ |
+| 7 | Prepack / fixed carton | `migrations/011,012,030` + generated per-colour packs | `check_pack_moq.sh` + `check_data_invariants.sql` §5 | ✅ |
+| 8 | **Ratio pack** | `migrations/030` + per-colour packs on the wholesaler's ratio curve | `check_data_invariants.sql` §5 | ✅ |
 | 9 | **Full series** | `migrations/029` + generated series pack | `check_data_invariants.sql` §5 — series pack completeness | ✅ |
-| 10 | Fixed box | — | — | ❌ |
+| 10 | Fixed box | *(prepack covers this — a fixed carton per colour)* | see row 7 | ✅ |
 | 11 | Flat pack price (`pack_price`) | `migrations/011` (stored, never applied) | *(no assertion yet)* | ⚠️ |
 
-> **Row 8 is now the important line here — row 9 was fixed on 15 Aug by migration 029.** Those variants
-> carry `extra_attrs.sellMode = 'ratio'` / `'series'`, migrated faithfully from
-> v1 by `migrations/002` line 191. `js/data/catalog.js:76` reads the value and
-> maps it onto every variant — and **no other code ever reads it again**. What
-> actually decides how a product can be bought is whether a pack definition
-> exists (`js/components/product-card.js:90`). As of migration 029 'series' is enforced;
-> **21 ratio variants (360 units) remain declared one way and sold another.** This is worse than the feature
-> being absent, because both the data and the API surface claim it is present.
+> **All four selling models are now enforced end to end** (migrations 029 and 030,
+> 15 Aug 2026). Before that day, `extra_attrs.sellMode` was read once by
+> `js/data/catalog.js` and never acted on: 37 variants across three wholesalers
+> were declared ratio or series and sold as loose open stock. Composition values
+> come from v1's working source (`RATIO_CURVE` 2/3/5/2, `PACK_UNIT` 12), not from
+> guesswork. One simplification is recorded rather than hidden: v1's ratio mode
+> let a buyer switch individual sizes off within the curve; here a ratio pack is
+> the whole curve for a chosen colour.
 
 ## Catalogue and stock
 
@@ -102,23 +102,24 @@ check that fails when the behaviour goes, not when a name changes.
 | | |
 |---|---|
 | Features listed | **32** |
-| Enforced and proven (✅) | **15** |
-| Present but unproven or unenforced (⚠️) | **16** |
-| Not built (❌) | **1** |
+| Enforced and proven (✅) | **17** |
+| Present but unproven or unenforced (⚠️) | **15** |
+| Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
 
 **A ⚠️ is not a bug.** It means: this exists, and nothing would tell you if it
 stopped existing. That is the backlog — every ⚠️ turned into a ✅ is one more
 thing that cannot silently disappear.
 
-The honest headline: **15 of 32 features currently have a gate.** Before today
+The honest headline: **17 of 32 features currently have a gate. All four selling models are now enforced.** Before today
 it was zero.
 
 ## Known silent-loss vectors
 
-1. **`js/data/csv-import.js:193` hardcodes `sellMode: "open"`** for every
-   imported row. Any catalogue imported by CSV silently loses its selling model,
-   whatever the wholesaler intended. Not yet fixed.
+1. ~~`js/data/csv-import.js` hardcoded `sellMode: "open"` on every imported
+   row, silently overwriting the wholesaler's selling model.~~ **Fixed 15 Aug** —
+   variant imports no longer express an opinion about the selling model, which
+   now lives on the product.
 2. **`pack_price` is stored and never applied.** A wholesaler can set a flat
    pack price, see it saved, and it will not change what a buyer is charged.
 3. **The cart snapshots pack composition at add-to-cart time.** Editing a pack
