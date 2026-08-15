@@ -1,0 +1,228 @@
+/* OGGI Wholesale v2 — animation & motion styles (Batch 13)
+   Isolated from component/layout CSS on purpose (the batch plan's whole
+   point: animation code — including its styles — lives separately from
+   business-logic files, never tangled into one giant stylesheet or view
+   file). Uses the --ease-*/--duration-* tokens defined in tokens.css since
+   Batch 1's foresight, so every animated thing here speaks the same
+   motion language as anything else that adopts those tokens later. */
+
+/* ---------- Fly-to-cart ---------- */
+
+.v2-fly-chip {
+  position: fixed;
+  z-index: 9999;
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+  box-shadow: var(--shadow-md);
+  will-change: transform, opacity;
+}
+
+.v2-cart-icon.v2-cart-bump {
+  animation: v2-cart-bump var(--duration-slow) var(--ease-emphasized);
+}
+
+@keyframes v2-cart-bump {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.28); }
+  60%  { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+
+.v2-cart-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-500);
+  color: var(--text-inverse);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+/* ---------- Order-sent celebration ---------- */
+
+.v2-celebration-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(246, 247, 251, 0.92);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+.v2-celebration-overlay.v2-visible { opacity: 1; }
+
+.v2-celebration-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  transform: scale(0.85);
+  transition: transform var(--duration-slow) var(--ease-emphasized);
+}
+.v2-celebration-overlay.v2-visible .v2-celebration-card { transform: scale(1); }
+
+.v2-celebration-check-circle {
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  stroke: var(--success-500);
+  fill: none;
+  stroke-width: 3;
+  animation: v2-draw-circle 0.5s var(--ease-emphasized) forwards;
+}
+.v2-celebration-check-mark {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  stroke: var(--success-500);
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: v2-draw-check 0.35s 0.45s var(--ease-emphasized) forwards;
+}
+@keyframes v2-draw-circle { to { stroke-dashoffset: 0; } }
+@keyframes v2-draw-check { to { stroke-dashoffset: 0; } }
+
+.v2-confetti-piece {
+  position: fixed;
+  top: 45%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  z-index: 10001;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ---------- Hologram / 360° product viewer ---------- */
+
+.v2-hologram-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--bg-sunken), var(--bg-surface-2));
+  cursor: grab;
+  touch-action: pan-y;
+  perspective: 900px;
+}
+.v2-hologram-stage:active { cursor: grabbing; }
+
+.v2-hologram-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-style: preserve-3d;
+  transition: transform 60ms linear;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.v2-hologram-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-style: preserve-3d;
+  transition: transform 60ms linear;
+}
+
+.v2-hologram-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 48%, rgba(79,70,229,0.18) 52%, transparent 68%);
+  background-size: 250% 250%;
+  background-position: 0% 0%;
+  mix-blend-mode: overlay;
+  transition: background-position 60ms linear;
+}
+
+.v2-hologram-border {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--accent-300);
+  box-shadow: 0 0 0 1px rgba(79,70,229,0.08), 0 0 24px rgba(79,70,229,0.15);
+  pointer-events: none;
+}
+
+.v2-hologram-hint {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-xs);
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.v2-hologram-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+.v2-hologram-modal-backdrop.v2-visible { opacity: 1; }
+.v2-hologram-modal-panel {
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  width: min(440px, 100%);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(10px) scale(0.97);
+  transition: transform var(--duration-slow) var(--ease-emphasized);
+}
+.v2-hologram-modal-backdrop.v2-visible .v2-hologram-modal-panel { transform: translateY(0) scale(1); }
+
+/* ---------- prefers-reduced-motion: reduce every continuous/large-motion
+   effect down to a functional, instant equivalent. The animation modules
+   in js/lib/animations/ also check this in JS (for effects that can't be
+   expressed as pure CSS, like drag-driven frame cycling or WAAPI-built fly
+   animations), but declaring it here too means anything purely CSS-driven
+   is covered even if a future component forgets the JS check. */
+@media (prefers-reduced-motion: reduce) {
+  .v2-cart-icon.v2-cart-bump,
+  .v2-celebration-check-circle,
+  .v2-celebration-check-mark {
+    animation: none !important;
+  }
+  .v2-celebration-check-circle { stroke-dashoffset: 0; }
+  .v2-celebration-check-mark { stroke-dashoffset: 0; }
+  .v2-celebration-overlay,
+  .v2-celebration-card,
+  .v2-hologram-modal-backdrop,
+  .v2-hologram-modal-panel,
+  .v2-hologram-frame,
+  .v2-hologram-placeholder,
+  .v2-hologram-sheen {
+    transition-duration: 1ms !important;
+  }
+}

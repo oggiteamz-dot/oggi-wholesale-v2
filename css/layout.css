@@ -1,0 +1,80 @@
+/* OGGI Wholesale v2 — App shell layout (topbar + side nav + outlet) */
+
+#topbar {
+  height: var(--topbar-height);
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-5);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky; top: 0; z-index: 50;
+}
+#topbar .brand {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-weight: 700; font-size: var(--text-md); color: var(--text-primary);
+}
+#topbar .brand .brand-mark {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent-500), var(--accent-700));
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800;
+}
+#topbar .brand .env-tag {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--accent-700); background: var(--accent-50);
+  border-radius: var(--radius-pill); padding: 2px 8px; margin-left: var(--space-2);
+}
+#topbar .topbar-right { display: flex; align-items: center; gap: var(--space-3); }
+#topbar .who {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-sm); color: var(--text-secondary);
+}
+#topbar .who strong { color: var(--text-primary); }
+
+#sidenav {
+  width: var(--nav-width);
+  flex: none;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-subtle);
+  padding: var(--space-4) var(--space-3);
+  display: flex; flex-direction: column; gap: var(--space-1);
+  overflow-y: auto;
+}
+#sidenav .nav-section-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-tertiary); padding: var(--space-3) var(--space-3) var(--space-1);
+}
+#sidenav a.nav-item {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm); font-weight: 550;
+  text-decoration: none;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+#sidenav a.nav-item:hover { background: var(--bg-sunken); color: var(--text-primary); }
+#sidenav a.nav-item.active { background: var(--accent-50); color: var(--accent-700); }
+#sidenav a.nav-item .nav-icon { width: 18px; text-align: center; flex: none; }
+
+@media (max-width: 880px) {
+  #sidenav { display: none; }
+}
+
+.page-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--space-4); margin-bottom: var(--space-6); flex-wrap: wrap;
+}
+.page-header .page-title-group h1 { margin-bottom: var(--space-1); }
+.page-header .page-title-group p { color: var(--text-secondary); font-size: var(--text-sm); }
+.page-actions { display: flex; gap: var(--space-2); }
+
+.stat-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4); margin-bottom: var(--space-6);
+}
+.stat-card { padding: var(--space-4) var(--space-5); }
+.stat-card .stat-label { font-size: var(--text-xs); color: var(--text-tertiary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.stat-card .stat-value { font-size: var(--text-2xl); font-weight: 700; margin-top: var(--space-1); }

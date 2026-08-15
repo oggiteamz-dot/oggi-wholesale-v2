@@ -1,0 +1,110 @@
+/* OGGI Wholesale v2 — Design tokens
+   LIGHT MODE IS THE PRIMARY/DEFAULT THEME, per Hadi's explicit instruction
+   ("Keep it light mode. I don't like the dark mode."). This supersedes the
+   v1 "Aurora Glass" dark-first direction. There is no dark-mode toggle in
+   v2 yet — if one is ever added later, it is opt-in, never the default. */
+
+:root {
+  /* Surfaces */
+  --bg-page:        #F6F7FB;
+  --bg-surface:     #FFFFFF;
+  --bg-surface-2:   #FBFBFE;
+  --bg-sunken:      #F0F1F6;
+  --bg-overlay:     rgba(20, 21, 32, 0.45);
+
+  /* Borders */
+  --border-subtle:  #E7E8F0;
+  --border-default: #DBDCE8;
+  --border-strong:  #C3C5D6;
+
+  /* Text */
+  --text-primary:   #14151F;
+  --text-secondary: #565A73;
+  --text-tertiary:  #8A8DA3;
+  --text-inverse:   #FFFFFF;
+  --text-link:      #4338CA;
+
+  /* Brand / accent (indigo — OGGI primary) */
+  --accent-50:  #EEF0FF;
+  --accent-100: #E0E3FF;
+  --accent-300: #A9AEF5;
+  --accent-500: #4F46E5;
+  --accent-600: #4338CA;
+  --accent-700: #372DA6;
+
+  /* Semantic */
+  --success-50:  #ECFDF3;
+  --success-500: #12B76A;
+  --success-700: #027A48;
+
+  --warning-50:  #FFFAEB;
+  --warning-500: #F79009;
+  --warning-700: #B54708;
+
+  --danger-50:   #FEF3F2;
+  --danger-500:  #F04438;
+  --danger-700:  #B42318;
+
+  --info-50:     #EFF8FF;
+  --info-500:    #2E90FA;
+  --info-700:    #175CD3;
+
+  /* Status dots (mirrors wall-of-screens vocabulary for visual consistency) */
+  --status-built:     #12B76A;
+  --status-partial:   #F79009;
+  --status-notbuilt:  #98A2B3;
+  --status-regressed: #F04438;
+  --status-deferred:  #7A5AF8;
+
+  /* Shadows — soft, light-mode-appropriate (no heavy dark glows) */
+  --shadow-xs: 0 1px 2px rgba(16, 17, 32, 0.04);
+  --shadow-sm: 0 1px 3px rgba(16, 17, 32, 0.06), 0 1px 2px rgba(16, 17, 32, 0.04);
+  --shadow-md: 0 4px 10px rgba(16, 17, 32, 0.07), 0 2px 4px rgba(16, 17, 32, 0.04);
+  --shadow-lg: 0 12px 24px rgba(16, 17, 32, 0.10), 0 4px 8px rgba(16, 17, 32, 0.04);
+  --shadow-focus: 0 0 0 3px var(--accent-100);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Type */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14.5px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 34px;
+
+  /* Motion — used by Batch 13's animation pass, defined early so every
+     component built from here on already speaks the same easing language */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  /* Layout */
+  --nav-width: 232px;
+  --topbar-height: 60px;
+  --content-max: 1360px;
+}
