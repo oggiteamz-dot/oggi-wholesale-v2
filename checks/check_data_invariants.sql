@@ -117,9 +117,10 @@ begin
   ------------------------------------------------------------------
   -- 5. SELLING MODELS: DATA vs ENFORCEMENT
   --
-  -- RED as of 15 Aug 2026 for 'ratio' only. 'series' WAS red here; it is
-  -- now enforced by migration 029 and has been removed from this list.
-  -- Add a value back the moment enforcement is removed.
+  -- GREEN as of 15 Aug 2026. All four models are enforced (migrations 029,
+  -- 030). This assertion existed because they were not: 37 variants were
+  -- declared ratio/series and sold as loose open stock. If enforcement is ever
+  -- removed for a model, take it OUT of the list below and this goes red again.
   --
   -- Every variant carries extra_attrs.sellMode, faithfully migrated from
   -- v1 by migration 002 line 191. Four values exist in the live data:
@@ -142,7 +143,7 @@ begin
   for txt, n in
     select v.extra_attrs->>'sellMode', count(*)
       from wholesale_v2.v2_product_variants v
-     where coalesce(v.extra_attrs->>'sellMode','open') not in ('open','prepack','series')
+     where coalesce(v.extra_attrs->>'sellMode','open') not in ('open','prepack','series','ratio')
      group by 1
   loop
     fails := fails || format(
@@ -180,6 +181,18 @@ begin
     having count(*) <> (select count(*) from wholesale_v2.v2_pack_components c where c.pack_id = d.id)) x;
   if n > 0 then
     fails := fails || format('SERIES: %s series pack(s) do not contain every live variant -- a series must be the whole grid', n);
+  end if;
+
+  -- Every bundle-sold product must have at least one pack. Without one the
+  -- enforcement makes it UNBUYABLE rather than bundle-only -- the failure
+  -- mode this whole exercise exists to prevent, reintroduced by omission.
+  select count(*) into n
+    from wholesale_v2.v2_products p
+   where p.selling_model in ('series','prepack','ratio') and not p.archived
+     and not exists (select 1 from wholesale_v2.v2_pack_definitions d
+                      where d.product_id = p.id and not d.archived);
+  if n > 0 then
+    fails := fails || format('SELLING MODEL: %s bundle-sold product(s) have no pack at all -- unbuyable, not bundle-only', n);
   end if;
 
   ------------------------------------------------------------------
