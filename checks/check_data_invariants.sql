@@ -117,7 +117,9 @@ begin
   ------------------------------------------------------------------
   -- 5. SELLING MODELS: DATA vs ENFORCEMENT
   --
-  -- THIS IS THE ONE THAT MATTERS MOST, and it is RED as of 15 Aug 2026.
+  -- RED as of 15 Aug 2026 for 'ratio' only. 'series' WAS red here; it is
+  -- now enforced by migration 029 and has been removed from this list.
+  -- Add a value back the moment enforcement is removed.
   --
   -- Every variant carries extra_attrs.sellMode, faithfully migrated from
   -- v1 by migration 002 line 191. Four values exist in the live data:
@@ -140,7 +142,7 @@ begin
   for txt, n in
     select v.extra_attrs->>'sellMode', count(*)
       from wholesale_v2.v2_product_variants v
-     where coalesce(v.extra_attrs->>'sellMode','open') not in ('open','prepack')
+     where coalesce(v.extra_attrs->>'sellMode','open') not in ('open','prepack','series')
      group by 1
   loop
     fails := fails || format(
@@ -157,6 +159,28 @@ begin
   loop
     fails := fails || format('SELLING MODEL UNKNOWN: sellMode "%s" appears in the data and is not a recognised model', txt);
   end loop;
+
+  -- Migration 029 makes 'series' real by generating a pack containing every
+  -- live variant. If that pack goes missing, the enforcement below silently
+  -- makes the product UNBUYABLE rather than series-only -- so assert it.
+  select count(*) into n
+    from wholesale_v2.v2_products p
+   where p.selling_model = 'series' and not p.archived
+     and not exists (select 1 from wholesale_v2.v2_pack_definitions d
+                      where d.product_id = p.id and d.source = 'series' and not d.archived);
+  if n > 0 then
+    fails := fails || format('SERIES: %s series product(s) have no generated series pack -- they are unbuyable, not series-only', n);
+  end if;
+
+  select count(*) into n from (
+    select d.id from wholesale_v2.v2_pack_definitions d
+      join wholesale_v2.v2_product_variants v on v.product_id = d.product_id and not v.archived
+     where d.source = 'series' and not d.archived
+     group by d.id
+    having count(*) <> (select count(*) from wholesale_v2.v2_pack_components c where c.pack_id = d.id)) x;
+  if n > 0 then
+    fails := fails || format('SERIES: %s series pack(s) do not contain every live variant -- a series must be the whole grid', n);
+  end if;
 
   ------------------------------------------------------------------
   -- 6. MOQ IS MEANINGFUL
