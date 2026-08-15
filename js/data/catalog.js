@@ -46,7 +46,20 @@ export async function getCatalog(wid) {
 
   const productIds = products.map((p) => p.id);
   const { data: variants } = await sbCall(
-    supabase.from("v2_product_variants").select("*").in("product_id", productIds).eq("archived", false)
+    // Explicit column list, NOT select("*").
+    //
+    // `cost` is the wholesaler's buying price. It is deliberately absent: this
+    // is the BUYER catalogue, and until 15 Aug 2026 an anonymous visitor could
+    // read every wholesaler's cost prices through this query and derive their
+    // exact margins. Buyers never needed it -- the margin shown on a product
+    // card is computed from price vs retail/MSRP, never from cost.
+    //
+    // The database now revokes `cost` from the anon role, so select("*") here
+    // would fail outright. Keep this list explicit: adding a sensitive column
+    // to the table must never silently start publishing it.
+    supabase.from("v2_product_variants")
+      .select("id,product_id,sku,price,compare_at_price,retail_price,extra_attrs,moq_qty,barcode,image_url,images,archived")
+      .in("product_id", productIds).eq("archived", false)
   );
   const variantIds = (variants || []).map((v) => v.id);
 
@@ -68,7 +81,8 @@ export async function getCatalog(wid) {
       id: v.id,
       sku: v.sku,
       price: Number(v.price ?? 0),
-      cost: v.cost != null ? Number(v.cost) : null,
+      // cost intentionally not exposed to the buyer catalogue -- see the query above
+      cost: null,
       compareAtPrice: v.compare_at_price != null ? Number(v.compare_at_price) : null,
       color: v.extra_attrs?.color || null,
       colorHex: v.extra_attrs?.colorHex || "#999",
