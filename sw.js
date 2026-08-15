@@ -11,11 +11,50 @@
 // for supabase.co requests keeps "offline" honest: you can open the
 // app with no signal, but you can't place an order until you have one.
 //
-// CACHE_NAME is version-stamped by hand -- bump it on every deploy that
-// changes any cached file, so returning visitors get the new shell
-// instead of a stale one stuck in the cache forever. This is the one
-// piece of manual upkeep a static-shell service worker needs.
-const CACHE_NAME = "oggi-wholesale-v2-shell-v1";
+// ---------------------------------------------------------------------
+// WHY THIS FILE CHANGED — 15 Aug 2026
+// ---------------------------------------------------------------------
+// The previous version served static assets cache-first and NEVER
+// revalidated them:
+//
+//     caches.match(request).then(cached => { if (cached) return cached; ... })
+//
+// Once a JS or CSS file entered the cache it was served forever, and the
+// only way to dislodge it was to hand-bump CACHE_NAME. The old header
+// comment said so plainly: "the one piece of manual upkeep a
+// static-shell service worker needs."
+//
+// That is a correctness guarantee resting on a human remembering, which
+// is the same failure class as a helper function copy-pasted into ten
+// files. It had already bitten: the escaping fix deployed on 15 Aug did
+// not reach any already-installed client, and a verification pass run
+// against the LIVE site reported the deploy had failed — because the
+// service worker handed back cached copies of the old files.
+//
+// A deploy that cannot reach the people already using the app is not a
+// deploy. Worse, it fails silently and looks fine to anyone testing in a
+// fresh browser.
+//
+// THE FIX: stale-while-revalidate for static assets. Serve the cached
+// copy immediately (so loads stay instant and offline still works), but
+// ALWAYS fetch a fresh copy in the background and overwrite the cache.
+// The user gets the new code on their next load, automatically, with no
+// version bump and nothing to remember.
+//
+// CACHE_NAME is still bumped here — once — so every client that already
+// holds the stale August shell drops it on activation rather than
+// waiting one extra load. From here on the bump is a convenience, not a
+// correctness requirement. That is the point of the change: if someone
+// forgets it, users still converge on the current code.
+//
+// TRADE-OFF, STATED HONESTLY: a returning user can be one load behind on
+// static assets. That is a deliberate exchange — instant loads and real
+// offline support, against a single load of lag — and it is strictly
+// better than the previous behaviour, which was an unbounded number of
+// loads behind. Anything needing immediate correctness (orders,
+// inventory, auth, pricing) never touches this cache: it is Supabase
+// traffic, excluded below.
+const CACHE_NAME = "oggi-wholesale-v2-shell-v2";
 
 const SHELL_FILES = [
   "/",
@@ -76,17 +115,34 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static shell assets (css/js/icons): cache-first for instant loads,
-  // falling back to network for anything not pre-cached (e.g. a css/js
-  // file added after this list was last updated).
+  // Static shell assets (css/js/icons): STALE-WHILE-REVALIDATE.
+  //
+  // Return the cached copy at once if there is one, so the app still
+  // loads instantly and still works with no signal. Regardless, kick off
+  // a network fetch and write the result back into the cache, so the
+  // NEXT load gets the current file. No manual version bump involved.
+  //
+  // If the cache is empty (first visit, or a file added since the shell
+  // list was last edited) we simply wait on the network fetch, which is
+  // the same behaviour as before.
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return response;
-      });
+      const fresh = fetch(event.request)
+        .then((response) => {
+          // Only cache real successes. Caching an opaque or error
+          // response would poison the cache with a broken asset that
+          // then gets served instantly forever -- exactly the failure
+          // mode this rewrite exists to remove.
+          if (response && response.ok && response.type === "basic") {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => cached);
+
+      // Cached copy now if we have one; otherwise wait for the network.
+      return cached || fresh;
     })
   );
 });
