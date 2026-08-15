@@ -83,17 +83,57 @@ identically against the live database with RLS, real reservations and real
 pricing in play. Run the same cases once against a Supabase branch before
 calling this closed.
 
-## Checks still to build
+---
 
-From the Aug 15 modularity assessment, in priority order:
+## `check_data_invariants.sql` — data shape and enforcement
 
-1. **Order-line shape** — assert `v2_order_items` still carries `pack_id`,
-   `pack_line_id`, `pack_qty` and a variant key. This is the check that would
-   have caught both historical losses.
-2. **Selling models** — one per model; assert the enforcing column exists *and*
-   an order using it round-trips. Two of four models do not exist yet, so two
-   of these start red and stay red until built. That is correct: a red check
-   for a missing feature is a to-do list that cannot be forgotten.
-3. **Stock invariant** — `p.stock[i] === Σ p.loc[loc][i]`.
-4. **No bare interpolation into `innerHTML`** — currently failing at three
-   `pageHeader` call sites.
+Read-only. Runs against any environment; writes nothing.
+
+```bash
+psql "$DATABASE_URL" -f checks/check_data_invariants.sql
+```
+
+Asserts: order-line shape (the columns an order needs to express a pack),
+the colour × size axis (which lives in `extra_attrs`, NOT in columns — a
+check looking for a column named `size` would pass while the axis was being
+destroyed), no duplicate SKU combinations, stock sanity, pack integrity, and
+**declared selling models against actually-enforced ones**.
+
+Negative-tested by deliberately breaking each invariant against a local
+Postgres: dropping the size axis, dropping `pack_line_id`/`pack_qty` from
+order items, overselling, creating a duplicate colour+size row, and marking a
+variant with a selling model nothing enforces. All five went red with a
+specific message and all five returned green when restored.
+
+**It is RED against production today, correctly:** 21 variants declared
+`ratio` and 16 declared `series` are sold as open stock. See
+`FEATURE-MANIFEST.md` rows 8 and 9.
+
+## `check_service_worker.mjs` — deploys reach installed users
+
+```bash
+node checks/check_service_worker.mjs
+```
+
+Loads the real `sw.js` into a mocked service-worker scope and drives fetch
+events through it. Asserts stale-while-revalidate, network-first navigation,
+offline fallback, that Supabase traffic is never cached, and that error
+responses never poison the cache. Negative-tested against the pre-15-Aug
+worker, which goes red with "cache still holds OLD".
+
+## `check_escaping.mjs` — user input cannot inject HTML
+
+```bash
+npm install jsdom && node checks/check_escaping.mjs
+```
+
+Renders real components in a real DOM with a hostile payload. Negative-tested
+against the old unescaped `pageHeader`, which reports "injected 1 <img>
+element(s)".
+
+## Still to build
+
+The ⚠️ rows in `FEATURE-MANIFEST.md` are the backlog, in rough priority order:
+tenant-scoped RLS (the production gate — a second wholesaler cannot safely be
+given a login until cross-tenant denial is asserted), stock transfers,
+per-client pricing, and role separation.
