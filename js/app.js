@@ -8,6 +8,7 @@ import { devAuth } from "./lib/dev-auth.js";
 import { router } from "./lib/router.js";
 import { renderTopbar } from "./components/topbar.js";
 import { renderSidenav } from "./components/sidenav.js";
+import { renderBottomNav } from "./components/bottomnav.js";
 import { renderLogin } from "./views/login.js";
 import { registerOwnerRoutes } from "./views/owner.js";
 import { registerWholesalerRoutes } from "./views/wholesaler.js";
@@ -41,10 +42,14 @@ function mountShell() {
       <nav id="sidenav" aria-label="Primary"></nav>
       <main id="view-outlet"></main>
     </div>
+    <nav id="bottomnav"></nav>
   `;
 
   renderTopbar(document.getElementById("topbar"), { onLogout: () => mountShell() });
   renderSidenav(document.getElementById("sidenav"), session.role);
+  // Mobile navigation. Rendered ALWAYS, alongside the sidebar -- CSS decides
+  // which is visible, so rotating a phone or resizing a window needs no JS.
+  renderBottomNav(document.getElementById("bottomnav"), session.role);
 
   // Register all role routes once per shell mount. Registering is cheap
   // and idempotent-enough for a hash router with a fresh `routes` array
