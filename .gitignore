@@ -1,0 +1,5 @@
+
+# Test tooling only — Playwright is a dev dependency for checks/, never shipped.
+# .assetsignore governs what Cloudflare serves; this governs what git tracks.
+node_modules/
+package-lock.json

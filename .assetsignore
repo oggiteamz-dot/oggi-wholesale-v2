@@ -25,3 +25,8 @@ node_modules/
 # *.md already covers checks/README.md, but the .sh/.sql/.mjs files here
 # would otherwise be uploaded and served as static assets.
 checks/
+
+# Playwright dev dependency for checks/ (added 17 Aug 2026). node_modules is
+# already excluded above; these two manifests would otherwise be served.
+package.json
+package-lock.json
