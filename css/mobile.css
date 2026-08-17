@@ -346,3 +346,98 @@ body.bottomnav-hub-open {
   #topbar .who > span:first-child { display: inline; }
   #topbar .who strong { display: inline; max-width: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   TOUCH TARGETS
+   ---------------------------------------------------------------------------
+   Measured before this block existed: 15 of 17 controls were under 44px.
+   Buttons 38px, small buttons 30px, colour swatches 26px, sidebar items 20px.
+
+   To be precise about what that was and was not: NONE of it violated WCAG 2.2
+   AA. That floor is 24x24 (SC 2.5.8) and everything cleared it. What they
+   missed was the platform guidance -- Apple HIG 44pt, Material 48dp, WCAG AAA
+   2.5.5 44px -- which is the standard that matters for the people who use
+   this: counting stock on a warehouse floor, taking an order in a showroom,
+   one hand holding a carton. ~85% of phone interactions are thumb-driven
+   (Hoober, 1,333 field observations).
+
+   KEYED ON POINTER, NOT ON WIDTH
+   ------------------------------
+   `pointer: coarse` asks the real question -- "is this a finger?" -- instead
+   of using screen width as a proxy for it. Two cases the width approach gets
+   wrong: a touchscreen laptop at 1400px IS a finger and needs the bigger
+   targets, and a mouse user with a narrow browser window is NOT, and would
+   get everything inflated for no benefit.
+
+   Nothing here changes the desktop-with-a-mouse experience at all.
+   --------------------------------------------------------------------------- */
+
+@media (pointer: coarse) {
+
+  /* min-height, not height: it clamps the explicit `height: 38px` these
+     already carry, without needing !important or restating the value. */
+  .btn {
+    min-height: 44px;
+  }
+
+  /* Small buttons are the size chips (S / M / L / XL) and "Add to cart".
+     They needed min-WIDTH too -- an "S" chip measured 34px across. */
+  .btn-sm {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 var(--space-4);
+  }
+
+  .input,
+  select.input,
+  textarea.input {
+    min-height: 44px;
+  }
+
+  /* Scoped to #sidenav to match layout.css's own selector specificity, and
+     because that is the only place this class is used. Note the sidebar is
+     display:none below 880px, so this rule only ever applies on a TOUCHSCREEN
+     LAPTOP -- coarse pointer at a desktop width. That is a real device class,
+     not a hypothetical one. */
+  #sidenav a.nav-item {
+    min-height: 44px;
+  }
+
+  /* --- Colour swatches -----------------------------------------------------
+     These are the hard case. product-card.js sets width and height inline
+     (26px), and an inline style beats a stylesheet, so the size cannot be
+     changed from here without !important.
+
+     Rather than fight it, the tap AREA is expanded while the visible circle
+     stays 26px. A 26px dot is the right size to look at -- a row of 44px
+     circles would dominate the card -- it is just the wrong size to hit. The
+     ::before sits inside the button, so taps on it still hit the button.
+
+     inset: -9px  ->  26 + 9 + 9 = 44px of hit area.
+
+     The row gap has to grow with it, or adjacent 44px areas overlap and a tap
+     between two swatches becomes ambiguous -- which is worse than a small but
+     unambiguous target. 18px of gap puts the centres 44px apart, so the areas
+     meet exactly and never overlap. check_touch_targets.mjs asserts that
+     overlap is <= 0, so this stays true if anyone changes the numbers.
+
+     !important is needed on the gap for the same inline-style reason, and is
+     confined to this one declaration. The proper fix is to move those inline
+     styles into a class; that is a change to protected code and belongs in its
+     own reviewed commit, not smuggled into a touch-target pass. */
+  .swatch-row {
+    gap: 18px !important;
+  }
+
+  .color-swatch {
+    position: relative;
+  }
+
+  .color-swatch::before {
+    content: "";
+    position: absolute;
+    inset: -9px;
+    border-radius: 50%;
+    /* Invisible. It exists only to be tapped. */
+  }
+}
