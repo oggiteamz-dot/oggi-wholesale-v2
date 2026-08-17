@@ -27,6 +27,8 @@
 
 import { toast } from "../components/toast.js";
 import { renderCategoryPicker } from "../components/category-picker.js";
+import { renderTagInput } from "../components/tag-input.js";
+import { setBrands } from "../data/brands.js";
 import { createWholesaler } from "../data/wholesaler-admin.js";
 import { listCategories } from "../data/categories.js";
 import { esc, pageHeader } from "../lib/utils.js";
@@ -118,6 +120,22 @@ export async function newWholesalerView(outlet) {
   catWrap.appendChild(picker.el);
   card.appendChild(catWrap);
 
+  // ---- brands they carry --------------------------------------------
+  // A wholesaler is not one label. A real one here carries Nike, Dsquared,
+  // Emporio and four more on a single account. v2_wholesalers.brand stays
+  // the PRIMARY display name (login screen, invoice); this is the list of
+  // houses they stock, which is a different fact and lives in its own table.
+  const brandWrap = document.createElement("div");
+  brandWrap.style.cssText = "margin-bottom:18px;";
+  brandWrap.innerHTML = `
+    <label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:6px;">
+      Brands they carry — type one and press Enter, as many as you need
+    </label>
+  `;
+  const brandInput = renderTagInput({ placeholder: "e.g. Nike" });
+  brandWrap.appendChild(brandInput.el);
+  card.appendChild(brandWrap);
+
   // ---- private notes ------------------------------------------------
   const notesWrap = document.createElement("div");
   notesWrap.style.cssText = "margin-bottom:18px;display:flex;flex-direction:column;gap:4px;";
@@ -153,6 +171,7 @@ export async function newWholesalerView(outlet) {
       email: val("email"),
       currency: val("currency") || "$",
       categories: picker.getSelected(),
+      brands: brandInput.getValues(),
       notes: val("notes"),
     };
 
@@ -172,9 +191,24 @@ export async function newWholesalerView(outlet) {
       return;
     }
 
+    // The create RPC does not take brands -- the wholesaler has to exist
+    // before rows can reference its wid -- so this is a second call. It is
+    // reported separately and honestly: if it fails, the wholesaler WAS
+    // created and only the brand list is missing. Saying "created" and
+    // silently dropping seven brands is exactly the class of quiet loss this
+    // build is trying to stamp out.
+    let brandNote = "";
+    if (form.brands.length) {
+      const b = await setBrands(res.wid, form.brands);
+      if (!b.ok) {
+        brandNote = b.error || "the brand list could not be saved";
+        toast(`Created, but ${brandNote}`, { type: "danger" });
+      }
+    }
     toast(`${form.brand} created`, { type: "success" });
     renderCredentials(result, { ...form, loginEmail: res.loginEmail, wid: res.wid });
     picker.clear();
+    brandInput.clear();
     FIELDS.forEach((f) => { const el = document.getElementById(`nw-${f.key}`); if (el) el.value = f.value || ""; });
     document.getElementById("nw-password").value = "";
     document.getElementById("nw-notes").value = "";
