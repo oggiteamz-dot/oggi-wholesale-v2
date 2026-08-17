@@ -8,6 +8,10 @@ import {
   listSignupRequests, approveSignupRequest, rejectSignupRequest, setWholesalerActive, getAuditLog, listInvites,
 } from "../data/owner.js";
 import { rowsToCsv, downloadCsv } from "../data/csv-export.js";
+// CR-0001 R1: the "Add wholesaler" screen. Kept in its own file rather
+// than inlined here so this view stays readable and the form can be
+// reused by the edit screen later.
+import { newWholesalerView } from "./owner-wholesaler-new.js";
 
 import { esc, pageHeader } from "../lib/utils.js";
 // ---------- Dashboard ----------
@@ -117,6 +121,17 @@ async function searchView(outlet) {
 async function wholesalersView(outlet) {
   const session = devAuth.getSession();
   outlet.appendChild(pageHeader("Wholesalers", "Every wholesaler in the system, with real onboarding completion signals."));
+
+  // CR-0001 R1 — the way in to creating one. Before 17 Aug 2026 this
+  // button did not exist and neither did any other route to a new
+  // wholesaler, in the interface or the database, which made onboarding
+  // a real wholesaler impossible.
+  const addBtn = document.createElement("button");
+  addBtn.className = "btn btn-primary";
+  addBtn.textContent = "+ Add wholesaler";
+  addBtn.style.marginBottom = "16px";
+  addBtn.addEventListener("click", () => { window.location.hash = "#/owner/wholesalers/new"; });
+  outlet.appendChild(addBtn);
 
   const loading = document.createElement("div");
   loading.className = "card";
@@ -459,6 +474,11 @@ export function registerOwnerRoutes(router) {
   router.register("/owner", (outlet) => dashboard(outlet));
   router.register("/owner/search", (outlet) => searchView(outlet));
   router.register("/owner/wholesalers", (outlet) => wholesalersView(outlet));
+  // CR-0001 R1. Safe to register after the list route above: the router
+  // anchors every pattern (^/owner/wholesalers/?$), so the list route
+  // cannot swallow /owner/wholesalers/new. Registration order does not
+  // matter here -- checked in js/lib/router.js before adding this.
+  router.register("/owner/wholesalers/new", (outlet) => newWholesalerView(outlet));
   router.register("/owner/onboarding", (outlet) => onboardingView(outlet));
   router.register("/owner/invites", (outlet) => invitesView(outlet));
   router.register("/owner/exports", (outlet) => exportsView(outlet));
