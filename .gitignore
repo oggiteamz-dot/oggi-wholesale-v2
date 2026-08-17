@@ -3,3 +3,8 @@
 # .assetsignore governs what Cloudflare serves; this governs what git tracks.
 node_modules/
 package-lock.json
+
+# Keep the Playwright dev dependency out of the repo entirely: if package.json
+# is present, the Cloudflare build would npm-install it on every deploy.
+# checks/*.mjs document their own requirement in their header comments.
+package.json
