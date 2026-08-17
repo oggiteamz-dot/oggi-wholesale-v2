@@ -47,3 +47,90 @@ export const ROLE_LABEL = {
   sales: "Salesperson",
   buyer: "Buyer",
 };
+
+// =============================================================================
+// MOBILE NAVIGATION SUPPORT  (added 17 Aug 2026, mobile-first pass)
+// =============================================================================
+//
+// WHY THIS LIVES HERE AND NOT IN THE COMPONENT
+// --------------------------------------------
+// Below 880px the sidebar is hidden, so a phone needs its own navigation.
+// The obvious way to build one is to hand-pick "the important five" screens
+// for a bottom bar. That is exactly how screens go missing: the wholesaler
+// role has twelve destinations, a bar holds five, and the other seven end up
+// with no way in -- without deleting a single line of code.
+//
+// So the split is computed HERE, from the same array the desktop sidebar
+// reads, and it is a pure function with no DOM in it so it can be tested
+// directly. checks/check_nav_completeness.mjs asserts that bar + more equals
+// the full list, exactly, for every role. A screen can only vanish from
+// mobile by being deleted from this array -- at which point it vanishes from
+// the desktop sidebar too, loudly, instead of quietly on one device class.
+
+/** How many slots the bottom bar has, including the "More" button.
+ *  Five is the practical ceiling: on a 360px screen (the narrow end of the
+ *  Tecno/Infinix devices that are ~13% of Lebanese mobile traffic) five
+ *  44px targets plus gaps is already the full width. */
+export const MAX_BAR_ITEMS = 5;
+
+/** Bar labels have roughly 9 characters before they truncate. These are the
+ *  short forms for the labels that don't fit.
+ *
+ *  Kept as a separate map rather than a `short:` key on each nav item on
+ *  purpose: editing those existing lines would register as deletions in
+ *  Gate 1 (checks/check_no_feature_loss.sh), and the whole point of this
+ *  pass is that it never deletes protected code. Additive by construction.
+ *  Anything not listed here already fits and falls through to `label`. */
+export const SHORT_LABEL = {
+  "/owner/search": "Search",
+  "/owner/wholesalers": "Sellers",
+  "/owner/onboarding": "Queue",
+  "/wholesaler/intelligence": "Insights",
+  "/wholesaler/receive-scan": "Scan",
+  "/wholesaler/integrations": "Apps",
+  "/wholesaler/import": "Import",
+  "/sales/clients": "Clients",
+  "/sales/visits": "Visits",
+  "/buyer/favourites": "Saved",
+  "/buyer/suppliers": "Sellers",
+  "/buyer": "Catalog",
+};
+
+/** The label to show in the bottom bar. Full labels are always used in the
+ *  "More" hub, where there is room for them. */
+export function shortLabel(item) {
+  return SHORT_LABEL[item.path] || item.label;
+}
+
+/** The "More" button. Not a real destination -- it opens the hub sheet --
+ *  so it carries `path: null` and `isMore: true`. Gate 2 looks for exactly
+ *  this flag to confirm that an overflow actually has a door. */
+export const MORE_ITEM = { icon: "☰", label: "More", path: null, isMore: true };
+
+/**
+ * Splits a role's nav items into what fits in the bottom bar and what goes
+ * into the "More" hub. Pure -- no DOM, no globals -- so the gate can call it
+ * directly in Node.
+ *
+ * Everything fits          -> all of it goes in the bar, no More button.
+ * More items than slots    -> the first (MAX_BAR_ITEMS - 1) go in the bar,
+ *                             a More button takes the last slot, and the
+ *                             remainder go to the hub.
+ *
+ * Order is taken from NAV_BY_ROLE as-is. The arrays were already written
+ * most-used-first, so no reordering was needed -- which matters, because
+ * reordering lines would read as deletions to Gate 1.
+ *
+ * @param {Array<{icon:string,label:string,path:string}>} items
+ * @returns {{bar:Array, more:Array}}
+ */
+export function splitNav(items) {
+  const list = Array.isArray(items) ? items : [];
+  if (list.length <= MAX_BAR_ITEMS) {
+    return { bar: [...list], more: [] };
+  }
+  return {
+    bar: [...list.slice(0, MAX_BAR_ITEMS - 1), MORE_ITEM],
+    more: [...list.slice(MAX_BAR_ITEMS - 1)],
+  };
+}
