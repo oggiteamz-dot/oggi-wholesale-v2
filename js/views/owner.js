@@ -12,6 +12,11 @@ import { rowsToCsv, downloadCsv } from "../data/csv-export.js";
 // than inlined here so this view stays readable and the form can be
 // reused by the edit screen later.
 import { newWholesalerView } from "./owner-wholesaler-new.js";
+// CR-0002: subscription controls (extend / price / cancel / terminate).
+// The panel is a component so the wholesaler detail page can reuse the
+// exact same controls instead of growing a second, drifting copy.
+import { renderSubscriptionPanel } from "../components/subscription-panel.js";
+import { getBillingByWholesaler } from "../data/subscriptions.js";
 
 import { esc, pageHeader } from "../lib/utils.js";
 // ---------- Dashboard ----------
@@ -139,7 +144,13 @@ async function wholesalersView(outlet) {
   loading.textContent = "Loading…";
   outlet.appendChild(loading);
 
-  const { perWholesaler } = await crossWholesalerStats();
+  // CR-0002: billing state for every wholesaler, fetched once here rather
+  // than once per row -- 4 wholesalers today, but this list is meant to
+  // grow and a per-row request would get slow quietly.
+  const [{ perWholesaler }, billingByWid] = await Promise.all([
+    crossWholesalerStats(),
+    getBillingByWholesaler(),
+  ]);
   loading.remove();
 
   if (!perWholesaler.length) {
@@ -176,6 +187,17 @@ async function wholesalersView(outlet) {
       outlet.innerHTML = "";
       wholesalersView(outlet);
     });
+
+    // CR-0002: subscription strip. Re-renders the whole list on any
+    // change so what you see always came back from the database, rather
+    // than being patched locally and drifting from what was actually
+    // saved.
+    card.appendChild(renderSubscriptionPanel({
+      wid: w.wid,
+      billing: { ...(billingByWid.get(w.wid) || {}), brand: w.name },
+      onChange: () => { outlet.innerHTML = ""; wholesalersView(outlet); },
+    }));
+
     outlet.appendChild(card);
   });
 }
