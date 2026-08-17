@@ -1,0 +1,283 @@
+/* ===========================================================================
+   OGGI Wholesale v2 — MOBILE NAVIGATION
+   ===========================================================================
+
+   Added 17 Aug 2026, mobile-first pass.
+
+   WHAT THIS FILE IS
+   -----------------
+   The styles for the bottom bar and the "More" hub that give a phone user
+   navigation at all. Before this, css/layout.css hid #sidenav below 880px
+   and nothing took its place -- so on a phone, every role could see exactly
+   one screen and had no way to reach the other 27.
+
+   WHY IT IS A SEPARATE FILE
+   -------------------------
+   Two reasons, both practical:
+
+   1. It is purely additive. Nothing in base.css, layout.css or
+      components.css is edited to make the bottom bar work, so this change
+      cannot break a screen that already renders correctly. The remaining
+      per-component responsive conversion happens afterwards, one component
+      per commit, against visual baselines.
+
+   2. It is written MOBILE-FIRST, and the rest of the app is not (yet).
+      Keeping the two conventions in separate files makes it obvious which
+      is which, instead of leaving a reader to guess whether a given rule
+      is a base style or an override.
+
+   MOBILE-FIRST, CONCRETELY
+   ------------------------
+   The base rules below describe the PHONE. The single `min-width: 881px`
+   query at the bottom is the desktop ENHANCEMENT -- it removes the bar,
+   because above that width the sidebar is back.
+
+   Note the 881, not 880. layout.css hides the sidebar at `max-width: 880px`,
+   so the bar must appear at 880 and disappear at 881. Using 880 in both
+   would leave the 880px viewport itself with either two navigations or
+   none -- the classic closed-range gap bug, and the reason a global
+   find-and-replace of max-width to min-width is not a safe way to convert
+   a stylesheet.
+
+   TOUCH TARGETS
+   -------------
+   48px minimum height. WCAG 2.2 SC 2.5.8 requires 24x24 at AA, Apple HIG
+   asks for 44pt, Material for 48dp -- 48 satisfies all three at once, and
+   is the size a thumb actually hits on a moving bus.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   THE BAR
+   --------------------------------------------------------------------------- */
+
+#bottomnav {
+  /* Grid, not flex: every tab gets an identical width. With flex, "Dashboard"
+     would claim a wider tap target than "Cart", which both looks misaligned
+     and gives the shortest labels the smallest targets -- the opposite of
+     what you want. The column count is set inline by bottomnav.js, because
+     it varies by role (4 or 5). */
+  display: grid;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-default);
+  /* Lifts the bar off the content behind it without a hard line. */
+  box-shadow: 0 -2px 12px rgba(16, 17, 32, 0.06);
+
+  /* iOS Safari's bottom toolbar overlaps the viewport. Without this, the
+     last row of tap targets sits underneath it and is physically
+     unreachable -- the exact bug this whole file exists to fix, reintroduced
+     by a different mechanism. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+#bottomnav .bottomnav-item {
+  /* Stack icon over label, centred. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+
+  min-height: 48px;
+  padding: var(--space-2) var(--space-1);
+
+  /* <button> resets -- the "More" entry is a real button, and without these
+     it would inherit the browser's default border and background and look
+     nothing like the anchors beside it. */
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+
+  color: var(--text-tertiary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-standard);
+
+  /* A long label must never push the grid wider than the screen. */
+  overflow: hidden;
+}
+
+#bottomnav .bottomnav-icon {
+  font-size: 19px;
+  line-height: 1;
+}
+
+#bottomnav .bottomnav-label {
+  /* Labels are ALWAYS visible. An icon-only bar recreates exactly the
+     discoverability problem the bar was built to solve -- NN/g's mobile
+     study attributed poor navigation discovery to low visual salience and
+     missing labels, not to unfamiliar icons. */
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#bottomnav .bottomnav-item.active {
+  color: var(--accent-600);
+}
+
+/* A visible focus ring, for keyboard and switch-control users. Never
+   `outline: none` without a replacement. */
+#bottomnav .bottomnav-item:focus-visible {
+  outline: 2px solid var(--accent-500);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---------------------------------------------------------------------------
+   CONTENT CLEARANCE
+   The bar is fixed, so it floats over the page. Without this padding the
+   last item in any list -- the final order row, the Save button at the
+   bottom of a form -- sits permanently underneath it.
+   --------------------------------------------------------------------------- */
+
+#view-outlet {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + var(--space-6));
+}
+
+/* ---------------------------------------------------------------------------
+   THE "MORE" HUB
+   A full-screen sheet, not a small dropdown: the wholesaler role has eight
+   destinations behind it. This is NN/g's "navigation hub" pattern, which
+   suits an app whose users work in one branch of the hierarchy per session.
+   --------------------------------------------------------------------------- */
+
+.bottomnav-hub-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60; /* above the bar itself */
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: flex-end;
+  animation: bottomnav-fade var(--duration-fast) var(--ease-standard);
+}
+
+.bottomnav-hub {
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: bottomnav-rise var(--duration-base) var(--ease-emphasized);
+}
+
+.bottomnav-hub-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+  /* Stays put while the list scrolls, so the close button is always
+     reachable -- no scrolling back up to escape. */
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface);
+}
+
+.bottomnav-hub-header h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.bottomnav-hub-close {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: var(--text-md);
+}
+
+.bottomnav-hub-list {
+  /* The generous bottom padding is not decoration. The sheet's bottom edge
+     is the screen's bottom edge, so without it the last row (Settings, for
+     the wholesaler role) sits flush against the bezel and is awkward to hit
+     -- and on a device with a home indicator it sits underneath it. Caught
+     by looking at the screenshot, not by any assertion. */
+  padding: var(--space-2) 0 calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+}
+
+.bottomnav-hub-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 52px;
+  padding: var(--space-3) var(--space-5);
+  color: var(--text-primary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.bottomnav-hub-item:last-child {
+  border-bottom: none;
+}
+
+.bottomnav-hub-item.active {
+  background: var(--accent-50);
+  color: var(--accent-700);
+  font-weight: 600;
+}
+
+.bottomnav-hub-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+  flex: none;
+}
+
+.bottomnav-hub-label {
+  flex: 1;
+  font-size: var(--text-base);
+}
+
+.bottomnav-hub-chevron {
+  color: var(--text-tertiary);
+  font-size: var(--text-lg);
+}
+
+/* Stops the page behind the sheet scrolling under the user's finger. */
+body.bottomnav-hub-open {
+  overflow: hidden;
+}
+
+@keyframes bottomnav-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes bottomnav-rise {
+  from { transform: translateY(12%); }
+  to   { transform: translateY(0); }
+}
+
+/* Respects the same accessibility preference animations.css already honours.
+   Vestibular disorders make a sliding sheet genuinely unpleasant. */
+@media (prefers-reduced-motion: reduce) {
+  .bottomnav-hub-backdrop,
+  .bottomnav-hub {
+    animation: none;
+  }
+}
+
+/* ===========================================================================
+   DESKTOP ENHANCEMENT
+   Above 880px the sidebar is visible again (layout.css), so the bar is
+   removed and the content clearance it needed goes with it.
+   881, not 880 -- see the note at the top of this file.
+   =========================================================================== */
+
+@media (min-width: 881px) {
+  #bottomnav {
+    display: none;
+  }
+  #view-outlet {
+    padding-bottom: var(--space-8);
+  }
+}
