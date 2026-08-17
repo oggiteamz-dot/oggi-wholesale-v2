@@ -8,23 +8,60 @@ import { supabase, sbCall } from "../lib/supabase-client.js";
 export async function getClientsByRecency(wid) {
   const [{ data: clients }, { data: orders }] = await Promise.all([
     sbCall(supabase.from("v2_clients").select("*").eq("wid", wid).eq("active", true)),
-    sbCall(supabase.from("v2_orders").select("buyer_label, created_at, subtotal").eq("wid", wid).order("created_at", { ascending: false })),
+    // FIXED 2026-08-17 (CR-0001 step 0) -- we now also select `client_id`,
+    // and we match on it. See the comment block below for why.
+    sbCall(supabase.from("v2_orders").select("client_id, buyer_label, created_at, subtotal").eq("wid", wid).order("created_at", { ascending: false })),
   ]);
 
-  const lastOrderByBuyer = new Map();
-  const orderCountByBuyer = new Map();
-  const totalByBuyer = new Map();
+  // ------------------------------------------------------------------
+  // WHY THIS MATCHES ON client_id AND NOT ON buyer_label
+  //
+  // This code used to pair an order with a client by comparing
+  //     order.buyer_label  ===  client.shop_name
+  // which looks reasonable and is wrong, because those two fields hold
+  // different KINDS of thing:
+  //
+  //   * buyer_label is a PERSON'S display name. The server sets it from
+  //     the logged-in account's actor_label (see migration 024, the line
+  //     `buyer_label := v_account.actor_label`) -- e.g. "Hadi Hamza".
+  //   * shop_name is a BUSINESS name -- e.g. "Beirut Fashion House".
+  //
+  // They almost never coincide, so the comparison quietly found nothing
+  // and every client read back as 0 orders / never ordered. It failed
+  // SILENTLY: no error, no empty state, just confident wrong numbers on
+  // the wholesaler dashboard, the rep dashboard, the coverage snapshot,
+  // and this list's own sort order.
+  //
+  // Verified against live data on 2026-08-17: the only real order had
+  // buyer_label "Demo Buyer" and matched no shop_name at all.
+  //
+  // v2_orders.client_id is the authoritative link. It is a real foreign
+  // key, and migration 024 populates it server-side from the buyer's own
+  // account, so it cannot drift the way a name comparison can.
+  //
+  // NOTE, deliberately not "fixed": an order whose client_id is NULL is
+  // attributed to NO client. That is correct, not a bug -- it means the
+  // order came from an account that was never linked to a client record
+  // (the seeded "demo" buyer is one). Falling back to the old name match
+  // for those would re-introduce the exact silent wrongness above, so we
+  // don't. If such orders ever need attributing, link the account to a
+  // client record; don't guess from a name.
+  // ------------------------------------------------------------------
+  const lastOrderByClient = new Map();
+  const orderCountByClient = new Map();
+  const totalByClient = new Map();
   (orders || []).forEach((o) => {
-    if (!lastOrderByBuyer.has(o.buyer_label)) lastOrderByBuyer.set(o.buyer_label, o.created_at);
-    orderCountByBuyer.set(o.buyer_label, (orderCountByBuyer.get(o.buyer_label) || 0) + 1);
-    totalByBuyer.set(o.buyer_label, (totalByBuyer.get(o.buyer_label) || 0) + Number(o.subtotal));
+    if (!o.client_id) return; // unattributed on purpose -- see note above
+    if (!lastOrderByClient.has(o.client_id)) lastOrderByClient.set(o.client_id, o.created_at);
+    orderCountByClient.set(o.client_id, (orderCountByClient.get(o.client_id) || 0) + 1);
+    totalByClient.set(o.client_id, (totalByClient.get(o.client_id) || 0) + Number(o.subtotal));
   });
 
   const enriched = (clients || []).map((c) => ({
     ...c,
-    lastOrderAt: lastOrderByBuyer.get(c.shop_name) || null,
-    orderCount: orderCountByBuyer.get(c.shop_name) || 0,
-    lifetimeValue: totalByBuyer.get(c.shop_name) || 0,
+    lastOrderAt: lastOrderByClient.get(c.id) || null,
+    orderCount: orderCountByClient.get(c.id) || 0,
+    lifetimeValue: totalByClient.get(c.id) || 0,
   }));
 
   return enriched.sort((a, b) => {
