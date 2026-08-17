@@ -94,6 +94,11 @@ export const SHORT_LABEL = {
   "/buyer/favourites": "Saved",
   "/buyer/suppliers": "Sellers",
   "/buyer": "Catalog",
+  // "Dashboard" ellipsises in a 5-slot bar at 375px once the active tab
+  // takes its heavier weight. Measured, not guessed.
+  "/owner": "Home",
+  "/wholesaler": "Home",
+  "/sales": "Home",
 };
 
 /** The label to show in the bottom bar. Full labels are always used in the
