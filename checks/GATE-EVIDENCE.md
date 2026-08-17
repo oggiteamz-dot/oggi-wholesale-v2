@@ -160,6 +160,95 @@ run precisely so a human still looks.
 
 ---
 
+## GATE 4 — `check_contrast.mjs`
+
+WCAG 2.2 AA contrast on the real token file. 18 pairs.
+
+| # | Scenario | Expected | Result |
+|---|---|---|---|
+| 1 | The OLD indigo palette | FAIL — it had real defects | ✅ FAIL, exit 1 |
+| 2 | Primary button painted mint `#54E5A0` | FAIL | ✅ FAIL, exit 1 |
+| 3 | OGGI "Eyes Everywhere" palette | PASS | ✅ PASS, 18/18 |
+
+**Test 1 found three genuine defects in the palette that was already shipping,**
+before any brand work started:
+
+```
+  ✗ tertiary text on card               3.27:1  (need 4.5)  #8A8DA3 on #FFFFFF
+  ✗ tertiary text on sunken panel       2.90:1  (need 4.5)  #8A8DA3 on #F0F1F6
+  ✗ strong border on card               1.71:1  (need 3.0)  #C3C5D6 on #FFFFFF
+```
+
+**Test 2 — the mistake this gate exists to prevent.** Painting the brand's
+mint onto buttons is the single most obvious way to "make it look like OGGI":
+
+```
+  ✗ white on primary button             1.60:1  (need 4.5)  #FFFFFF on #54E5A0
+  ✗ accent text on card                 1.60:1  (need 4.5)  #54E5A0 on #FFFFFF
+  ✗ MINT RULE: --accent-600 = #54E5A0
+```
+
+Mint measures **1.60:1 on white** and **10.15:1 on the brand's ink**. That is
+why the website uses it for the big numbers in its dark band and never for
+text on white, and why the gate has a named MINT RULE that fails if mint is
+ever assigned to a text-bearing token regardless of the measured pairs.
+
+**Two deviations from the brand palette, both recorded rather than silent:**
+`--muted #6A7A84` measures **4.44:1** — a near miss on AA — so app tertiary
+text uses `#61727C` (4.99:1). `--line #E4EDE9` measures **1.19:1**, correct as
+a decorative card border but unusable as `--border-strong`, which is `#76958A`
+(3.26:1).
+
+---
+
+## GATE 5 — `check_token_completeness.mjs`
+
+**This gate exists because of a failure I caused during this very session, and
+that is the most useful thing about it.**
+
+`css/tokens.css` was rewritten to carry the OGGI palette. The rewrite
+reproduced the parts being thought about — colours, radius, type, motion — and
+**silently dropped the entire spacing scale, `--space-1` through `--space-16`.**
+
+Nothing errored. CSS does not warn about an undefined custom property; it
+resolves to nothing. Every `padding: var(--space-5)` in the app collapsed to
+zero and the whole UI went edge-to-edge. It was caught by **looking at a
+screenshot** — far too thin a thread.
+
+This is the same failure mode as the 2.0 rewrite dropping the size axis, and
+the same one that cost Sonos "at least $100 million". Gate 1 could not catch
+it: Gate 1 protects `js/`, because the mobile-first pass has to edit CSS
+freely.
+
+| # | Scenario | Expected | Result |
+|---|---|---|---|
+| 1 | tokens.css with the spacing scale dropped | FAIL, name every one | ✅ FAIL, exit 1 |
+| 2 | Scale restored | PASS | ✅ PASS |
+
+```
+  ✗ 10 token(s) MISSING from css/tokens.css:
+      --space-*  (10):  --space-1, --space-10, --space-12, --space-16,
+                        --space-2, --space-3, --space-4, --space-5,
+                        --space-6, --space-8
+
+  ✗ 9 token(s) USED but never defined:
+      --space-5  — used in animations.css, base.css, brand.css,
+                   components.css, layout.css, mobile.css
+      ... (8 more)
+```
+
+It checks both directions: a token in the manifest that vanished, and a
+`var(--x)` in any stylesheet pointing at a token nobody defined. Adding tokens
+is always allowed; removing one means editing `checks/token-manifest.json`,
+which is a visible decision rather than an accident.
+
+**The lesson worth keeping:** Gate 1 makes feature loss impossible in
+JavaScript. Nothing was watching the stylesheet, and within an hour the
+stylesheet lost something. Every "this can't happen here" has an
+unwatched neighbour.
+
+---
+
 ## What these gates do NOT prove
 
 Stated plainly so nobody over-trusts a green run:
@@ -173,6 +262,11 @@ Stated plainly so nobody over-trusts a green run:
    session. It proves the bar renders and every destination is tappable; it
    does not prove the app shell mounts it for a real user. That requires a
    real login per role, which is a separate check.
-4. **Nothing here has been walked by a human on a real phone.** Chromium at
+4. **Gate 4 checks TOKEN PAIRS, not rendered pixels.** A screen that puts
+   `--text-tertiary` on a coloured card nobody anticipated is not covered.
+   It also cannot see text over an image or a gradient.
+5. **Gate 5 checks that tokens EXIST, not that they are used correctly.** A
+   spacing token set to the wrong value passes.
+6. **Nothing here has been walked by a human on a real phone.** Chromium at
    375px is not an iPhone in a warehouse. The screenshots are the closest
    substitute, and they are not a substitute.
