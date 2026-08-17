@@ -249,6 +249,66 @@ unwatched neighbour.
 
 ---
 
+## GATE 6 — `check_touch_targets.mjs`
+
+Measures every interactive control at 375px with a **coarse pointer**, against
+a 44px threshold.
+
+**First, what this gate does NOT claim.** The app never violated WCAG 2.2 AA on
+target size. That floor is 24x24 (SC 2.5.8) and everything cleared it. Calling
+this an accessibility violation would be overstating it, and a gate that cries
+wolf gets switched off. What it measures is the **platform** guidance — Apple
+HIG 44pt, Material 48dp, WCAG AAA 2.5.5 — which is the standard that matters
+for someone counting stock on a warehouse floor with one hand on a carton.
+
+| # | Scenario | Expected | Result |
+|---|---|---|---|
+| 1 | Before the fix | FAIL, name every control | ✅ FAIL — 15 of 17 under 44px |
+| 2 | After the fix | PASS | ✅ PASS — 15 controls, all ≥44px |
+| 3 | Same page, **fine** pointer (desktop mouse) | UNCHANGED | ✅ 38 / 30 / 38 / 26px, gap 6px — identical to before |
+
+**Test 1 output:**
+
+```
+  ✗ btn-primary            101 x  38 px
+  ✗ btn-sm-secondary        34 x  30 px      <- an "S" size chip
+  ✗ input-qty               72 x  38 px
+  ✗ color-swatch            26 x  26 px
+  ...
+  ✓ bottomnav-item          75 x  54 px      <- the only one that passed
+```
+
+The bottom bar passed because it was built at 48px two commits earlier. Every
+control that predates this work failed.
+
+**Test 3 is the one that matters most,** and it is why the fix keys on
+`@media (pointer: coarse)` rather than a width breakpoint. Width is a bad
+proxy for input method — a touchscreen laptop at 1400px *is* a finger and
+needs bigger targets; a mouse user with a narrow window is not, and inflating
+their controls wastes space for nothing. Measured on a fine pointer after the
+fix, every control is byte-for-byte its original size.
+
+**Two things this gate caught that were not the point of it:**
+
+1. **A false failure of its own making.** The sidebar item first measured
+   0x0 and reported red — because `#sidenav` is `display:none` below 880px, so
+   at 375px the gate was measuring a hidden element. The sidebar is not a phone
+   target at all; it becomes one only on a touchscreen laptop. The gate now has
+   a second pass at 1280px with a coarse pointer for exactly that device class.
+   **A gate measuring the wrong context produces a confident wrong answer**,
+   which is the same failure as the `product_images` name-search.
+
+2. **Overlapping hit areas.** The colour swatches keep their 26px visible
+   circle — a row of 44px dots would dominate the card — and gain a 44px tap
+   area from a `::before` overlay. Expanding by 9px on each side while the row
+   gap was 6px would have made adjacent areas overlap by 12px, so a tap between
+   two swatches becomes ambiguous. **That is worse than a small but
+   unambiguous target.** The gap goes to 18px, putting centres exactly 44px
+   apart, and the gate asserts overlap ≤ 0 so this stays true if the numbers
+   are ever changed.
+
+---
+
 ## What these gates do NOT prove
 
 Stated plainly so nobody over-trusts a green run:
@@ -267,6 +327,9 @@ Stated plainly so nobody over-trusts a green run:
    It also cannot see text over an image or a gradient.
 5. **Gate 5 checks that tokens EXIST, not that they are used correctly.** A
    spacing token set to the wrong value passes.
-6. **Nothing here has been walked by a human on a real phone.** Chromium at
+6. **Gate 6 measures a GALLERY, not the live screens.** It uses the real
+   classes and copies product-card.js's real inline styles, but a control
+   somewhere with its own inline sizing is not covered.
+7. **Nothing here has been walked by a human on a real phone.** Chromium at
    375px is not an iPhone in a warehouse. The screenshots are the closest
    substitute, and they are not a substitute.
