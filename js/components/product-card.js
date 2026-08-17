@@ -48,6 +48,9 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   swatchBar.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;";
   const swatchRow = document.createElement("div");
   swatchRow.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;";
+  // Hook for the touch-target rules in css/mobile.css. Added rather than
+  // folded into the line above, so this file gains lines and never loses any.
+  swatchRow.className = "swatch-row";
   swatchBar.appendChild(swatchRow);
 
   // Batch 13: "360°" hologram viewer button -- opens the 3-tier viewer
@@ -170,6 +173,9 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
       const sw = document.createElement("button");
       sw.type = "button";
       sw.title = c.name;
+      // Same reason: a stable hook so CSS can expand the tap area on touch
+      // without fighting the inline width/height below.
+      sw.className = "color-swatch";
       const active = c.name === selectedColor;
       sw.style.cssText = `width:26px;height:26px;border-radius:50%;background:${c.hex};cursor:pointer;border:2px solid ${active ? "var(--accent-500)" : "transparent"};box-shadow:0 0 0 1px var(--border-default);`;
       sw.addEventListener("click", () => {
