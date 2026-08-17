@@ -12,6 +12,7 @@ import { rowsToCsv, downloadCsv } from "../data/csv-export.js";
 // than inlined here so this view stays readable and the form can be
 // reused by the edit screen later.
 import { newWholesalerView } from "./owner-wholesaler-new.js";
+import { registerWholesalerDetailRoute } from "./owner-wholesaler-detail.js";
 // CR-0002: subscription controls (extend / price / cancel / terminate).
 // The panel is a component so the wholesaler detail page can reuse the
 // exact same controls instead of growing a second, drifting copy.
@@ -197,6 +198,16 @@ async function wholesalersView(outlet) {
       billing: { ...(billingByWid.get(w.wid) || {}), brand: w.name },
       onChange: () => { outlet.innerHTML = ""; wholesalersView(outlet); },
     }));
+
+    // CR-0001 R8/R9/R10: the way into the full profile. Appended rather than
+    // folded into the card's template above, so this file only ever gains
+    // lines -- check_no_feature_loss.sh stays green.
+    const openLink = document.createElement("a");
+    openLink.className = "btn btn-secondary btn-sm";
+    openLink.style.marginTop = "10px";
+    openLink.href = `#/owner/wholesaler?wid=${encodeURIComponent(w.wid)}`;
+    openLink.textContent = "Open full profile →";
+    card.appendChild(openLink);
 
     outlet.appendChild(card);
   });
@@ -505,4 +516,6 @@ export function registerOwnerRoutes(router) {
   router.register("/owner/invites", (outlet) => invitesView(outlet));
   router.register("/owner/exports", (outlet) => exportsView(outlet));
   router.register("/owner/audit", (outlet) => auditView(outlet));
+  // CR-0001 R8/R9/R10 — the wholesaler drill-down.
+  registerWholesalerDetailRoute(router);
 }
