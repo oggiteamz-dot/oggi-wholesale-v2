@@ -1,0 +1,201 @@
+/* ===========================================================================
+   OGGI Wholesale v2 — BRAND LAYER ("Eyes Everywhere", light)
+   ===========================================================================
+
+   Loaded LAST, so it can shape the existing components without any of them
+   being edited. Everything here is either a new rule or an override of a
+   property the base sheets already set -- base.css, layout.css and
+   components.css are untouched, which means reverting the whole brand pass
+   is deleting one <link> tag.
+
+   It does three things:
+     1. puts the display face on the elements the website uses it on
+     2. puts the real OGGI logo in the top bar, without touching any JS
+     3. reproduces the website's two signature treatments -- the emerald
+        button on a green-tinted shadow, and the dark ink band with mint
+        numerals
+
+   The palette itself is not here. It lives in tokens.css, which every
+   component already reads, so the recolour happened the moment those values
+   changed. This file is only for the things a token cannot express.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   1. DISPLAY TYPE
+   The website uses Poppins for headings, buttons, nav, stat numbers and the
+   small uppercase labels -- and Inter for running text. Same split here.
+   --------------------------------------------------------------------------- */
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+h1 { font-weight: 800; }
+h2, h3 { font-weight: 700; }
+
+.btn,
+.nav-item,
+.bottomnav-label,
+.stat-card .stat-value,
+.stat-card .stat-label,
+.badge,
+.page-header .page-title-group h1 {
+  font-family: var(--font-display);
+}
+
+/* The website's small caps label: Poppins 600, wide tracking, emerald.
+   Reused for the stat labels, which had the same shape already. */
+.stat-card .stat-label {
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+}
+
+.stat-card .stat-value {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+/* ---------------------------------------------------------------------------
+   2. THE LOGO
+   -----------------------------------------------------------------------
+   topbar.js renders `<span class="brand-mark">O</span>` followed by the
+   words "OGGI Wholesale". That "O" was a gradient tile with a letter in it.
+
+   It is replaced with the real logo file HERE, IN CSS, rather than by
+   editing topbar.js -- deliberately. topbar.js sits in js/components/, which
+   checks/check_no_feature_loss.sh protects: changing that line would be a
+   deletion, and the whole discipline of this pass is that it never deletes
+   protected code. Setting font-size to 0 hides the letter; the background
+   image takes its place. Same result, zero risk.
+
+   Note for whoever reads this later: the standing brand rule is normally
+   "text wordmark only, never the eye mark", because the logo's O is a
+   stylised eye. Hadi explicitly asked for the real logo here on 17 Aug 2026.
+   That is an owner override of his own rule, recorded so nobody silently
+   "fixes" it back.
+   --------------------------------------------------------------------------- */
+
+#topbar .brand .brand-mark {
+  /* Override the gradient tile entirely.
+     The logo file is 1.95:1 (a wordmark), NOT a square icon. Forcing it into
+     a 30x30 box with `contain` rendered it about 30x15 -- small, off-centre
+     and unreadable. Sized to its real aspect ratio instead. */
+  width: 58px;
+  height: 30px;
+  border-radius: 0;
+  background: url("../brand/oggi-logo.png") center / contain no-repeat;
+  /* Hides the literal "O" character without removing it from the DOM. */
+  font-size: 0;
+  color: transparent;
+}
+
+#topbar .brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* The "v2 · dev" pill. Harmless in a sandbox, embarrassing in front of an
+   investor -- it reads as "this is not finished". Hidden rather than deleted,
+   for the same protected-code reason as the logo above. */
+#topbar .brand .env-tag {
+  display: none;
+}
+
+/* The website's nav: sticky, near-white, blurred. */
+#topbar {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* ---------------------------------------------------------------------------
+   3. THE SIGNATURE TREATMENTS
+   --------------------------------------------------------------------------- */
+
+/* The primary button floats on a GREEN-tinted shadow, not a grey one. Copied
+   from the website's `.btn.primary` (0 12px 30px rgba(0,132,95,.24)). It is a
+   small thing that does a lot of the work of looking like the brand. */
+.btn-primary {
+  background: var(--accent-600);
+  box-shadow: var(--shadow-emerald);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: var(--accent-700);
+}
+
+/* The ghost button on the website is an ink outline, not a grey one. */
+.btn-secondary {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Cards: the website's are white on a hairline mint-grey border with a
+   generous radius, and no heavy shadow. */
+.card {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+/* The hero wash. Two soft radial tints, exactly as the homepage hero does it,
+   applied to the page background so every screen sits in the brand's light
+   rather than on flat grey. Fixed so it does not scroll away. */
+body {
+  background-color: var(--bg-page);
+  background-image:
+    radial-gradient(720px 460px at 100% 0%, var(--brand-tint), transparent 60%),
+    radial-gradient(520px 360px at 0% 100%, var(--brand-tint), transparent 55%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* The dark band with mint numerals -- the website's `.proof` section. Not
+   applied to anything by default; it is here so any screen that wants the
+   brand's dark stat strip can opt in with one class, instead of somebody
+   reinventing it inline later.
+
+   This is the ONLY place mint is allowed to carry text, and it is legitimate
+   here: mint on ink measures 10.15:1. */
+.brand-band {
+  background: var(--brand-gradient);
+  border-radius: var(--radius-xl);
+  color: var(--text-inverse);
+  padding: var(--space-6) var(--space-5);
+}
+
+.brand-band .stat-value,
+.brand-band .n {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: var(--brand-mint);
+}
+
+.brand-band .stat-label {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* Active navigation, both rails, in brand emerald. These already read the
+   accent tokens, so they recoloured automatically -- the weight bump is the
+   only addition. */
+#sidenav a.nav-item.active,
+#bottomnav .bottomnav-item.active {
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   PRINT
+   Order sheets and packing lists get printed in this business. The fixed
+   background wash wastes ink and the navigation is meaningless on paper.
+   --------------------------------------------------------------------------- */
+
+@media print {
+  body { background: #fff; }
+  #topbar, #sidenav, #bottomnav { display: none !important; }
+  #view-outlet { padding: 0; }
+}

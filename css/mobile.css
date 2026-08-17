@@ -281,3 +281,68 @@ body.bottomnav-hub-open {
     padding-bottom: var(--space-8);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   TOP BAR ON A PHONE
+   ---------------------------------------------------------------------------
+   At 375px the bar carries too much: the logo, the words "OGGI Wholesale",
+   the role, the tenant name and a "Switch role" button. It wrapped onto two
+   lines and the button clipped off the right edge.
+
+   Rather than shrink everything until it is unreadable, drop what is
+   redundant on a small screen:
+
+   - The words "OGGI Wholesale" go. The logo is right beside them and says
+     the same thing. This is why the logo earns its place rather than being
+     decoration.
+   - The role label ("Wholesaler") goes. The bottom bar already shows which
+     role's sections you are in, and the tenant name is the part that
+     actually disambiguates.
+   - The tenant name STAYS, truncated. For an owner switching between
+     wholesalers, knowing which one you are looking at is the whole point --
+     it is the last thing that should be dropped.
+   --------------------------------------------------------------------------- */
+
+#topbar {
+  padding: 0 var(--space-4);
+  gap: var(--space-3);
+}
+
+/* The untitled middle span in topbar.js's brand markup is the wordmark text.
+   Targeted by exclusion because it has no class of its own, and adding one
+   would mean editing a protected file. */
+#topbar .brand > span:not(.brand-mark):not(.env-tag) {
+  display: none;
+}
+
+#topbar .who {
+  min-width: 0;
+  /* Zero, not small, and deliberately so: topbar.js renders the separator
+     between role and tenant as a BARE TEXT NODE ("<span>role</span> · <strong>
+     name</strong>"). A text node has no element to select, so hiding the role
+     span leaves a stranded "·". Zeroing the container's font-size collapses
+     it; the <strong> below re-declares its own size and is unaffected. */
+  font-size: 0;
+}
+
+/* The role label is the first child; the tenant name is the <strong>. */
+#topbar .who > span:first-child {
+  display: none;
+}
+
+#topbar .who strong {
+  font-size: var(--text-xs);
+  display: block;
+  max-width: 34vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 881px) {
+  /* Desktop has the room — put all of it back. */
+  #topbar { padding: 0 var(--space-5); }
+  #topbar .brand > span:not(.brand-mark):not(.env-tag) { display: inline; }
+  #topbar .who > span:first-child { display: inline; }
+  #topbar .who strong { display: inline; max-width: none; }
+}

@@ -1,38 +1,103 @@
 /* OGGI Wholesale v2 — Design tokens
-   LIGHT MODE IS THE PRIMARY/DEFAULT THEME, per Hadi's explicit instruction
-   ("Keep it light mode. I don't like the dark mode."). This supersedes the
-   v1 "Aurora Glass" dark-first direction. There is no dark-mode toggle in
-   v2 yet — if one is ever added later, it is opt-in, never the default. */
+   ============================================================================
+   OGGI "EYES EVERYWHERE" — LIGHT. Ported 17 Aug 2026.
+
+   WHERE THESE VALUES COME FROM
+   ----------------------------
+   Not invented. Lifted from the real thing:
+     02 Projects/OGGI Website/pages/[C] OGGI Homepage — Eyes Everywhere (brand).html
+     02 Projects/OGGI Website/pages/[C] OGGI Homepage — Light (matches design).html
+   Those two files share one palette, and it is the one Hadi asked for.
+   The source variables were:
+     --emerald #00845F · --emerald-d #026B4E · --mint #54E5A0
+     --mint-soft #BEF3DA · --ink #0E2230 · --ink2 #3C4D58 · --muted #6A7A84
+     --black #07140E · --tint #EFFBF5 · --line #E4EDE9
+     display Poppins · body Inter
+
+   WHAT REPLACED WHAT
+   ------------------
+   The previous ramp was indigo (#4F46E5), and this file's own comment called
+   it "OGGI primary". That comment was simply wrong -- indigo was never OGGI --
+   and it is why the app did not look like the brand.
+
+   LIGHT MODE IS STILL THE ONLY THEME, per the standing instruction ("Keep it
+   light mode. I don't like the dark mode"). Dark surfaces appear only where
+   the brand uses them: the top bar and the stat strip, exactly as the website
+   uses its dark .proof section.
+
+   THE ONE RULE THAT MATTERS HERE
+   ------------------------------
+   MINT IS NOT A TEXT COLOUR ON LIGHT. #54E5A0 on white measures 1.60:1.
+   AA needs 4.5:1 for text and 3.0:1 for controls. Mint cannot reach either.
+   On the brand's own dark ink it measures 10.15:1, which is where the website
+   uses it -- the big numbers in the dark stat band.
+
+   So: EMERALD #00845F (4.70:1 on white) carries text, links and filled
+   buttons. MINT is a highlight on dark, a tint, a chart fill, a decorative
+   accent. checks/check_contrast.mjs enforces this and will fail the build if
+   mint is ever assigned to a text-bearing token.
+
+   TWO DELIBERATE DEVIATIONS FROM THE SOURCE PALETTE, both for legibility:
+     1. --muted #6A7A84 measures 4.44:1 on white. That is a near miss on AA
+        for normal text, and it is used for exactly the small secondary labels
+        that are hardest to read on a phone in daylight. Nudged to #61727C
+        (4.99:1 on white, 4.70:1 on the tint) -- the nearest neighbour in the
+        same hue that actually passes.
+     2. --line #E4EDE9 measures 1.19:1. Correct and unchanged as a decorative
+        card border, but it cannot serve as --border-strong, which marks real
+        control boundaries and needs 3.0:1. That one is #76958A (3.26:1).
+   Both are recorded rather than silently applied, because "we matched the
+   brand" should not quietly mean "we shipped text nobody can read".
+   ============================================================================ */
 
 :root {
+  /* --- RAW BRAND COLOURS -------------------------------------------------
+     The palette exactly as the website defines it. Everything below is
+     expressed in terms of these, so there is one place to change. */
+  --brand-emerald:      #00845F;
+  --brand-emerald-deep: #026B4E;
+  --brand-mint:         #54E5A0;
+  --brand-mint-soft:    #BEF3DA;
+  --brand-ink:          #0E2230;
+  --brand-ink-2:        #3C4D58;
+  --brand-black:        #07140E;
+  --brand-tint:         #EFFBF5;
+  --brand-line:         #E4EDE9;
+
+  /* The dark band. The website uses a flat ink section; the slight fade to
+     near-black matches the brand PDFs' "dark green-black gradient". */
+  --brand-gradient: linear-gradient(135deg, #0E2230 0%, #07140E 100%);
+
   /* Surfaces */
-  --bg-page:        #F6F7FB;
+  --bg-page:        #F5FBF8;  /* a whisper of tint, so white cards read as cards */
   --bg-surface:     #FFFFFF;
-  --bg-surface-2:   #FBFBFE;
-  --bg-sunken:      #F0F1F6;
-  --bg-overlay:     rgba(20, 21, 32, 0.45);
+  --bg-surface-2:   #FBFEFD;
+  --bg-sunken:      #EFFBF5;  /* = brand tint */
+  --bg-overlay:     rgba(14, 34, 48, 0.45);  /* ink-based, not neutral grey */
 
   /* Borders */
-  --border-subtle:  #E7E8F0;
-  --border-default: #DBDCE8;
-  --border-strong:  #C3C5D6;
+  --border-subtle:  #EDF5F1;
+  --border-default: #E4EDE9;  /* = brand line */
+  --border-strong:  #76958A;  /* 3.26:1 on white — see header note */
 
   /* Text */
-  --text-primary:   #14151F;
-  --text-secondary: #565A73;
-  --text-tertiary:  #8A8DA3;
+  --text-primary:   #0E2230;  /* ink        16.28:1 on white */
+  --text-secondary: #3C4D58;  /* ink2        8.77:1 */
+  --text-tertiary:  #61727C;  /* muted+      4.99:1 — see header note */
   --text-inverse:   #FFFFFF;
-  --text-link:      #4338CA;
+  --text-link:      #00845F;  /* emerald     4.70:1 */
 
-  /* Brand / accent (indigo — OGGI primary) */
-  --accent-50:  #EEF0FF;
-  --accent-100: #E0E3FF;
-  --accent-300: #A9AEF5;
-  --accent-500: #4F46E5;
-  --accent-600: #4338CA;
-  --accent-700: #372DA6;
+  /* Brand / accent — EMERALD is the interactive colour, mint is the highlight */
+  --accent-50:  #EFFBF5;  /* tint      */
+  --accent-100: #BEF3DA;  /* mint-soft */
+  --accent-300: #54E5A0;  /* MINT — decorative only, never text on light */
+  --accent-500: #00A576;  /* 3.16:1 — focus rings and control borders only   */
+  --accent-600: #00845F;  /* EMERALD — buttons, links, active states         */
+  --accent-700: #026B4E;  /* emerald-deep — hover, text on tinted surfaces   */
 
-  /* Semantic */
+  /* Semantic. Deliberately kept in their own hues rather than pulled toward
+     the brand green: a "success" that looks identical to every primary button
+     stops reading as feedback and starts reading as decoration. */
   --success-50:  #ECFDF3;
   --success-500: #12B76A;
   --success-700: #027A48;
@@ -56,21 +121,35 @@
   --status-regressed: #F04438;
   --status-deferred:  #7A5AF8;
 
-  /* Shadows — soft, light-mode-appropriate (no heavy dark glows) */
-  --shadow-xs: 0 1px 2px rgba(16, 17, 32, 0.04);
-  --shadow-sm: 0 1px 3px rgba(16, 17, 32, 0.06), 0 1px 2px rgba(16, 17, 32, 0.04);
-  --shadow-md: 0 4px 10px rgba(16, 17, 32, 0.07), 0 2px 4px rgba(16, 17, 32, 0.04);
-  --shadow-lg: 0 12px 24px rgba(16, 17, 32, 0.10), 0 4px 8px rgba(16, 17, 32, 0.04);
+  /* Shadows — now cast in ink rather than neutral grey, so they sit in the
+     same colour world as everything else. */
+  --shadow-xs: 0 1px 2px rgba(14, 34, 48, 0.04);
+  --shadow-sm: 0 1px 3px rgba(14, 34, 48, 0.06), 0 1px 2px rgba(14, 34, 48, 0.04);
+  --shadow-md: 0 4px 10px rgba(14, 34, 48, 0.07), 0 2px 4px rgba(14, 34, 48, 0.04);
+  --shadow-lg: 0 12px 24px rgba(14, 34, 48, 0.10), 0 4px 8px rgba(14, 34, 48, 0.04);
   --shadow-focus: 0 0 0 3px var(--accent-100);
+  /* The website's signature: a primary button floats on a green-tinted
+     shadow, not a grey one. Copied exactly (0 12px 30px rgba(0,132,95,.24)). */
+  --shadow-emerald: 0 12px 30px rgba(0, 132, 95, 0.24);
 
-  /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  /* Radius — matched to the website (buttons 11px, cards 18–22px) */
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
   --radius-pill: 999px;
 
-  /* Spacing scale */
+  /* Spacing scale
+     --------------------------------------------------------------------
+     RESTORED 17 Aug 2026. This section was accidentally dropped when this
+     file was rewritten for the OGGI palette, and because CSS silently
+     resolves an undefined custom property to nothing, every
+     `padding: var(--space-5)` in the app collapsed to zero and the whole UI
+     went edge-to-edge. No error, no warning -- just a broken layout.
+
+     checks/check_token_completeness.mjs now fails the build if any token in
+     checks/token-manifest.json disappears, so this cannot happen quietly a
+     second time. Values are unchanged from the original file. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -82,7 +161,21 @@
   --space-12: 48px;
   --space-16: 64px;
 
-  /* Type */
+  /* Type
+     --------------------------------------------------------------------
+     The brand pairs Poppins (display) with Inter (body). Poppins is
+     self-hosted in css/fonts.css -- 3 weights, 24KB total -- because the
+     app's CSP is `font-src 'self'` and a Google Fonts link is blocked
+     outright, and because a CDN font is a render-blocking request on a
+     Beirut connection.
+
+     Inter is deliberately NOT shipped. It would have cost a further 72KB
+     for three weights, and at 14.5px body size it is close to
+     indistinguishable from the system UI font, which renders instantly
+     with no swap flash. The brand character lives in the display face.
+     If that trade is wrong, add @fontsource/inter and point --font-sans
+     at it -- nothing else needs to change. */
+  --font-display: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 
@@ -95,8 +188,7 @@
   --text-2xl: 28px;
   --text-3xl: 34px;
 
-  /* Motion — used by Batch 13's animation pass, defined early so every
-     component built from here on already speaks the same easing language */
+  /* Motion */
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --duration-fast: 120ms;

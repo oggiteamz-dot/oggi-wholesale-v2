@@ -1,0 +1,81 @@
+/* ===========================================================================
+   OGGI Wholesale v2 — SELF-HOSTED DISPLAY FONT
+   ===========================================================================
+
+   Poppins, the OGGI display face, served from this origin.
+
+   WHY SELF-HOSTED AND NOT GOOGLE FONTS
+   ------------------------------------
+   Two independent reasons, either one sufficient:
+
+   1. The app's Content-Security-Policy is `font-src 'self'` with
+      `style-src 'self' 'unsafe-inline'`. A <link> to fonts.googleapis.com
+      and the font files from fonts.gstatic.com are both BLOCKED by that
+      policy. Pasting the website's font <link> into index.html would have
+      silently produced no Poppins at all -- headings would fall back to the
+      system font and look almost right, which is the worst failure mode.
+
+   2. A render-blocking request to a third-party CDN is expensive on the
+      connections these users actually have. Median mobile download is
+      43.9 Mbps in Lebanon versus 614 Mbps in the UAE -- a 14x gap -- and
+      Lebanon also has an unstable grid, so round trips to extra origins
+      fail in ways bandwidth numbers don't capture. This file adds zero
+      external origins. It is also cached by the service worker, so after
+      the first visit it costs nothing at all.
+
+   WHY ONLY THREE WEIGHTS, AND WHY NO INTER
+   ----------------------------------------
+   The website loads Poppins 500/600/700/800 and Inter 400/500/600 -- seven
+   files, 104KB. Shipped here: Poppins 600/700/800 only, 24KB.
+
+   - Poppins 500 is dropped; 600 covers the same jobs in an app UI, where
+     nav and button text is smaller and benefits from the extra weight.
+   - Inter is dropped entirely (72KB of the 104KB). At the 14.5px body size
+     this app uses it is very close to indistinguishable from the system UI
+     font, which has the decisive advantage of rendering instantly with no
+     swap flash. The brand's character lives in the display face, not the
+     body face.
+
+   If that trade is ever judged wrong: `npm i @fontsource/inter`, copy the
+   latin woff2 files into fonts/, add the @font-face blocks here, and point
+   --font-sans at "Inter". Nothing else in the app needs to change.
+
+   font-display: swap -- text is readable in the fallback face immediately
+   and re-renders when Poppins arrives. Never `block`, which would leave
+   headings invisible on a slow connection.
+   =========================================================================== */
+
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/poppins-latin-600-normal.woff2") format("woff2");
+  /* Latin subset only. Arabic/RTL is not covered here -- if the app is ever
+     localised, that needs its own face, not a heavier Poppins. */
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/poppins-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../fonts/poppins-latin-800-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
