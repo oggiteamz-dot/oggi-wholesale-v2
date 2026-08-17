@@ -175,3 +175,136 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   .tag-chip-remove { position: relative; width: 24px; height: 24px; }
   .tag-chip-remove::before { content: ""; position: absolute; inset: -10px; }
 }
+
+/* ---------------------------------------------------------------------------
+   DATE RANGE FILTER  (js/components/date-range-filter.js)
+   Filters sit in one row above the content they filter.
+   --------------------------------------------------------------------------- */
+
+.date-range { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-5); }
+.date-range-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.date-range-custom { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.date-range-custom .input { max-width: 170px; }
+.date-range-label { font-size: var(--text-xs); color: var(--text-tertiary); font-weight: 600; }
+.date-range-note { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+/* ---------------------------------------------------------------------------
+   CHARTS  (js/components/chart.js)
+   Mark specs per the dataviz method: recessive grid and axes, thin marks,
+   4px rounded data-ends anchored to the baseline, a 2px surface gap between
+   adjacent fills, and text in TEXT tokens rather than the series colour.
+   --------------------------------------------------------------------------- */
+
+.chart { position: relative; width: 100%; }
+/* The SVG's viewBox is now built at the container's real pixel width (see
+   chart.js), so 1 unit = 1px and nothing is stretched. height matches the
+   viewBox height rather than overriding it. */
+.chart-svg { width: 100%; height: 260px; display: block; overflow: visible; }
+
+/* Recessive: the grid is scaffolding for the data, never competing with it. */
+.chart-grid { stroke: var(--border-subtle); stroke-width: 1; }
+.chart-axis-label { fill: var(--text-tertiary); font-size: 11px; font-family: var(--font-sans); }
+.chart-crosshair {
+  stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+  pointer-events: none;
+}
+
+.chart-empty {
+  padding: var(--space-8) var(--space-4); text-align: center;
+  color: var(--text-tertiary); font-size: var(--text-sm);
+}
+.chart-error { color: var(--danger-700); }
+
+.chart-legend {
+  display: flex; flex-wrap: wrap; gap: var(--space-4);
+  margin-top: var(--space-3); font-size: var(--text-xs);
+  /* Ink, not the series colour. The swatch carries identity; the words stay
+     readable. Coloured label text is the classic way a legend becomes hard to
+     read for exactly the people the colour choice was meant to help. */
+  color: var(--text-secondary);
+}
+.chart-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.chart-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; }
+
+.chart-tooltip {
+  position: absolute; z-index: 5; pointer-events: none;
+  background: var(--bg-surface); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+  padding: var(--space-3); min-width: 150px; font-size: var(--text-xs);
+}
+.chart-tooltip-title { font-weight: 700; margin-bottom: 6px; color: var(--text-primary); }
+.chart-tooltip-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.chart-tooltip-name { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-tooltip-value { font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+/* --- horizontal bars --- */
+.chart-bar-row {
+  display: grid; grid-template-columns: minmax(90px, 1.4fr) 3fr auto;
+  align-items: center; gap: var(--space-3);
+  /* The 2px surface gap between adjacent fills. */
+  padding: 2px 0;
+}
+.chart-bar-label {
+  font-size: var(--text-sm); color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chart-bar-track { background: var(--bg-sunken); border-radius: var(--radius-sm); height: 22px; overflow: hidden; }
+.chart-bar-fill {
+  display: block; height: 100%;
+  /* Anchored to the baseline (left), rounded only at the DATA end. Rounding
+     both ends detaches the bar from its origin and makes short bars read as
+     floating pills rather than as measurements from zero. */
+  border-radius: 0 4px 4px 0;
+  transition: width var(--duration-base) var(--ease-emphasized);
+}
+.chart-bar-value {
+  font-size: var(--text-sm); font-weight: 700; color: var(--text-primary);
+  font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   DATA TABLE — the table view every chart is obliged to have an equivalent of
+   --------------------------------------------------------------------------- */
+
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.data-table th {
+  text-align: left; font-family: var(--font-display); font-size: var(--text-xs);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-tertiary);
+  font-weight: 600; padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-default); white-space: nowrap;
+}
+.data-table td { padding: var(--space-3); border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+.data-table tr:last-child td { border-bottom: none; }
+/* Tabular figures so columns of money line up digit under digit. */
+.data-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.data-table .is-inactive { opacity: 0.6; }
+.cell-sub { font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 2px; }
+
+/* ---------------------------------------------------------------------------
+   DRILL-DOWN LAYOUT
+   --------------------------------------------------------------------------- */
+
+.detail-card { padding: var(--space-5); margin-bottom: var(--space-4); }
+.detail-card-head h3 { margin: 0 0 2px; font-size: var(--text-lg); }
+.detail-card-head p { margin: 0 0 var(--space-4); font-size: var(--text-xs); color: var(--text-tertiary); }
+.detail-stamp { color: var(--text-tertiary); font-size: var(--text-xs); }
+.detail-note { margin-top: var(--space-3); font-size: var(--text-xs); color: var(--text-secondary); }
+.detail-generate { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-4); flex-wrap: wrap; }
+.detail-metric { max-width: 140px; }
+.stat-note { font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 4px; }
+
+.detail-brands { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.detail-brands-label {
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-tertiary); font-weight: 600; font-family: var(--font-display);
+}
+.detail-brands-empty { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+@media (max-width: 640px) {
+  /* On a phone the product name column has to give way, or the value column
+     is pushed off screen and the bar becomes decorative. */
+  .chart-bar-row { grid-template-columns: minmax(70px, 1fr) 2fr auto; gap: var(--space-2); }
+  .chart-svg { height: 220px; }
+}
