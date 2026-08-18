@@ -17,6 +17,7 @@ import { listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
 import { createProduct } from "../data/products-admin.js";
 import { renderProductForm } from "../components/product-form.js";
+import { listSuppliers, createSupplier, updateSupplier, archiveSupplier, restoreSupplier, supplierProductCounts } from "../data/suppliers.js";
 import { listLocations, locationStockTotals, createLocation, renameLocation,
          setDefaultLocation, archiveLocation, transferStock } from "../data/locations.js";
 import { listPortalAccounts, setPortalAccountActive } from "../data/team.js";
@@ -776,7 +777,9 @@ async function inventoryView(outlet) {
   const wid = session.wid;
   outlet.appendChild(pageHeader("Inventory", "Live stock by variant and location — lowest available first."));
 
-  const [stock, locations] = await Promise.all([getStockTable(wid), getLocations(wid)]);
+  const [stock, locations, suppliers] = await Promise.all([
+    getStockTable(wid), getLocations(wid), listSuppliers(wid),
+  ]);
   const location = locations[0] || null;
 
   // The SECOND entry point for product creation. Same component, same
@@ -807,6 +810,11 @@ async function inventoryView(outlet) {
       locations,
       hasLocation: !!location,
       locationName: location?.name || "",
+      suppliers,
+      // Creating a supplier without leaving a half-built product: this form
+      // holds unsaved photos and a stock grid, neither of which survives a
+      // navigation, so "go and make one first" would mean losing the work.
+      onCreateSupplier: (draft) => createSupplier(wid, draft),
       onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
       onSubmit: async (draft) => {
         const res = await createProduct(wid, { ...draft, locationId: draft.locationId || location?.id || null });
@@ -1690,9 +1698,10 @@ async function catalogsView(outlet) {
     const catalog = catalogs.find((c) => c.id === activeId);
     panel.innerHTML = `<div class="card" style="padding:16px;font-size:13px;color:var(--text-tertiary);">Loading ${esc(catalog.name)}…</div>`;
 
-    const [{ rows: products }, allLocations] = await Promise.all([
+    const [{ rows: products }, allLocations, suppliers] = await Promise.all([
       getCatalogProducts(activeId),
       getLocations(wid),
+      listSuppliers(wid),
     ]);
     const location = allLocations[0] || null;
 
@@ -1726,6 +1735,8 @@ async function catalogsView(outlet) {
         locations: allLocations,
         hasLocation: !!location,
         locationName: location?.name || "",
+        suppliers,
+        onCreateSupplier: (draft) => createSupplier(wid, draft),
         onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
         onSubmit: async (draft) => {
           const res = await createProduct(wid, {
@@ -1974,6 +1985,188 @@ function placeholder(outlet, title, batchNote) {
   outlet.appendChild(emptyState({ title: `${title} — coming soon`, body: "This route is wired and reachable; the view itself lands with its batch." }));
 }
 
+// ---------- Suppliers (Batch 17) ----------
+// Hadi: "we should have one, a tab for different suppliers". This is the
+// directory; creating one mid-product happens in the builder instead, because
+// that form holds unsaved photos and a grid that no navigation survives.
+//
+// The word points the opposite way to the rest of the app: buyer.js's
+// suppliers() means "wholesalers I buy from" seen from a buyer's seat. This is
+// the wholesaler's own supply chain, and migration 050 closed the table to anon
+// entirely, so nothing here is ever buyer-facing.
+async function suppliersView(outlet) {
+  const session = devAuth.getSession();
+  const wid = session?.wid;
+  outlet.innerHTML = "";
+  outlet.appendChild(pageHeader(
+    "Suppliers",
+    "Who you buy from. Attach one to a product when you create it, so you can always find your way back to the source."
+  ));
+
+  const host = document.createElement("div");
+  outlet.appendChild(host);
+
+  let editingId = null;
+  let creating = false;
+  let showArchived = false;
+
+  function field(label, key, value, type = "text") {
+    return `<div class="pf-field">
+      <label class="pf-label">${esc(label)}</label>
+      <input class="input" data-f="${key}" type="${type}" value="${esc(value || "")}" autocomplete="off">
+    </div>`;
+  }
+
+  function formCard(supplier) {
+    const card = document.createElement("div");
+    card.className = "card sup-form";
+    card.style.padding = "14px";
+    const sp = supplier || {};
+    card.innerHTML = `
+      <div class="pf-grid">
+        <div class="pf-field pf-span-2">
+          <label class="pf-label">Supplier name</label>
+          <input class="input" data-f="name" value="${esc(sp.name || "")}" autocomplete="off" placeholder="e.g. Zhejiang Textiles">
+        </div>
+        ${field("Contact person", "contactName", sp.contactName)}
+        ${field("Phone", "phone", sp.phone, "tel")}
+        ${field("Email", "email", sp.email, "email")}
+        ${field("Country", "country", sp.country)}
+        <div class="pf-field pf-span-2">
+          <label class="pf-label">Address</label>
+          <input class="input" data-f="address" value="${esc(sp.address || "")}" autocomplete="off">
+        </div>
+        ${field("Your reference", "refCode", sp.refCode)}
+        <div class="pf-field pf-span-2">
+          <label class="pf-label">Notes</label>
+          <input class="input" data-f="notes" value="${esc(sp.notes || "")}" autocomplete="off">
+        </div>
+      </div>
+      <p class="pf-error" data-sup-error hidden></p>
+    `;
+
+    const actions = document.createElement("div");
+    actions.className = "pf-actions";
+    const save = document.createElement("button");
+    save.className = "btn btn-primary btn-sm";
+    save.textContent = supplier ? "Save changes" : "Add supplier";
+    save.addEventListener("click", async () => {
+      const read = (k) => card.querySelector(`[data-f="${k}"]`)?.value || "";
+      const draft = {
+        name: read("name"), contactName: read("contactName"), phone: read("phone"),
+        email: read("email"), address: read("address"), country: read("country"),
+        refCode: read("refCode"), notes: read("notes"),
+      };
+      save.disabled = true;
+      const res = supplier ? await updateSupplier(supplier.id, draft) : await createSupplier(wid, draft);
+      save.disabled = false;
+      if (!res.ok) {
+        // The database's own message: "You already have a supplier called X"
+        // tells them to go and pick it, which "Save failed" does not.
+        const err = card.querySelector("[data-sup-error]");
+        err.textContent = res.error;
+        err.hidden = false;
+        return;
+      }
+      editingId = null; creating = false;
+      toast(supplier ? "Supplier updated" : "Supplier added", { type: "success" });
+      paint();
+    });
+    const cancel = document.createElement("button");
+    cancel.className = "btn btn-secondary btn-sm";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => { editingId = null; creating = false; paint(); });
+    actions.appendChild(save); actions.appendChild(cancel);
+    card.appendChild(actions);
+    return card;
+  }
+
+  async function paint() {
+    host.innerHTML = `<div class="card" style="padding:16px;font-size:13px;color:var(--text-tertiary);">Loading…</div>`;
+    const [rows, counts] = await Promise.all([
+      listSuppliers(wid, { includeArchived: showArchived }),
+      supplierProductCounts(wid),
+    ]);
+    host.innerHTML = "";
+
+    const bar = document.createElement("div");
+    bar.className = "sup-bar";
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn btn-primary btn-sm";
+    addBtn.textContent = creating ? "Close" : "+ New supplier";
+    addBtn.addEventListener("click", () => { creating = !creating; editingId = null; paint(); });
+    bar.appendChild(addBtn);
+
+    const arch = document.createElement("button");
+    arch.className = "btn btn-ghost btn-sm";
+    arch.textContent = showArchived ? "Hide archived" : "Show archived";
+    arch.addEventListener("click", () => { showArchived = !showArchived; paint(); });
+    bar.appendChild(arch);
+    host.appendChild(bar);
+
+    if (creating) host.appendChild(formCard(null));
+
+    if (!rows.length) {
+      host.appendChild(emptyState({
+        icon: "🏭",
+        title: showArchived ? "No suppliers yet" : "No suppliers yet",
+        body: "Add the factories and vendors you buy from. You can also create one while building a product, without leaving the form.",
+      }));
+      return;
+    }
+
+    rows.forEach((sp) => {
+      if (editingId === sp.id) { host.appendChild(formCard(sp)); return; }
+
+      const used = counts.get(sp.id) || 0;
+      const card = document.createElement("div");
+      card.className = "card sup-row";
+      const bits = [
+        sp.contactName, sp.phone, sp.email,
+        [sp.address, sp.country].filter(Boolean).join(", "),
+        sp.refCode && `Ref ${sp.refCode}`,
+      ].filter(Boolean);
+      card.innerHTML = `
+        <div class="sup-row-main">
+          <div class="sup-row-name">${esc(sp.name)}${sp.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
+          <div class="sup-row-meta">${bits.length ? bits.map(esc).join(" · ") : "No contact details yet"}</div>
+          ${sp.notes ? `<div class="sup-row-notes">${esc(sp.notes)}</div>` : ""}
+          <div class="sup-row-count">${used} product${used === 1 ? "" : "s"}</div>
+        </div>
+      `;
+
+      const tools = document.createElement("div");
+      tools.className = "sup-row-tools";
+
+      const edit = document.createElement("button");
+      edit.className = "btn btn-secondary btn-sm";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", () => { editingId = sp.id; creating = false; paint(); });
+      tools.appendChild(edit);
+
+      const toggle = document.createElement("button");
+      toggle.className = "btn btn-ghost btn-sm";
+      toggle.textContent = sp.archived ? "Restore" : "Archive";
+      // Archive, never delete: supplier_id is `on delete set null`, so a real
+      // delete would silently blank the sourcing on every product bought from
+      // them. The product count sits right above this button so that cost is
+      // visible before the click, not explained after it.
+      toggle.addEventListener("click", async () => {
+        const res = sp.archived ? await restoreSupplier(sp.id) : await archiveSupplier(sp.id);
+        if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+        toast(sp.archived ? "Supplier restored" : "Supplier archived", { type: "success" });
+        paint();
+      });
+      tools.appendChild(toggle);
+
+      card.appendChild(tools);
+      host.appendChild(card);
+    });
+  }
+
+  await paint();
+}
+
 export function registerWholesalerRoutes(router) {
   router.register("/wholesaler", (outlet) => dashboard(outlet));
   router.register("/wholesaler/products", (outlet) => productsView(outlet));
@@ -1982,7 +2175,9 @@ export function registerWholesalerRoutes(router) {
   router.register("/wholesaler/team", (outlet) => teamView(outlet));
   router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));
   router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet));
+
   router.register("/wholesaler/locations", (outlet) => locationsView(outlet));
+  router.register("/wholesaler/suppliers", (outlet) => suppliersView(outlet));
   router.register("/wholesaler/intelligence", (outlet) => intelligenceView(outlet));
   router.register("/wholesaler/settings", (outlet) => settingsView(outlet));
 }
