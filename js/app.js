@@ -66,13 +66,38 @@ function mountShell() {
   });
 
   const outlet = document.getElementById("view-outlet");
-  router.init(outlet);
 
-  // If the hash doesn't match anything for this role yet, send them home.
+  // If the hash doesn't resolve to a real route, send them home.
+  //
+  // This comment was already here and was already right. The CODE underneath
+  // it was not: it only checked for an empty hash or "#/", so the commonest
+  // case of all fell straight through. Signing in leaves the hash at
+  // "#/login"; that is neither empty nor "#/", no route is registered for it,
+  // and the router did exactly what it was told and rendered the not-found
+  // page. Every user's first sight after typing their password was "Page not
+  // found. That route doesn't exist in v2 yet." -- with a working navigation
+  // bar underneath it, so it looked like the app had half-loaded.
+  //
+  // Now it asks the router whether the path resolves, rather than trying to
+  // enumerate the paths that do not. Enumerating is what produced the bug:
+  // "#/login" simply was not on the list, and neither is "#/owner" when a
+  // BUYER lands on it from a stale bookmark, which had the same outcome.
+  //
+  // Decided BEFORE router.init(), not after. Redirecting afterwards works, but
+  // init() resolves immediately, so the not-found page renders for one frame
+  // and is then replaced -- a visible flash of "Page not found" on every
+  // single sign-in. Setting the hash first means the first resolve is already
+  // the right route.
   const homeByRole = { owner: "/owner", wholesaler: "/wholesaler", sales: "/sales", buyer: "/buyer" };
-  if (!window.location.hash || window.location.hash === "#/") {
-    router.go(homeByRole[session.role] || "/");
+  if (!router.matches(router.currentPath())) {
+    const home = homeByRole[session.role] || "/";
+    // Assign the hash directly rather than via router.go(): nothing is
+    // listening for hashchange yet (init() attaches that listener), so go()
+    // would set the hash and no resolve would follow. init() below does it.
+    window.location.hash = home;
   }
+
+  router.init(outlet);
 }
 
 // Batch 14: session resolution is now async (a real Supabase Auth
