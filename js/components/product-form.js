@@ -66,6 +66,7 @@
 
 import { esc } from "../lib/utils.js";
 import { renderScanBar } from "./scan-bar.js";
+import { uniqueNameForHex } from "../lib/colour-names.js";
 
 /** A small palette for products with no photos yet. The eyedropper is the
  *  real answer; this is the fallback, not the feature. */
@@ -109,6 +110,7 @@ function tok(s, n = 3) {
  */
 export function renderProductForm({
   catalogName = "your catalog", locations = [], hasLocation = true, locationName = "",
+  suppliers = [], onCreateSupplier = null,
   onSubmit = async () => ({ ok: true }), onCancel = () => {},
 } = {}) {
   // Back-compat: older callers passed hasLocation/locationName rather than the
@@ -119,7 +121,6 @@ export function renderProductForm({
   const photos = [];            // { file, url, id }
   const colours = [];           // { id, name, hex, photoId|null, sizes:[], cells:{size:{qty,sku,barcode}} }
   let defaultSizes = SIZE_PRESETS["S–XL"].slice();
-  let eyedropperFor = null;     // colour id currently sampling
 
   const el = document.createElement("section");
   el.className = "card detail-card product-form product-builder";
@@ -127,7 +128,11 @@ export function renderProductForm({
   const ids = {
     name: nid(), cat: nid(), desc: nid(), model: nid(), moq: nid(),
     price: nid(), cost: nid(), retail: nid(), loc: nid(), sizes: nid(),
+    supplier: nid(), supName: nid(), supContact: nid(), supPhone: nid(),
+    supEmail: nid(), supAddress: nid(), supCountry: nid(), supRef: nid(), supNotes: nid(),
   };
+  // Mutable so a supplier created inline can join the list without a reload.
+  let supplierList = suppliers.slice();
 
   el.innerHTML = `
     <header class="detail-card-head">
@@ -198,6 +203,10 @@ export function renderProductForm({
       <div class="pb-scan" id="pb-scan"></div>
       <div class="pb-grid" id="pb-grid"></div>
 
+      <div class="pf-section-head"><h4>Supplier <span class="pf-optional">optional</span></h4>
+        <p>Who you buy this from. Pick one you already have, or add a new one without leaving this form.</p></div>
+      <div class="pb-supplier" id="pb-supplier"></div>
+
       <p class="pf-status" role="status" hidden></p>
       <div class="pf-actions">
         <button type="button" class="btn btn-primary" id="pb-save">Create product</button>
@@ -211,6 +220,7 @@ export function renderProductForm({
   const coloursHost = $("#pb-colours");
   const sizesHost = $("#pb-sizes");
   const gridHost = $("#pb-grid");
+  const supplierHost = $("#pb-supplier");
   const scanHost = $("#pb-scan");
   const status = $(".pf-status");
 
@@ -227,15 +237,10 @@ export function renderProductForm({
         <img src="${p.url}" alt="Product photo ${i + 1}">
         ${i === 0 ? '<span class="pb-photo-primary">Main</span>' : ""}
       `;
-      // Tapping a photo is how a colour gets sampled -- so the whole tile is
-      // the target, not a tiny icon on it.
-      cell.addEventListener("click", (ev) => {
-        if (eyedropperFor) { sampleFromPhoto(p, ev, cell.querySelector("img")); return; }
-        // No eyedropper armed: promote to main.
-        const [moved] = photos.splice(i, 1);
-        photos.unshift(moved);
-        paintPhotos(); paintColours();
-      });
+      // Tapping a photo opens the colour picker on THAT photo. Picking colours
+      // is what these thumbnails are for; reordering is the rarer act, so it
+      // gets its own button below rather than owning the whole tile.
+      cell.addEventListener("click", () => openColourPicker({ startPhotoId: p.id }));
 
       const del = document.createElement("button");
       del.type = "button";
@@ -252,6 +257,21 @@ export function renderProductForm({
         paintPhotos(); paintColours();
       });
       cell.appendChild(del);
+
+      if (i !== 0) {
+        const main = document.createElement("button");
+        main.type = "button";
+        main.className = "pb-photo-main";
+        main.textContent = "Make main";
+        main.addEventListener("click", (ev) => {
+          ev.stopPropagation();          // do not also open the picker
+          const [moved] = photos.splice(i, 1);
+          photos.unshift(moved);
+          paintPhotos(); paintColours();
+        });
+        cell.appendChild(main);
+      }
+
       photosHost.appendChild(cell);
     });
 
@@ -267,42 +287,219 @@ export function renderProductForm({
       paintPhotos(); paintColours();
     });
     photosHost.appendChild(add);
-
-    if (eyedropperFor) {
-      const hint = document.createElement("p");
-      hint.className = "pb-eyedrop-hint";
-      const c = colours.find((x) => x.id === eyedropperFor);
-      hint.textContent = photos.length
-        ? `Tap anywhere on a photo to set the colour for "${c?.name || "this colour"}".`
-        : "Add a photo first — there is nothing to sample from yet.";
-      photosHost.appendChild(hint);
-    }
   }
 
-  /** Samples the tapped pixel. Canvas + getImageData, no library, so the CSP
-   *  (`script-src 'self'`) is untouched -- the same approach v1 used. */
-  function sampleFromPhoto(photo, ev, imgEl) {
-    const rect = imgEl.getBoundingClientRect();
-    const cv = document.createElement("canvas");
-    cv.width = imgEl.naturalWidth || rect.width;
-    cv.height = imgEl.naturalHeight || rect.height;
-    const ctx = cv.getContext("2d");
-    try {
-      ctx.drawImage(imgEl, 0, 0, cv.width, cv.height);
-      const x = Math.floor((ev.clientX - rect.left) * (cv.width / rect.width));
-      const y = Math.floor((ev.clientY - rect.top) * (cv.height / rect.height));
-      const d = ctx.getImageData(
-        Math.max(0, Math.min(cv.width - 1, x)),
-        Math.max(0, Math.min(cv.height - 1, y)), 1, 1
-      ).data;
-      const hex = "#" + [d[0], d[1], d[2]].map((n) => ("0" + n.toString(16)).slice(-2)).join("");
-      const c = colours.find((x) => x.id === eyedropperFor);
-      if (c) { c.hex = hex; c.photoId = photo.id; }
-    } catch {
-      showError("photos", "Could not read that photo's colours. Try a different image.");
+  // =========================================================================
+  // THE COLOUR PICKER
+  // =========================================================================
+  // Hadi: "when I click on pick from photo... nothing. What we did last time is
+  // the actual image of the products appears in front of me, expands to take
+  // over most of the screen, and I can with my finger click on any colour in
+  // the image and extract that colour. And I can switch between different
+  // images so I can pick every colour that I want. Every click is a colour."
+  //
+  // That is the whole specification and it is worth taking literally:
+  //
+  //   THE PHOTO GETS THE SCREEN. Sampling a colour off a garment means hitting
+  //   a specific few pixels -- a cuff, a stripe, the body away from a fold.
+  //   The old flow asked for that on a 90px thumbnail, which is not a
+  //   precision instrument, and gave no visible response to the button press
+  //   at all. It did not fail; it just never looked like it had started.
+  //
+  //   IT STAYS OPEN. "Every click is a colour" means a run of taps, not one
+  //   tap and a dismissal. Closing after each pick would make a six-colour
+  //   product six trips through the same modal.
+  //
+  //   IMAGES SWITCH INSIDE IT. Colourways usually live across several photos,
+  //   so having to close, change photo and reopen would break the run.
+  //
+  // The live chip under the finger is not decoration. A fingertip is roughly
+  // 40px across and completely covers the pixel it is aiming at, so without a
+  // readout the person literally cannot see what they are about to pick. It
+  // shows the colour and its name before the tap commits anything.
+  function openColourPicker({ forColourId = null, startPhotoId = null } = {}) {
+    if (!photos.length) {
+      showError("photos", "Add a photo first — there is nothing to pick a colour from.");
+      photosHost.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      return null;
     }
-    eyedropperFor = null;
-    paintPhotos(); paintColours();
+
+    // Start on the photo this colour already came from, if it has one, so
+    // re-picking a colour opens where it was found rather than at photo 1.
+    const existing = colours.find((c) => c.id === forColourId);
+    const openOn = startPhotoId || existing?.photoId || null;
+    let index = Math.max(0, photos.findIndex((p) => p.id === openOn));
+    let target = forColourId;          // cleared after the first tap
+    const pickedIds = [];
+
+    const overlay = document.createElement("div");
+    overlay.className = "pb-picker";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Pick colours from photo");
+    overlay.innerHTML = `
+      <div class="pb-picker-bar">
+        <span class="pb-picker-title">Tap the photo to pick a colour</span>
+        <span class="pb-picker-live" data-live>
+          <i class="pb-picker-chip" data-live-chip></i>
+          <span data-live-name>—</span>
+        </span>
+        <button type="button" class="btn btn-primary btn-sm" data-done>Done</button>
+      </div>
+      <div class="pb-picker-stage"><canvas data-stage></canvas></div>
+      <div class="pb-picker-picked" data-picked></div>
+      <div class="pb-picker-strip" data-strip></div>
+    `;
+
+    const canvas = overlay.querySelector("[data-stage]");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const liveChip = overlay.querySelector("[data-live-chip]");
+    const liveName = overlay.querySelector("[data-live-name]");
+    const pickedHost = overlay.querySelector("[data-picked]");
+    const stripHost = overlay.querySelector("[data-strip]");
+
+    // A 12MP phone photo would otherwise become a 4000x3000 canvas held in
+    // memory on the device least able to afford it. Colour is unaffected by
+    // downscaling; only the long edge is capped.
+    const MAX_EDGE = 1600;
+
+    function drawPhoto() {
+      const photo = photos[index];
+      if (!photo) return;
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      };
+      img.onerror = () => {
+        // Blocked or unreadable image: say so in the picker rather than
+        // leaving a blank rectangle that reads as "the app is broken".
+        liveName.textContent = "This photo could not be read";
+      };
+      img.src = photo.url;
+    }
+
+    function hexAt(ev) {
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return null;
+      const x = Math.floor((ev.clientX - rect.left) * (canvas.width / rect.width));
+      const y = Math.floor((ev.clientY - rect.top) * (canvas.height / rect.height));
+      if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return null;
+      try {
+        const d = ctx.getImageData(x, y, 1, 1).data;
+        // A fully transparent pixel reports as black, which would silently add
+        // a wrong colour. Treat it as "nothing here" instead.
+        if (d[3] === 0) return null;
+        return "#" + [d[0], d[1], d[2]].map((n) => ("0" + n.toString(16)).slice(-2)).join("");
+      } catch {
+        return null;
+      }
+    }
+
+    function paintPicked() {
+      pickedHost.innerHTML = "";
+      if (!pickedIds.length) {
+        pickedHost.innerHTML = `<span class="pb-picker-empty">Every tap adds a colour. Switch photos below to keep going.</span>`;
+        return;
+      }
+      pickedIds.forEach((id) => {
+        const c = colours.find((x) => x.id === id);
+        if (!c) return;
+        const chip = document.createElement("span");
+        chip.className = "pb-picker-picked-chip";
+        chip.innerHTML = `<i style="background:${esc(c.hex)}"></i><span>${esc(c.name || "Unnamed")}</span>`;
+        const undo = document.createElement("button");
+        undo.type = "button";
+        undo.className = "pb-picker-undo";
+        undo.setAttribute("aria-label", `Remove ${c.name || "this colour"}`);
+        undo.textContent = "×";
+        // Undo has to be here, inside the picker. A mis-tap on a shadow is the
+        // most likely thing to go wrong in a fast run of picks, and making
+        // someone close the modal to delete it would end the run.
+        undo.addEventListener("click", () => {
+          const at = colours.findIndex((x) => x.id === id);
+          if (at >= 0) colours.splice(at, 1);
+          pickedIds.splice(pickedIds.indexOf(id), 1);
+          paintPicked();
+          paintColours(); paintGrid();
+        });
+        chip.appendChild(undo);
+        pickedHost.appendChild(chip);
+      });
+    }
+
+    function paintStrip() {
+      stripHost.innerHTML = "";
+      if (photos.length < 2) return;
+      photos.forEach((p, i) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "pb-picker-thumb" + (i === index ? " is-active" : "");
+        b.setAttribute("aria-label", `Photo ${i + 1}`);
+        b.setAttribute("aria-pressed", String(i === index));
+        b.innerHTML = `<img src="${p.url}" alt="">`;
+        b.addEventListener("click", () => { index = i; drawPhoto(); paintStrip(); });
+        stripHost.appendChild(b);
+      });
+    }
+
+    function preview(ev) {
+      const hex = hexAt(ev);
+      if (!hex) return;
+      liveChip.style.background = hex;
+      liveName.textContent = `${uniqueNameForHex(hex, []) || "Colour"} · ${hex.toUpperCase()}`;
+    }
+
+    function commit(ev) {
+      const hex = hexAt(ev);
+      if (!hex) return;
+      const taken = colours.map((c) => c.name);
+      const name = uniqueNameForHex(hex, taken) || "";
+      const photoId = photos[index]?.id || null;
+
+      if (target) {
+        // The first tap fills the colour whose button opened this. After that,
+        // every further tap adds a NEW colour -- "every click is a colour".
+        const c = colours.find((x) => x.id === target);
+        if (c) {
+          c.hex = hex;
+          c.photoId = photoId;
+          // Only name it if the wholesaler has not written their own name.
+          // Overwriting a name someone typed would be the app arguing with the
+          // person who knows what the colour is actually called.
+          if (!c.nameTyped) c.name = name;
+          if (!pickedIds.includes(c.id)) pickedIds.push(c.id);
+        }
+        target = null;
+      } else {
+        const c = addColour({ hex, photoId, name });
+        pickedIds.push(c.id);
+      }
+      paintPicked();
+      paintColours(); paintGrid();
+    }
+
+    canvas.addEventListener("pointermove", preview);
+    canvas.addEventListener("pointerdown", (ev) => { ev.preventDefault(); preview(ev); commit(ev); });
+
+    function close() {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      overlay.remove();
+      paintPhotos(); paintColours(); paintGrid();
+    }
+    function onKey(ev) { if (ev.key === "Escape") close(); }
+
+    overlay.querySelector("[data-done]").addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";   // the page must not scroll under the picker
+    document.body.appendChild(overlay);
+    drawPhoto(); paintStrip(); paintPicked();
+    return overlay;
   }
 
   // =========================================================================
@@ -352,6 +549,10 @@ export function renderProductForm({
 
       row.querySelector(".pb-colour-name").addEventListener("input", (ev) => {
         c.name = ev.target.value;
+        // A name the wholesaler typed outranks any name the app worked out.
+        // Clearing the box hands naming back to the picker, which is the
+        // natural way to say "you choose" -- so this is not a one-way latch.
+        c.nameTyped = ev.target.value.trim() !== "";
         paintGrid();   // the grid's row labels follow the name as it is typed
       });
 
@@ -361,13 +562,12 @@ export function renderProductForm({
       const eye = document.createElement("button");
       eye.type = "button";
       eye.className = "btn btn-secondary btn-sm pb-eye";
-      eye.textContent = eyedropperFor === c.id ? "Tap a photo…" : "Pick from photo";
-      eye.setAttribute("aria-pressed", String(eyedropperFor === c.id));
-      eye.addEventListener("click", () => {
-        eyedropperFor = eyedropperFor === c.id ? null : c.id;
-        paintPhotos(); paintColours();
-        if (eyedropperFor) photosHost.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      });
+      eye.textContent = "Pick from photo";
+      // Opens the photo full-screen and sets THIS colour from the next tap.
+      // The old behaviour armed a mode and then waited for a tap on a 90px
+      // thumbnail in the strip above, with the only feedback a line of text --
+      // which on a phone is indistinguishable from the button doing nothing.
+      eye.addEventListener("click", () => openColourPicker({ forColourId: c.id }));
       tools.appendChild(eye);
 
       const hex = document.createElement("input");
@@ -398,6 +598,17 @@ export function renderProductForm({
 
     const add = document.createElement("div");
     add.className = "pb-colour-add";
+
+    // The primary way in: open the photo big and take as many colours off it
+    // as the product has. Listed first because on a product with photos it is
+    // the faster path by a wide margin -- one modal, N taps, N named colours,
+    // versus N rounds of "add colour, open picker, tap, close".
+    const pickBtn = document.createElement("button");
+    pickBtn.type = "button";
+    pickBtn.className = "btn btn-primary btn-sm";
+    pickBtn.textContent = "Pick colours from photo";
+    pickBtn.addEventListener("click", () => openColourPicker({}));
+    add.appendChild(pickBtn);
 
     const addBtn = document.createElement("button");
     addBtn.type = "button";
@@ -489,6 +700,147 @@ export function renderProductForm({
   }
 
   // =========================================================================
+  // SUPPLIER
+  // =========================================================================
+  // Hadi asked to be able to create a supplier "here in the inventory and in
+  // the catalogs whenever we create an actual product". So the picker carries
+  // its own create form: leaving a half-built product to go and make a supplier
+  // means either losing the product or juggling two screens, and this form
+  // holds unsaved photos and a grid that cannot survive a navigation.
+  //
+  // Optional, and it says so. A wholesaler who does not track sourcing must not
+  // be blocked from saving a product, which is also why supplier_id is nullable
+  // in migration 050.
+  let selectedSupplierId = "";
+  let supplierFormOpen = false;
+
+  function paintSupplier() {
+    supplierHost.innerHTML = "";
+
+    const row = document.createElement("div");
+    row.className = "pb-supplier-row";
+
+    const sel = document.createElement("select");
+    sel.className = "input";
+    sel.id = ids.supplier;
+    sel.setAttribute("aria-label", "Supplier for this product");
+    sel.innerHTML =
+      `<option value="">No supplier</option>` +
+      supplierList.map((sp) => `<option value="${esc(sp.id)}"${sp.id === selectedSupplierId ? " selected" : ""}>${esc(sp.name)}</option>`).join("");
+    sel.addEventListener("change", () => { selectedSupplierId = sel.value; paintSupplier(); });
+    row.appendChild(sel);
+
+    const newBtn = document.createElement("button");
+    newBtn.type = "button";
+    newBtn.className = "btn btn-secondary btn-sm";
+    newBtn.textContent = supplierFormOpen ? "Cancel new supplier" : "+ New supplier";
+    newBtn.addEventListener("click", () => { supplierFormOpen = !supplierFormOpen; paintSupplier(); });
+    row.appendChild(newBtn);
+    supplierHost.appendChild(row);
+
+    // Show what was chosen. A bare select says the name and nothing else, and
+    // the reason to record a supplier at all is to be able to reach them.
+    const chosen = supplierList.find((sp) => sp.id === selectedSupplierId);
+    if (chosen && !supplierFormOpen) {
+      const card = document.createElement("div");
+      card.className = "pb-supplier-card";
+      const bits = [
+        chosen.contactName && `Contact: ${chosen.contactName}`,
+        chosen.phone,
+        chosen.email,
+        [chosen.address, chosen.country].filter(Boolean).join(", "),
+        chosen.refCode && `Ref ${chosen.refCode}`,
+      ].filter(Boolean);
+      card.innerHTML = bits.length
+        ? bits.map((b) => `<span>${esc(b)}</span>`).join("")
+        : `<span class="pf-hint">No contact details recorded for this supplier yet.</span>`;
+      supplierHost.appendChild(card);
+    }
+
+    if (!supplierFormOpen) return;
+
+    const form = document.createElement("div");
+    form.className = "pb-supplier-new pf-grid";
+    form.innerHTML = `
+      <div class="pf-field pf-span-2">
+        <label class="pf-label" for="${ids.supName}">Supplier name</label>
+        <input class="input" id="${ids.supName}" autocomplete="off" placeholder="e.g. Zhejiang Textiles">
+        <p class="pf-error" data-for="${ids.supName}" hidden></p>
+      </div>
+      <div class="pf-field">
+        <label class="pf-label" for="${ids.supContact}">Contact person</label>
+        <input class="input" id="${ids.supContact}" autocomplete="off">
+      </div>
+      <div class="pf-field">
+        <label class="pf-label" for="${ids.supPhone}">Phone</label>
+        <input class="input" id="${ids.supPhone}" type="tel" autocomplete="off">
+      </div>
+      <div class="pf-field">
+        <label class="pf-label" for="${ids.supEmail}">Email</label>
+        <input class="input" id="${ids.supEmail}" type="email" autocomplete="off">
+      </div>
+      <div class="pf-field">
+        <label class="pf-label" for="${ids.supCountry}">Country</label>
+        <input class="input" id="${ids.supCountry}" autocomplete="off">
+      </div>
+      <div class="pf-field pf-span-2">
+        <label class="pf-label" for="${ids.supAddress}">Address</label>
+        <input class="input" id="${ids.supAddress}" autocomplete="off">
+      </div>
+      <div class="pf-field">
+        <label class="pf-label" for="${ids.supRef}">Your reference <span class="pf-optional">optional</span></label>
+        <input class="input" id="${ids.supRef}" autocomplete="off">
+      </div>
+      <div class="pf-field pf-span-2">
+        <label class="pf-label" for="${ids.supNotes}">Notes <span class="pf-optional">optional</span></label>
+        <input class="input" id="${ids.supNotes}" autocomplete="off">
+      </div>
+    `;
+    supplierHost.appendChild(form);
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "btn btn-primary btn-sm";
+    saveBtn.textContent = "Save supplier";
+    saveBtn.addEventListener("click", async () => {
+      const val = (k) => el.querySelector(`#${ids[k]}`)?.value || "";
+      if (!val("supName").trim()) {
+        showError(ids.supName, "Give the supplier a name.");
+        el.querySelector(`#${ids.supName}`)?.focus();
+        return;
+      }
+      if (typeof onCreateSupplier !== "function") {
+        showError(ids.supName, "Suppliers cannot be created from here yet.");
+        return;
+      }
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving…";
+      const res = await onCreateSupplier({
+        name: val("supName"), contactName: val("supContact"), phone: val("supPhone"),
+        email: val("supEmail"), address: val("supAddress"), country: val("supCountry"),
+        refCode: val("supRef"), notes: val("supNotes"),
+      });
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save supplier";
+      if (!res?.ok) {
+        // The database's own message, which names the real reason -- "you
+        // already have a supplier called X" tells them to pick it instead.
+        showError(ids.supName, res?.error || "Could not save that supplier.");
+        return;
+      }
+      supplierList = supplierList.concat([res.supplier]).sort((a, b) => a.name.localeCompare(b.name));
+      selectedSupplierId = res.supplier.id;   // created it, so it is the one they meant
+      supplierFormOpen = false;
+      paintSupplier();
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "pb-supplier-actions";
+    actions.appendChild(saveBtn);
+    supplierHost.appendChild(actions);
+  }
+
+  // =========================================================================
   // SCANNING INTO THE GRID
   // =========================================================================
   // A cell is a colour+size, and the barcode belongs to that exact pair, so
@@ -503,7 +855,8 @@ export function renderProductForm({
   // warehouse scan bar refocuses itself. It stops at the last cell rather than
   // wrapping: wrapping would quietly overwrite the first barcode with the last
   // scan, and an operator watching the label gun would not see it happen.
-  let scanAim = null; // { cid, size }
+  let scanAim = null;      // { cid, size }
+  let scanBarRef = null;   // the live scan bar, so a cell button can hand it focus
 
   function aimScanner(cid, size) {
     scanAim = { cid, size };
@@ -577,7 +930,13 @@ export function renderProductForm({
         : `${value} → ${c.name || "colour"} · ${scanAim.size}. That was the last cell.`,
       false
     );
-    if (next) scanAim = next;
+    if (next) {
+      scanAim = next;
+      // Keep the bar itself saying where the NEXT trigger pull will land, so a
+      // run stays readable without looking away from the label gun.
+      const nc = colours.find((x) => x.id === next.cid);
+      scanBarRef?.setPlaceholder(`Scan for ${nc?.name || "colour"} · ${next.size}…`);
+    }
     paintScanAim();
   }
 
@@ -607,6 +966,7 @@ export function renderProductForm({
       autofocus: false,
       compact: true,
     });
+    scanBarRef = bar;
     scanHost.appendChild(bar.el);
 
     const line = document.createElement("p");
@@ -640,6 +1000,23 @@ export function renderProductForm({
         <strong>${esc(c.name || "Unnamed colour")}</strong>
         <span class="pb-grid-total" data-total="${c.id}">0</span>
       `;
+      // Starts a run at this colour's first size. Each scan advances to the
+      // next size on its own, so a colour with six sizes is one button press
+      // and six trigger pulls rather than twelve alternating actions.
+      const runBtn = document.createElement("button");
+      runBtn.type = "button";
+      runBtn.className = "btn btn-secondary btn-xs pb-grid-scanall";
+      runBtn.textContent = "Scan sizes";
+      runBtn.dataset.scanRun = c.id;
+      runBtn.setAttribute("aria-label", `Scan barcodes for every size of ${c.name || "this colour"}`);
+      runBtn.addEventListener("click", () => {
+        if (!c.sizes.length) return;
+        aimScanner(c.id, c.sizes[0]);
+        scanBarRef?.setPlaceholder(`Scan for ${c.name || "colour"} · ${c.sizes[0]}…`);
+        scanBarRef?.refocus();
+        scanHost.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+      head.appendChild(runBtn);
       block.appendChild(head);
 
       const sizeField = document.createElement("div");
@@ -704,7 +1081,31 @@ export function renderProductForm({
           c.cells[size].barcode = bc.value.trim();
         });
         bc.addEventListener("focus", () => aimScanner(c.id, size));
-        cell.appendChild(bc);
+
+        const bcRow = document.createElement("div");
+        bcRow.className = "pb-cell-bc";
+        bcRow.appendChild(bc);
+
+        // Hadi asked for a scan button on each barcode box. It aims at THIS
+        // cell and hands focus to the scan bar, which is what a hardware
+        // scanner needs -- those devices type into whatever is focused and
+        // press Enter, so "focus the right field" IS the whole integration.
+        // The camera path, where the browser has one, lives on the scan bar's
+        // own button rather than being duplicated 30 times down the grid.
+        const scanBtn = document.createElement("button");
+        scanBtn.type = "button";
+        scanBtn.className = "btn btn-secondary btn-xs pb-cell-scan";
+        scanBtn.textContent = "Scan";
+        scanBtn.dataset.scanFor = `${c.id}|${size}`;
+        scanBtn.setAttribute("aria-label", `Scan a barcode for ${c.name || "this colour"} ${size}`);
+        scanBtn.addEventListener("click", () => {
+          aimScanner(c.id, size);
+          scanBarRef?.setPlaceholder(`Scan for ${c.name || "colour"} · ${size}…`);
+          scanBarRef?.refocus();
+          scanHost.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        });
+        bcRow.appendChild(scanBtn);
+        cell.appendChild(bcRow);
 
         cells.appendChild(cell);
       });
@@ -779,6 +1180,7 @@ export function renderProductForm({
       moqQty: Number(v(ids.moq)) || 1,
       locationId: v(ids.loc) || null,
       photos: photos.map((p) => p.file),
+      supplierId: selectedSupplierId || null,
       // Product-level pricing spread onto every variant -- see the header.
       variants: variants.map((x) => ({ ...x, price, cost, retailPrice: retail, moqQty: 1 })),
     };
@@ -874,6 +1276,7 @@ export function renderProductForm({
 
   paintPhotos();
   paintColours();
+  paintSupplier();
   paintSizes();
   paintGrid();
 
