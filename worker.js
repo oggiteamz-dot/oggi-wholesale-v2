@@ -26,8 +26,18 @@
 // being flipped back to false). Keep both files in sync if the policy
 // changes -- see docs/BATCH-14-SCHEMA-MIGRATION-RECORD.md.
 
-// Kept in one place and reused verbatim by ../_headers -- if you change
-// the policy, change it in both files.
+// THREE files carry this policy and all three must agree: this constant,
+// ../_headers, and the <meta http-equiv> tag in ../index.html. This one
+// is the only one that actually reaches the browser on a normal request
+// -- `run_worker_first = true` means the fetch handler below runs on
+// every request and `.set()`s this value over whatever `_headers`
+// produced. That asymmetry has already cost a day: blob: was added to
+// index.html and _headers on 18 Aug and NOT here, so the meta tag
+// allowed blob: while the response header still forbade it. A page under
+// two policies gets the INTERSECTION of them, so the stricter one --
+// this one -- silently won and every photo preview stayed blocked while
+// the file that was edited looked correct. checks/check_shipped_csp.mjs
+// now asserts against the deployed response, not against these files.
 const CSP = [
   "default-src 'self'",
   // No inline <script> tags anywhere in this build (both scripts in
@@ -46,7 +56,15 @@ const CSP = [
   // image_url/images columns) -- these can point at any host they use
   // for image hosting, so img-src must allow any https host rather than
   // an allowlist of one CDN. data: covers any inline data-URI images.
-  "img-src 'self' https: data:",
+  // blob: is required by the product builder, which previews a photo
+  // before it is uploaded via URL.createObjectURL(file) and then samples
+  // that <img> on a canvas for the eyedropper. Without it the preview
+  // never loads, naturalWidth reports 0, and the eyedropper returns
+  // black. It is a narrow addition: blob: URLs are minted by this page,
+  // are same-origin by construction, cannot be forged by a third party,
+  // and are revoked when the form resets -- it widens nothing that can
+  // be fetched from the network.
+  "img-src 'self' https: data: blob:",
   "font-src 'self'",
   // The only network calls this app's frontend makes are to its own
   // Supabase project (REST/RPC/Auth/Storage/Edge Functions all share one
