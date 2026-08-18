@@ -33,7 +33,9 @@ async function dashboard(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
 
-  outlet.appendChild(pageHeader("Catalog", `Browsing ${session.wholesalerName || wid}`, `<a class="btn btn-secondary btn-sm" href="#/buyer/suppliers">Switch supplier</a>`));
+  // No "Switch supplier" action: switching implied a roster to switch
+  // between, and that roster was the leak. See suppliers() below.
+  outlet.appendChild(pageHeader("Catalog", `Browsing ${session.wholesalerName || wid}`));
 
   const skeletonWrap = document.createElement("div");
   skeletonWrap.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;";
@@ -139,43 +141,40 @@ async function dashboard(outlet) {
   renderGrid(defaultCatalogFilters());
 }
 
+// =============================================================================
+// SUPPLIERS -- capability removed 18 Aug 2026
+// =============================================================================
+// This screen used to list EVERY wholesaler on the platform by brand name,
+// each with a "Browse catalog" button that swapped the session's wid. So any
+// buyer of any wholesaler could read OGGI's entire client list and walk into a
+// competitor's catalogue. Reported by Hadi on sight, and correct to report:
+// the wholesalers are OGGI's customers, and their names are not the buyer's
+// business.
+//
+// THE ROUTE IS KEPT, THE ROSTER IS GONE. Deleting the route would 404 anyone
+// with a bookmark or a bottom-nav entry cached in an installed PWA -- a
+// removal that looks like a crash. This renders an explanation instead.
+//
+// Cross-wholesaler browsing is NOT being abandoned; it is being rebuilt as the
+// Marketplace, where products from many wholesalers appear under OGGI's own
+// branding with no supplier identity attached anywhere. Same buyer benefit,
+// none of the disclosure.
+//
+// Belt and braces: migration 042 revoked the anon role's access to
+// v2_wholesalers, so restoring this screen's old query would now fail against
+// the database rather than quietly working again.
+// =============================================================================
 async function suppliers(outlet) {
-  outlet.appendChild(pageHeader("Suppliers", "Pick a wholesaler to browse their catalog."));
-  const wholesalers = await listWholesalers();
-  const grid = document.createElement("div");
-  grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;";
-  wholesalers.forEach((w) => {
-    const c = document.createElement("div");
-    c.className = "card";
-    c.style.cssText = "padding:18px;display:flex;flex-direction:column;gap:10px;";
-    c.innerHTML = `<h4>${esc(w.brand || w.name)}</h4><div style="font-size:12px;color:var(--text-tertiary);">wid: ${w.wid}</div>`;
-    const btn = document.createElement("button");
-    btn.className = "btn btn-primary btn-sm";
-    btn.textContent = "Browse catalog";
-    btn.addEventListener("click", () => {
-      const session = devAuth.getSession();
-      session.wid = w.wid;
-      session.wholesalerName = w.brand || w.name;
-      // Batch 14: accountId/clientId belong to the PREVIOUS wholesaler's
-      // v2_portal_accounts row -- carrying them over would make
-      // v2_get_buyer_orders/v2_submit_order look up the wrong
-      // wholesaler's data (or fail the account/wid match entirely).
-      // Clearing them here is the honest behavior: this buyer doesn't
-      // have a real account with the newly-browsed wholesaler, so they
-      // browse it the same way a not-yet-onboarded buyer does (catalog
-      // browsing works, order history is empty, checkout still works via
-      // the buyer_label fallback) rather than silently reusing a session
-      // that doesn't apply here.
-      session.accountId = null;
-      session.clientId = null;
-      localStorage.setItem("oggi-v2-dev-session", JSON.stringify(session));
-      window.location.hash = "#/buyer";
-      window.location.reload();
-    });
-    c.appendChild(btn);
-    grid.appendChild(c);
-  });
-  outlet.appendChild(grid);
+  outlet.appendChild(pageHeader(
+    "Suppliers",
+    "You browse the catalogue of the supplier you have an account with."
+  ));
+  outlet.appendChild(emptyState({
+    icon: "\u{1F3EC}",
+    title: "One account, one supplier",
+    body: "You're set up with your supplier and their full catalogue is on the Catalog tab. "
+        + "Browsing products across multiple suppliers is coming to OGGI as the Marketplace.",
+  }));
 }
 
 // ---------- Cart ----------
