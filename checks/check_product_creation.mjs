@@ -97,30 +97,87 @@ ok(photoCount === 1, `a photo can be added (${photoCount} on screen)`);
 ok(await page.evaluate(() => !!document.querySelector(".pb-photo-primary")),
   "the first photo is marked as the main one");
 
-// ---- colour 1, sampled from the photo ----
+// ---- THE GRID ROW MUST EXIST BEFORE ANYTHING IS TYPED ----
+// This ordering is the point of the assertion, not an accident of it. The
+// previous version added a colour and immediately typed its name, and typing
+// in a name field repaints the grid -- so "the grid has one row per colour"
+// passed on a build where ADDING a colour produced no row at all, which is
+// exactly the bug Hadi hit. Nothing may be typed between the add and the
+// check.
 await page.click('.pb-colour-add button:has-text("+ Add colour")');
+await page.waitForTimeout(400);
+const rowsBeforeTyping = await page.evaluate(() => document.querySelectorAll(".pb-grid-row").length);
+ok(rowsBeforeTyping === 1,
+  `a colour gets its grid row on being added, before a single keystroke (${rowsBeforeTyping} row(s))`);
+await page.evaluate(() => {
+  const c = document.querySelector(".pb-colour");
+  c?.querySelector(".btn-ghost")?.click();     // Remove, back to a clean slate
+});
 await page.waitForTimeout(300);
-await page.click(".pb-colour .pb-eye");
-await page.waitForTimeout(300);
-ok(await page.evaluate(() => !!document.querySelector(".pb-eyedrop-hint")),
-  "arming the eyedropper tells you what to do next");
 
-// A locator click, not mouse.click at a measured point. Arming the eyedropper
-// calls scrollIntoView({behavior:"smooth"}), so a boundingBox taken right
-// after it is stale by the time the mouse moves -- the click landed on
-// whatever had scrolled into that spot and the sample never happened. A
-// locator re-measures and waits for the element to settle first.
-await page.locator(".pb-photo img").first().click({ position: { x: 40, y: 40 } });
+// ---- colour 1, picked in the full-screen picker ----
+// Hadi: "when I click on pick from photo... nothing." The button used to arm a
+// mode and wait for a tap on a 90px thumbnail. It now opens the photo full
+// screen, which is what these assertions check for.
+await page.click('.pb-colour-add button:has-text("Pick colours from photo")');
 await page.waitForTimeout(600);
+ok(await page.evaluate(() => !!document.querySelector(".pb-picker")),
+  "Pick from photo OPENS something — a full-screen picker, not a silent mode");
+
+const stageBig = await page.evaluate(() => {
+  const c = document.querySelector(".pb-picker-stage canvas");
+  if (!c) return 0;
+  const r = c.getBoundingClientRect();
+  return Math.round(Math.min(r.width, r.height));
+});
+// The whole complaint was that sampling happened on a thumbnail. On the 390px
+// viewport this check runs at, anything under ~200px would be the old problem
+// wearing a new class name.
+ok(stageBig >= 200, `the photo actually takes over the screen (${stageBig}px on its short edge)`);
+
+await page.locator(".pb-picker-stage canvas").click({ position: { x: 40, y: 40 } });
+await page.waitForTimeout(500);
 
 const sampled = await page.evaluate(() =>
-  document.querySelector('.pb-colour input[type="color"]').value.toLowerCase());
+  document.querySelector('.pb-colour input[type="color"]')?.value.toLowerCase() || "");
 ok(sampled === "#b91c1c",
-  `the eyedropper samples the ACTUAL colour under the tap (fixture is #b91c1c, got ${sampled})`);
+  `tapping the photo takes the ACTUAL colour under the finger (fixture is #b91c1c, got ${sampled})`);
 
+// Hadi: "the system should create a custom name for every color."
+const autoName = await page.evaluate(() =>
+  document.querySelector(".pb-colour-name")?.value || "");
+ok(autoName === "Crimson",
+  `the colour arrives already named from its own value (got "${autoName}")`);
+
+// "Every click is a color" -- the picker stays open and keeps collecting.
+ok(await page.evaluate(() => !!document.querySelector(".pb-picker")),
+  "the picker stays open after a pick, so a run of taps is possible");
+await page.locator(".pb-picker-stage canvas").click({ position: { x: 70, y: 70 } });
+await page.waitForTimeout(400);
+const afterTwoTaps = await page.evaluate(() => document.querySelectorAll(".pb-colour").length);
+ok(afterTwoTaps === 2, `a second tap adds a second colour (${afterTwoTaps} colours)`);
+
+// The second tap on a one-colour fixture finds the same red, so the name must
+// be made unique rather than colliding -- two variants called "Crimson" would
+// be a duplicate SKU and an unanswerable question on the packing bench.
+const names = await page.evaluate(() =>
+  [...document.querySelectorAll(".pb-colour-name")].map((i) => i.value));
+ok(names[1] === "Crimson 2", `a repeat of the same colour is numbered, not duplicated (got "${names[1]}")`);
+
+await page.click(".pb-picker [data-done]");
+await page.waitForTimeout(400);
+ok(await page.evaluate(() => !document.querySelector(".pb-picker")), "Done closes the picker");
+
+// Drop the extra colour the run created, then rename the first by hand --
+// which also proves an auto-name can be overwritten.
+await page.evaluate(() => {
+  const rows = document.querySelectorAll(".pb-colour");
+  rows[rows.length - 1]?.querySelector(".btn-ghost")?.click();
+});
+await page.waitForTimeout(300);
 await page.fill(".pb-colour-name", "Crimson");
 await page.waitForTimeout(200);
-ok(true, "a colour can be named after it is picked");
+ok(true, "a colour can be renamed after it is picked");
 
 // ---- colour 2, from the palette, with its OWN size run ----
 await page.click('.pb-colour-add .pf-swatch[aria-label="Add Navy"]');
@@ -226,6 +283,35 @@ const afterDupe = await page.evaluate(() =>
   [...document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell-barcode")].map((i) => i.value).filter(Boolean).length);
 ok(afterDupe === 1, `and the duplicate is not written anywhere (${afterDupe} barcode(s) on this colour)`);
 
+// Hadi: "each barcode space should have a small button next to it to click
+// scan". The button's job is to aim at ITS OWN cell -- a scan control that
+// fills some other cell is worse than none, because the operator has already
+// moved on by the time it shows.
+const scanBtns = await page.evaluate(() =>
+  document.querySelectorAll(".pb-cell .pb-cell-scan").length);
+const cellCount = await page.evaluate(() => document.querySelectorAll(".pb-cell").length);
+ok(scanBtns === cellCount, `every barcode field has its own Scan button (${scanBtns} buttons / ${cellCount} cells)`);
+
+await page.evaluate(() => {
+  // Third cell of the first colour -- deliberately not the aimed one, so a
+  // button that did nothing would leave the aim where it was and fail below.
+  document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell-scan")[2].click();
+});
+await page.waitForTimeout(300);
+const aimedByButton = await page.evaluate(() => document.querySelector("[data-scan-aim]")?.textContent || "");
+ok(/·\s*L\b/.test(aimedByButton), `a cell's Scan button aims at that cell (saw: "${aimedByButton}")`);
+
+await page.fill(".pb-scan input", "5099999999999");
+await page.press(".pb-scan input", "Enter");
+await page.waitForTimeout(400);
+const perCell = await page.evaluate(() =>
+  [...document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell-barcode")].map((i) => i.value));
+ok(perCell[2] === "5099999999999", `and the scan lands in that cell (cell 3 holds "${perCell[2]}")`);
+
+// Each size carries its OWN barcode -- that is the shape Hadi settled on.
+const filled = perCell.filter(Boolean).length;
+ok(filled === 2, `barcodes are per size, held independently (${filled} of ${perCell.length} sizes carry one)`);
+
 // One cell WITH stock and one WITHOUT — the second is what used to vanish.
 await page.evaluate(() => {
   const rows = document.querySelectorAll(".pb-grid-row");
@@ -244,6 +330,44 @@ await page.fill(`#${await page.evaluate(() => document.querySelectorAll(".produc
   });
 
 await page.screenshot({ path: join(ROOT, "checks/screenshots/product-builder-mobile.png"), fullPage: true });
+
+// ---- supplier, created without leaving the form ----
+// Hadi: "we should be able to create a supplier in the products tab here in
+// the inventory and in the catalogs whenever we create an actual product".
+// Leaving to go and make one would mean abandoning the photos and the grid,
+// neither of which survives a navigation -- so the create form lives here.
+ok(await page.evaluate(() => !!document.querySelector("#pb-supplier")),
+  "the product form has a supplier section");
+
+const SUPPLIER = `Probe Mills ${STAMP}`;
+await page.click('#pb-supplier button:has-text("+ New supplier")');
+await page.waitForTimeout(400);
+await page.evaluate((n) => {
+  const set = (sel, v) => {
+    const i = document.querySelector(sel);
+    if (i) { i.value = v; i.dispatchEvent(new Event("input", { bubbles: true })); }
+  };
+  const f = document.querySelectorAll("#pb-supplier .pb-supplier-new input");
+  f[0].value = n;              f[0].dispatchEvent(new Event("input", { bubbles: true }));
+  f[1].value = "Wei Zhang";    f[1].dispatchEvent(new Event("input", { bubbles: true }));
+  f[2].value = "+86 555 0100"; f[2].dispatchEvent(new Event("input", { bubbles: true }));
+}, SUPPLIER);
+await page.click('#pb-supplier button:has-text("Save supplier")');
+await page.waitForTimeout(3000);
+
+const supSelected = await page.evaluate(() => {
+  const sel = document.querySelector("#pb-supplier select");
+  return sel ? sel.options[sel.selectedIndex]?.textContent || "" : "";
+});
+ok(supSelected === SUPPLIER,
+  `a supplier created here is selected straight away (saw: "${supSelected}")`);
+
+// The contact details are the reason to record a supplier at all, so they have
+// to come back on screen rather than just into the database.
+const supCard = await page.evaluate(() =>
+  document.querySelector("#pb-supplier .pb-supplier-card")?.textContent || "");
+ok(/Wei Zhang/.test(supCard) && /555 0100/.test(supCard),
+  `and its contact details show under the picker (saw: "${supCard.slice(0, 80)}")`);
 
 // ---- unnamed colours must be refused ----
 await page.evaluate(() => {
