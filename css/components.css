@@ -776,3 +776,234 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 @media (min-width: 560px) {
   .product-builder .pb-colour-tools { width: auto; margin-left: auto; }
 }
+
+/* ---------------------------------------------------------------------------
+   The colour picker (Batch 17)
+
+   Full-screen because the job is hitting a specific few pixels on a garment --
+   a cuff, a stripe, the body away from a fold. The version this replaces asked
+   for that on a 90px thumbnail. Fixed inset:0 rather than a centred dialog for
+   the same reason the product form is inline: on a 390px phone a centred box
+   with margins gives the photo less room than the thumbnail strip did, which
+   would defeat the whole point of opening it.
+--------------------------------------------------------------------------- */
+.pb-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--bg-page);
+  display: flex;
+  flex-direction: column;
+}
+
+.pb-picker-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.pb-picker-title { font-size: var(--text-sm); font-weight: 650; }
+
+/* The live readout. A fingertip is ~40px across and completely hides the pixel
+   it is aiming at, so without this the person cannot see what they are about
+   to pick -- they would be tapping and hoping. margin-left:auto puts it beside
+   Done, where the eyes already are. */
+.pb-picker-live {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.pb-picker-chip {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  flex: none;
+}
+
+.pb-picker-stage {
+  flex: 1;
+  min-height: 0;          /* without this the canvas pushes the strip off-screen */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+  overflow: hidden;
+}
+
+.pb-picker-stage canvas {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: crosshair;
+  /* Stops the browser treating a drag across the photo as a scroll/zoom
+     gesture, which on a phone would swallow the very taps this exists for. */
+  touch-action: none;
+}
+
+.pb-picker-picked {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  min-height: 44px;
+  align-items: center;
+}
+
+.pb-picker-empty { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+.pb-picker-picked-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 4px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+}
+
+.pb-picker-picked-chip i {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  flex: none;
+}
+
+/* 28px is under the 44px touch minimum deliberately: this is a destructive
+   control sitting inside a run of fast taps, and an easy-to-hit delete next to
+   the thing you are collecting is worse than one that asks for a moment's aim.
+   The colour is recoverable either way -- pick it again. */
+.pb-picker-undo {
+  width: 28px; height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pb-picker-undo:hover { color: var(--danger-700); }
+
+.pb-picker-strip {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.pb-picker-thumb {
+  width: 56px; height: 56px;
+  flex: none;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+.pb-picker-thumb.is-active { border-color: var(--accent-600); }
+.pb-picker-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Promote-to-main, now that tapping the tile opens the picker instead. */
+.pb-photo-main {
+  position: absolute;
+  left: 4px; bottom: 4px;
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-page);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+/* Per-size barcode + its Scan button (Batch 17).
+   Hadi asked for a scan button on every barcode box, one barcode per size per
+   colour. The button sits on the same row as the field it fills, because a
+   scan control that is not adjacent to its target is the same ambiguity the
+   aim indicator exists to remove. */
+.product-builder .pb-cell-bc {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.product-builder .pb-cell-bc .input { min-width: 0; flex: 1; }
+
+/* Smaller than btn-sm on purpose: there is one of these per cell, so a
+   30px-tall button 30 times down the grid would out-shout the quantities,
+   which are the numbers the wholesaler is actually here to enter. It stays a
+   real target because the whole cell row is comfortably tappable and the
+   barcode field beside it does the same job on focus. */
+.btn-xs {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.product-builder .pb-grid-scanall { margin-left: auto; }
+
+/* Suppliers (Batch 17) — the directory screen and the picker inside the
+   product builder. */
+.sup-bar { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); flex-wrap: wrap; }
+
+.sup-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: 14px;
+  margin-bottom: var(--space-2);
+}
+.sup-row-main { flex: 1; min-width: 0; }
+.sup-row-name { font-weight: 650; font-size: var(--text-sm); }
+.sup-row-meta { font-size: var(--text-xs); color: var(--text-secondary); margin-top: 2px; }
+.sup-row-notes { font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 4px; }
+
+/* The product count sits above Archive on purpose: archiving a supplier that
+   30 products point at is a different decision from archiving an unused one,
+   and the number has to be visible BEFORE the click rather than explained
+   after it -- the same rule the Locations screen follows for stock. */
+.sup-row-count { font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 6px; }
+
+.sup-row-tools { display: flex; gap: var(--space-2); flex: none; }
+
+.sup-form { margin-bottom: var(--space-3); }
+
+.product-builder .pb-supplier-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.product-builder .pb-supplier-row .input { flex: 1; min-width: 180px; }
+
+.product-builder .pb-supplier-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.product-builder .pb-supplier-card span::after { content: ""; }
+
+.product-builder .pb-supplier-new { margin-top: var(--space-3); }
+.product-builder .pb-supplier-actions { margin-top: var(--space-2); }
+
+/* Stacked on a phone: an Edit/Archive pair beside a name that already wraps
+   turns the whole row into one word per line, which is the bug .inv-row was
+   moved into the stylesheet to fix. Learned once, applied here first. */
+@media (max-width: 560px) {
+  .sup-row { flex-direction: column; }
+  .sup-row-tools { width: 100%; }
+  .sup-row-tools .btn { flex: 1; }
+}
