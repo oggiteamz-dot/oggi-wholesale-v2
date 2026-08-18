@@ -10,10 +10,23 @@
 //
 // If you find yourself about to sum something here, the sum belongs in 039.
 //
-// EVERY FUNCTION HERE IS OWNER-ONLY. The database enforces that, not this
-// file -- v2_require_owner() raises 42501 inside each RPC. These wrappers turn
-// that raise into a plain-English message rather than leaking a Postgres error
-// code into the UI.
+// WHO MAY CALL THESE  (changed 18 Aug 2026, migration 044)
+// --------------------------------------------------------
+// Originally owner-only. Now: the OWNER may pass any wid, and a WHOLESALER may
+// pass their own and nothing else. The database enforces it, not this file --
+// v2_require_owner_or_own(p_wid) raises 42501 inside each RPC. These wrappers
+// turn that raise into a plain-English message rather than leaking a Postgres
+// error code into the UI.
+//
+// The wholesaler dashboard therefore calls THESE functions rather than getting
+// a parallel set of its own. That is the whole point of migration 044: if the
+// owner's drill-down and the wholesaler's dashboard each had their own
+// definition of revenue, the two would eventually disagree, in front of a
+// customer, with no way to tell which was right.
+//
+// The names still say `owner`. They are not renamed because a rename touches
+// every call site for no behavioural gain and is exactly the sort of change
+// that looks free and quietly breaks one caller nobody grepped for.
 // =============================================================================
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
@@ -21,8 +34,14 @@ import { supabase, sbCall } from "../lib/supabase-client.js";
 /** Turns a Postgres error into something an operator can act on. */
 function readable(error) {
   const msg = error?.message || "";
+  // Two different refusals, two different fixes -- so they get two different
+  // sentences. Collapsing them into one message would tell a wholesaler whose
+  // session went stale to go and find owner credentials they do not have.
   if (/only the platform owner/i.test(msg)) {
     return "You are not signed in as the owner. Sign out and back in.";
+  }
+  if (/only read your own figures/i.test(msg)) {
+    return "These figures belong to a different wholesaler. If this is your own dashboard, sign out and back in.";
   }
   if (/fetch|network/i.test(msg)) {
     return "Could not reach the server. Check your connection and try again.";

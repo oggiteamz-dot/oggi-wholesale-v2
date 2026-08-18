@@ -1,5 +1,6 @@
 // OGGI Wholesale v2 — wholesaler product management (Batch 3)
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { getDefaultCatalog, addProductToCatalog } from "./catalogs.js";
 
 export async function listProductsForAdmin(wid) {
   const { data: products } = await sbCall(
@@ -118,4 +119,211 @@ export async function duplicateAsTemplate(productId) {
   }
 
   return { ok: true, productId: newProduct.id };
+}
+
+// =============================================================================
+// CREATING A PRODUCT
+// =============================================================================
+// Added 18 Aug 2026. Until this function existed, THE ONLY WAY TO CREATE A
+// PRODUCT IN THE ENTIRE APPLICATION WAS THE CSV IMPORTER. Products could be
+// archived, duplicated, repriced, have their MOQ and packs edited -- but there
+// was no "New product" anywhere, in Products, in Inventory or anywhere else.
+// A wholesaler with ten items to add had to build a spreadsheet.
+//
+// ONE FUNCTION, TWO ENTRY POINTS
+// ------------------------------
+// The catalog builder and the Inventory screen both call THIS. They differ by
+// one argument -- whether a catalog id comes along -- and nothing else.
+//
+// That is deliberate and it is worth being blunt about why. This codebase
+// already carries the HTML-escape helper in ten copies under four names, and
+// pageHeader in seven copies of which four render a page-actions slot and
+// three do not. Two product-creation paths would drift the same way, and the
+// drift would be silent: one would start setting colorHex and the other would
+// not, or one would receive opening stock and the other would forget, and the
+// only symptom would be "products I add from Inventory behave differently".
+//
+// WHAT IT GUARANTEES
+// ------------------
+//   * the product exists, with its variants
+//   * every variant carries colour, size AND colorHex, so the buyer catalogue
+//     renders a real swatch.
+//
+//     Be precise about this, because the first version of this comment was
+//     wrong and said every v2 product rendered grey. It does not. The v1 data
+//     migration set real hexes (#b23046, #2f6b4f and so on) and all 133
+//     pre-existing variants carry one -- checked, rather than assumed, before
+//     correcting this.
+//
+//     The real gap is narrower and still worth closing: the CSV IMPORTER
+//     writes `extra_attrs: { color, size }` and no colorHex, so anything
+//     imported by spreadsheet falls back to catalog.js's "#999" and does draw
+//     grey. Products created here never do.
+//   * opening stock, if any, is received through the v2_receive_stock RPC and
+//     never by writing v2_inventory_balances directly. That rule is stated in
+//     001_v2_inventory_core.sql's own header: balances are a ledger projection,
+//     and writing one by hand desynchronises it from the movements that explain
+//     it
+//   * a variant with NO opening stock still appears in Inventory, because
+//     getStockTable() now starts from variants rather than balances. So the
+//     product is visible and receivable the moment it is created, without
+//     inventing a zero-quantity balance row to make it show up
+//   * the product is filed in a catalog -- the one passed, or the wholesaler's
+//     default -- so it can never exist in no catalog and become unfindable
+//
+// IT IS NOT A TRANSACTION, AND THAT IS A KNOWN LIMITATION
+// ------------------------------------------------------
+// PostgREST gives one statement per request, so a product with three variants
+// is five round trips. If the third variant fails, the product and the first
+// two remain. Rather than pretend otherwise, the failure is reported honestly
+// ("created, but 1 of 3 variants failed") and the product is left in place so
+// the operator can fix the variant rather than lose the work. Making this
+// atomic means a SECURITY DEFINER function taking the whole product as JSON,
+// which is the right eventual answer and is noted here rather than half-done.
+// =============================================================================
+
+/**
+ * @param {string} wid
+ * @param {object} draft
+ * @param {string} draft.name
+ * @param {string} [draft.description]
+ * @param {string} [draft.category]
+ * @param {string} [draft.sellingModel]  one of open|prepack|series|ratio
+ * @param {number} [draft.moqQty]
+ * @param {Array}  draft.variants  [{ sku, color, colorHex, size, price, cost,
+ *                                    retailPrice, moqQty, barcode, openingStock }]
+ * @param {string} [draft.catalogId]     file it here; omit for the default
+ * @param {string} [draft.locationId]    where opening stock lands
+ */
+export async function createProduct(wid, draft = {}) {
+  const name = String(draft.name || "").trim();
+  if (!name) return { ok: false, error: "Give the product a name." };
+
+  const variants = (draft.variants || []).filter((v) => String(v.sku || "").trim());
+  if (!variants.length) {
+    return { ok: false, error: "A product needs at least one variant with a SKU." };
+  }
+
+  // (product_id, sku) is unique in the database. Catching it here means the
+  // operator is told which SKU is repeated, rather than the first insert
+  // succeeding and the second failing with a constraint name.
+  const seen = new Set();
+  for (const v of variants) {
+    const sku = String(v.sku).trim().toLowerCase();
+    if (seen.has(sku)) {
+      return { ok: false, error: `SKU "${String(v.sku).trim()}" appears twice. Each variant needs its own.` };
+    }
+    seen.add(sku);
+  }
+
+  const model = draft.sellingModel || "open";
+  if (!["open", "prepack", "series", "ratio"].includes(model)) {
+    return { ok: false, error: `"${model}" is not a selling model this product can have.` };
+  }
+
+  const { data: product, error: pErr } = await sbCall(
+    supabase.from("v2_products").insert({
+      wid,
+      name,
+      description: draft.description?.trim() || null,
+      category: draft.category?.trim() || null,
+      selling_model: model,
+      moq_qty: Math.max(1, Number(draft.moqQty) || 1),
+    }).select("id, name").single()
+  );
+  if (pErr || !product) {
+    return { ok: false, error: pErr?.message || "Could not create the product." };
+  }
+
+  const created = [];
+  const failed = [];
+
+  for (const v of variants) {
+    const { data: variant, error: vErr } = await sbCall(
+      supabase.from("v2_product_variants").insert({
+        product_id: product.id,
+        sku: String(v.sku).trim(),
+        price: v.price === "" || v.price == null ? null : Number(v.price),
+        cost: v.cost === "" || v.cost == null ? null : Number(v.cost),
+        retail_price: v.retailPrice === "" || v.retailPrice == null ? null : Number(v.retailPrice),
+        moq_qty: Math.max(1, Number(v.moqQty) || 1),
+        barcode: String(v.barcode || "").trim() || null,
+        // colorHex lives in extra_attrs beside colour and size because that is
+        // where catalog.js already reads all three from -- real columns would
+        // mean migrating every existing variant for no gain a buyer can see.
+        // Setting it here is what keeps hand-created products out of the
+        // grey-swatch fallback the CSV importer still lands in.
+        extra_attrs: {
+          color: String(v.color || "").trim() || null,
+          size: String(v.size || "").trim() || null,
+          colorHex: String(v.colorHex || "").trim() || null,
+        },
+      }).select("id, sku").single()
+    );
+
+    if (vErr || !variant) {
+      failed.push({ sku: v.sku, error: vErr?.message || "insert failed" });
+      continue;
+    }
+    created.push(variant);
+
+    const opening = Number(v.openingStock) || 0;
+    if (opening > 0 && draft.locationId) {
+      // Through the RPC, never a direct balance write. See the header.
+      const { error: sErr } = await sbCall(supabase.rpc("v2_receive_stock", {
+        p_variant_id: variant.id,
+        p_location_id: draft.locationId,
+        p_qty: opening,
+        p_reference_type: "product_created",
+        p_reference_id: null,
+        p_actor_id: null,
+        p_note: `Opening stock for ${name} (${variant.sku})`,
+      }));
+      if (sErr) failed.push({ sku: v.sku, error: `created, but opening stock failed: ${sErr.message}` });
+    }
+  }
+
+  // File it. A product in no catalog is a product nobody can find.
+  //
+  // The result is CHECKED. It was not, originally, and the cost of that was
+  // immediate: a grant problem meant the filing silently failed, so a product
+  // created in the catalog builder was created, stocked, shown in Inventory --
+  // and absent from the catalog it had just been made in. Everything looked
+  // like it worked apart from the one screen the operator was standing on.
+  //
+  // Swallowing the return value of a call that can fail is how a bug becomes
+  // a mystery. If filing fails now, the operator is told, and told that the
+  // product itself is fine.
+  let filedIn = null;
+  let fileError = null;
+  const catalogId = draft.catalogId
+    || (await getDefaultCatalog(wid).catch(() => null))?.id
+    || null;
+  if (catalogId) {
+    const res = await addProductToCatalog(catalogId, product.id);
+    if (res.ok) filedIn = catalogId;
+    else fileError = res.error;
+  } else {
+    fileError = "no catalog to file it in";
+  }
+
+  return {
+    ok: true,
+    productId: product.id,
+    name: product.name,
+    variantsCreated: created.length,
+    variantsFailed: failed,
+    filedIn,
+    fileError,
+    // Deliberately not "Success!". The operator needs to know whether all of
+    // it worked, and a partial result has to say so in the same breath.
+    message: [
+      failed.length
+        ? `"${name}" created with ${created.length} of ${variants.length} variants — ${failed.length} had a problem.`
+        : `"${name}" created with ${created.length} variant${created.length === 1 ? "" : "s"}.`,
+      fileError
+        ? `It is in Inventory, but could not be added to the catalog (${fileError}) — add it from the catalog screen.`
+        : "",
+    ].filter(Boolean).join(" "),
+  };
 }
