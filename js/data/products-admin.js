@@ -1,6 +1,7 @@
 // OGGI Wholesale v2 — wholesaler product management (Batch 3)
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { getDefaultCatalog, addProductToCatalog } from "./catalogs.js";
+import { uploadProductImage } from "./uploads.js";
 
 export async function listProductsForAdmin(wid) {
   const { data: products } = await sbCall(
@@ -283,6 +284,40 @@ export async function createProduct(wid, draft = {}) {
     }
   }
 
+  // ---- photos ----------------------------------------------------------
+  // Uploaded HERE rather than in the form, because uploadProductImage() needs
+  // a product id and the product does not exist while someone is still
+  // choosing colours. They are held as Files in the browser until this point,
+  // which also makes the eyedropper instant -- it samples a local bitmap.
+  //
+  // Every image goes on every variant. `images` is the gallery a buyer swipes;
+  // `image_url` is the hero. v1 attached one photo per COLOUR, which is the
+  // better end state -- noted rather than half-built, since it needs the form
+  // to record which upload each colour sampled from and that mapping only
+  // exists client-side today.
+  //
+  // A failed upload does NOT fail the product. The product and its variants
+  // are already real by this point, and throwing them away because a photo
+  // did not reach storage would be the worst possible trade.
+  const imageUrls = [];
+  const photoErrors = [];
+  const photos = Array.isArray(draft.photos) ? draft.photos : [];
+  for (let i = 0; i < photos.length; i++) {
+    draft.onProgress?.(`Uploading photo ${i + 1} of ${photos.length}…`);
+    const up = await uploadProductImage({ file: photos[i], wid, productId: product.id });
+    if (up?.ok && up.url) imageUrls.push(up.url);
+    else photoErrors.push(up?.error || `photo ${i + 1} failed`);
+  }
+
+  if (imageUrls.length && created.length) {
+    const { error: imgErr } = await sbCall(
+      supabase.from("v2_product_variants")
+        .update({ images: imageUrls, image_url: imageUrls[0], updated_at: new Date().toISOString() })
+        .in("id", created.map((v) => v.id))
+    );
+    if (imgErr) photoErrors.push(`photos uploaded but not attached: ${imgErr.message}`);
+  }
+
   // File it. A product in no catalog is a product nobody can find.
   //
   // The result is CHECKED. It was not, originally, and the cost of that was
@@ -315,12 +350,18 @@ export async function createProduct(wid, draft = {}) {
     variantsFailed: failed,
     filedIn,
     fileError,
+    imageCount: imageUrls.length,
+    photoErrors,
     // Deliberately not "Success!". The operator needs to know whether all of
     // it worked, and a partial result has to say so in the same breath.
     message: [
       failed.length
         ? `"${name}" created with ${created.length} of ${variants.length} variants — ${failed.length} had a problem.`
         : `"${name}" created with ${created.length} variant${created.length === 1 ? "" : "s"}.`,
+      imageUrls.length ? `${imageUrls.length} photo${imageUrls.length === 1 ? "" : "s"} attached.` : "",
+      photoErrors.length
+        ? `${photoErrors.length} photo${photoErrors.length === 1 ? "" : "s"} did not upload — the product is fine, add them again from Products.`
+        : "",
       fileError
         ? `It is in Inventory, but could not be added to the catalog (${fileError}) — add it from the catalog screen.`
         : "",
