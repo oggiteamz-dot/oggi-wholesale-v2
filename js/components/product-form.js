@@ -65,6 +65,7 @@
 // =============================================================================
 
 import { esc } from "../lib/utils.js";
+import { renderScanBar } from "./scan-bar.js";
 
 /** A small palette for products with no photos yet. The eyedropper is the
  *  real answer; this is the fallback, not the feature. */
@@ -194,6 +195,7 @@ export function renderProductForm({
       <div class="pf-section-head"><h4>Sizes and stock</h4>
         <p>Set the sizes once; any colour that differs can have its own.</p></div>
       <div class="pb-sizes" id="pb-sizes"></div>
+      <div class="pb-scan" id="pb-scan"></div>
       <div class="pb-grid" id="pb-grid"></div>
 
       <p class="pf-status" role="status" hidden></p>
@@ -209,6 +211,7 @@ export function renderProductForm({
   const coloursHost = $("#pb-colours");
   const sizesHost = $("#pb-sizes");
   const gridHost = $("#pb-grid");
+  const scanHost = $("#pb-scan");
   const status = $(".pf-status");
 
   // =========================================================================
@@ -473,6 +476,136 @@ export function renderProductForm({
     return `${base}-${tok(c.name, 3)}-${tok(size, 3)}`;
   }
 
+  // =========================================================================
+  // SCANNING INTO THE GRID
+  // =========================================================================
+  // A cell is a colour+size, and the barcode belongs to that exact pair, so
+  // "where does this scan go?" has to have one unambiguous answer at all
+  // times. That answer is the AIMED cell, shown in words next to the scan bar
+  // -- a scanner fires instantly and a code landing in an invisible or guessed
+  // place is worse than no scanning at all.
+  //
+  // After a successful scan the aim advances to the next cell (next size, then
+  // the first size of the next colour), which is what makes a run of scans
+  // possible without touching the screen between them -- the same reason the
+  // warehouse scan bar refocuses itself. It stops at the last cell rather than
+  // wrapping: wrapping would quietly overwrite the first barcode with the last
+  // scan, and an operator watching the label gun would not see it happen.
+  let scanAim = null; // { cid, size }
+
+  function aimScanner(cid, size) {
+    scanAim = { cid, size };
+    paintScanAim();
+  }
+
+  function cellSequence() {
+    const seq = [];
+    colours.forEach((c) => c.sizes.forEach((size) => seq.push({ cid: c.id, size })));
+    return seq;
+  }
+
+  function paintScanAim() {
+    const label = scanHost.querySelector("[data-scan-aim]");
+    if (!label) return;
+    const c = colours.find((x) => x.id === scanAim?.cid);
+    label.textContent = c && scanAim
+      ? `${c.name || "Unnamed colour"} · ${scanAim.size}`
+      : "pick a cell first";
+    gridHost.querySelectorAll(".pb-cell").forEach((n) => n.classList.remove("pb-cell-aimed"));
+    if (scanAim) {
+      const node = gridHost.querySelector(`[data-barcode-for="${scanAim.cid}|${scanAim.size}"]`);
+      node?.closest(".pb-cell")?.classList.add("pb-cell-aimed");
+    }
+  }
+
+  function applyScan(code) {
+    const value = String(code || "").trim();
+    if (!value) return;
+    if (!scanAim) {
+      setStatus("Tap the cell you are scanning into first, so the code has somewhere to go.", true);
+      return;
+    }
+    const c = colours.find((x) => x.id === scanAim.cid);
+    if (!c || !c.sizes.includes(scanAim.size)) {
+      // The aimed cell can disappear underneath the operator if the size list
+      // was edited between scans. Refusing is right; silently retargeting
+      // would put the code on a different garment than the one in their hand.
+      setStatus("That cell is gone — the sizes changed. Tap a cell and scan again.", true);
+      scanAim = null;
+      paintScanAim();
+      return;
+    }
+
+    // A barcode identifies exactly one variant (migration 016 makes it unique
+    // where not null), so the same code on two cells cannot both be true.
+    // Caught here, at the moment of the scan, rather than at save: by then the
+    // operator has put the label gun down and no longer knows which two.
+    const clash = cellSequence().find(({ cid, size }) => {
+      if (cid === scanAim.cid && size === scanAim.size) return false;
+      const other = colours.find((x) => x.id === cid);
+      return (other?.cells[size]?.barcode || "").toLowerCase() === value.toLowerCase();
+    });
+    if (clash) {
+      const other = colours.find((x) => x.id === clash.cid);
+      setStatus(`${value} is already on ${other?.name || "another colour"} · ${clash.size}. Each barcode belongs to one variant.`, true);
+      return;
+    }
+
+    c.cells[scanAim.size] = c.cells[scanAim.size] || { qty: 0, sku: "", barcode: "" };
+    c.cells[scanAim.size].barcode = value;
+    const field = gridHost.querySelector(`[data-barcode-for="${scanAim.cid}|${scanAim.size}"]`);
+    if (field) field.value = value;
+
+    const seq = cellSequence();
+    const at = seq.findIndex((x) => x.cid === scanAim.cid && x.size === scanAim.size);
+    const next = at >= 0 ? seq[at + 1] : null;
+    setStatus(
+      next
+        ? `${value} → ${c.name || "colour"} · ${scanAim.size}. Next: ${(colours.find((x) => x.id === next.cid)?.name) || "colour"} · ${next.size}.`
+        : `${value} → ${c.name || "colour"} · ${scanAim.size}. That was the last cell.`,
+      false
+    );
+    if (next) scanAim = next;
+    paintScanAim();
+  }
+
+  function setStatus(text, isProblem) {
+    const line = scanHost.querySelector("[data-scan-status]");
+    if (!line) return;
+    line.textContent = text;
+    line.classList.toggle("pf-error-text", !!isProblem);
+  }
+
+  function paintScanner() {
+    scanHost.innerHTML = "";
+    if (!colours.length) return;
+
+    const head = document.createElement("div");
+    head.className = "pb-scan-head";
+    head.innerHTML = `<span class="pf-label">Barcodes</span>
+      <span class="pb-scan-aim">Scanning into: <strong data-scan-aim>pick a cell first</strong></span>`;
+    scanHost.appendChild(head);
+
+    // autofocus is off here: in the warehouse the operator's next act is
+    // always another scan, but this bar sits in the middle of a form someone
+    // is still typing into, and stealing focus would fight them.
+    const bar = renderScanBar({
+      placeholder: "Scan a barcode, or type it and press Enter…",
+      onSubmit: applyScan,
+      autofocus: false,
+      compact: true,
+    });
+    scanHost.appendChild(bar.el);
+
+    const line = document.createElement("p");
+    line.className = "pf-hint";
+    line.setAttribute("data-scan-status", "");
+    line.textContent = "Optional. A hardware scanner types the code and presses Enter, so it just works here.";
+    scanHost.appendChild(line);
+
+    paintScanAim();
+  }
+
   function paintGrid() {
     gridHost.innerHTML = "";
     if (!colours.length) {
@@ -538,7 +671,29 @@ export function renderProductForm({
           c.cells[size].qty = Math.max(0, parseInt(qty.value, 10) || 0);
           updateTotal(c);
         });
+        qty.addEventListener("focus", () => aimScanner(c.id, size));
         cell.appendChild(qty);
+
+        // The barcode that will be printed on THIS colour+size. It is a
+        // separate field from the code/SKU on purpose (migration 016): a SKU
+        // is the wholesaler's own readable identifier, a barcode is whatever
+        // the UPC/EAN label actually carries, and they are usually different
+        // strings. Typing here works; scanning fills it without typing.
+        const bc = document.createElement("input");
+        bc.className = "input pb-cell-barcode";
+        bc.type = "text";
+        bc.autocomplete = "off";
+        bc.placeholder = "Barcode";
+        bc.value = c.cells[size]?.barcode || "";
+        bc.dataset.barcodeFor = `${c.id}|${size}`;
+        bc.setAttribute("aria-label", `${c.name || "colour"} ${size} barcode`);
+        bc.addEventListener("input", () => {
+          c.cells[size] = c.cells[size] || { qty: 0, sku: "", barcode: "" };
+          c.cells[size].barcode = bc.value.trim();
+        });
+        bc.addEventListener("focus", () => aimScanner(c.id, size));
+        cell.appendChild(bc);
+
         cells.appendChild(cell);
       });
       block.appendChild(cells);
@@ -551,6 +706,13 @@ export function renderProductForm({
     note.textContent =
       "Every size you list becomes a variant, whether or not it has stock. Leave a size out of a colour if you do not carry it.";
     gridHost.appendChild(note);
+
+    // The grid is rebuilt wholesale on every change, so the aim has to be
+    // re-checked against what now exists rather than assumed to still be valid.
+    if (scanAim && !colours.find((x) => x.id === scanAim.cid && x.sizes.includes(scanAim.size))) {
+      scanAim = null;
+    }
+    paintScanner();
   }
 
   function updateTotal(c) {
@@ -637,6 +799,23 @@ export function renderProductForm({
     }
     if (draft.variants.length === 0) {
       showError("colours", "No sizes listed, so there is nothing to create.");
+      bad = bad || "colours";
+    }
+    // applyScan already refuses a duplicate at the moment it is scanned, but a
+    // barcode can also be TYPED straight into a cell, which never goes through
+    // applyScan. The database has a unique index on barcode (migration 016), so
+    // without this the save reaches Postgres and comes back as a constraint
+    // violation naming neither of the two cells involved.
+    const seenCodes = new Map();
+    const codeDupes = new Set();
+    draft.variants.forEach((x) => {
+      const code = (x.barcode || "").trim().toLowerCase();
+      if (!code) return;
+      if (seenCodes.has(code)) codeDupes.add(x.barcode.trim());
+      seenCodes.set(code, `${x.color} · ${x.size}`);
+    });
+    if (codeDupes.size) {
+      showError("colours", `Barcode ${[...codeDupes][0]} is on more than one variant. Each barcode belongs to exactly one colour and size.`);
       bad = bad || "colours";
     }
     if (draft.variants[0]?.price !== "" && Number(draft.variants[0]?.price) < 0) {
