@@ -20,6 +20,10 @@ export const NAV_BY_ROLE = {
     { icon: "🗂", label: "Catalogs", path: "/wholesaler/catalogs" },
     { icon: "🔑", label: "Team & Buyers", path: "/wholesaler/team" },
     { icon: "📊", label: "Inventory", path: "/wholesaler/inventory" },
+    // Added 18 Aug 2026. Stock has been per-location in the data since
+    // migration 001, but nothing could create a second location and nothing
+    // could move stock between two -- regression ledger #17.
+    { icon: "🏬", label: "Locations", path: "/wholesaler/locations" },
     { icon: "🧠", label: "Intelligence", path: "/wholesaler/intelligence" },
     { icon: "📷", label: "Scan to Receive", path: "/wholesaler/receive-scan" },
     { icon: "⬆️", label: "Import Catalog", path: "/wholesaler/import" },
@@ -100,6 +104,7 @@ export const SHORT_LABEL = {
   "/wholesaler/import": "Import",
   "/sales/clients": "Clients",
   "/sales/visits": "Visits",
+  "/wholesaler/locations": "Places",
   "/buyer/favourites": "Saved",
   "/buyer": "Catalog",
   // "Dashboard" ellipsises in a 5-slot bar at 375px once the active tab
