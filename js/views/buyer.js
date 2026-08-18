@@ -16,10 +16,19 @@ import { showOrderCelebration } from "../lib/animations/order-celebration.js";
 
 import { esc, pageHeader } from "../lib/utils.js";
 async function defaultLocation(wid) {
-  const { data } = await sbCall(
-    supabase.from("v2_locations").select("id,name").eq("wid", wid).eq("is_default", true).maybeSingle()
-  );
-  return data;
+  // 18 Aug 2026 (migration 047): reads the RPC, not the table.
+  //
+  // Buyers and sales reps run as the `anon` role -- they authenticate through
+  // v2_portal_accounts, so auth.uid() is NULL and v2_my_wid() cannot identify
+  // them. That means no row policy can scope an anon read of v2_locations, so
+  // 047 revoked anon's access to the table entirely and this select would now
+  // return nothing at all.
+  //
+  // v2_public_default_location(p_wid) takes an exact id and returns one row of
+  // two columns. Same shape, and the same reasoning, as v2_public_wholesaler
+  // in migration 042.
+  const { data } = await sbCall(supabase.rpc("v2_public_default_location", { p_wid: wid }));
+  return (Array.isArray(data) ? data[0] : data) || null;
 }
 
 function buyerLabel() {

@@ -17,6 +17,8 @@ import { listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
 import { createProduct } from "../data/products-admin.js";
 import { renderProductForm } from "../components/product-form.js";
+import { listLocations, locationStockTotals, createLocation, renameLocation,
+         setDefaultLocation, archiveLocation, transferStock } from "../data/locations.js";
 import { listPortalAccounts, setPortalAccountActive } from "../data/team.js";
 
 import { renderDateRangeFilter } from "../components/date-range-filter.js";
@@ -893,9 +895,119 @@ async function inventoryView(outlet) {
       inventoryView(outlet);
     });
     r.appendChild(receiveBtn);
+
+    // Transfer only appears when there is somewhere to transfer TO and
+    // something to move. A button that can only ever fail is worse than no
+    // button -- it invites the click and then explains itself.
+    if (locations.length > 1 && row.available > 0) {
+      const moveBtn = document.createElement("button");
+      moveBtn.className = "btn btn-secondary btn-sm";
+      moveBtn.textContent = "Transfer";
+      moveBtn.addEventListener("click", () => {
+        openTransfer(row, locations, () => { outlet.innerHTML = ""; inventoryView(outlet); });
+      });
+      r.appendChild(moveBtn);
+    }
+
     table.appendChild(r);
   });
   outlet.appendChild(table);
+}
+
+/**
+ * The transfer panel. Inline under the row rather than a modal, for the same
+ * reason the product form is inline: a centred dialog on a 390px phone covers
+ * the stock figures the operator is deciding against.
+ *
+ * It shows AVAILABLE, not on hand, because that is what the database will
+ * actually let them move -- reserved units belong to an open cart. Showing
+ * on-hand here and being refused on submit would be the app disagreeing with
+ * itself.
+ */
+function openTransfer(row, locations, onDone) {
+  const existing = document.getElementById("transfer-panel");
+  if (existing) existing.remove();
+
+  const panel = document.createElement("div");
+  panel.id = "transfer-panel";
+  panel.className = "card detail-card product-form";
+  const others = locations.filter((l) => l.id !== row.locationId);
+
+  panel.innerHTML = `
+    <header class="detail-card-head">
+      <h3>Move stock</h3>
+      <p>${esc(row.productName)} · ${esc(row.color || "—")} / ${esc(row.size || "—")} · SKU ${esc(row.sku)}</p>
+    </header>
+    <div class="detail-card-body">
+      <div class="pf-grid">
+        <div class="pf-field">
+          <label class="pf-label">From</label>
+          <input class="input" value="${esc(row.locationName)}" disabled>
+          <p class="pf-hint">${row.available} available${row.reserved ? ` (${row.onHand} on hand, ${row.reserved} reserved)` : ""}</p>
+        </div>
+        <div class="pf-field">
+          <label class="pf-label" for="tr-to">To</label>
+          <select class="input" id="tr-to">
+            ${others.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}${l.is_default ? " (default)" : ""}</option>`).join("")}
+          </select>
+        </div>
+        <div class="pf-field">
+          <label class="pf-label" for="tr-qty">How many</label>
+          <input class="input" id="tr-qty" type="number" min="1" max="${row.available}" step="1" value="${Math.min(row.available, 1)}" inputmode="numeric">
+          <p class="pf-error" data-for="tr-qty" hidden></p>
+        </div>
+        <div class="pf-field">
+          <label class="pf-label" for="tr-note">Note <span class="pf-optional">optional</span></label>
+          <input class="input" id="tr-note" placeholder="e.g. restocking the shop" autocomplete="off">
+        </div>
+      </div>
+      <p class="pf-status" role="status" hidden></p>
+      <div class="pf-actions">
+        <button type="button" class="btn btn-primary" id="tr-go">Move stock</button>
+        <button type="button" class="btn btn-secondary" id="tr-cancel">Cancel</button>
+      </div>
+    </div>
+  `;
+
+  const status = panel.querySelector(".pf-status");
+  const err = panel.querySelector('.pf-error[data-for="tr-qty"]');
+  panel.querySelector("#tr-cancel").addEventListener("click", () => panel.remove());
+
+  panel.querySelector("#tr-go").addEventListener("click", async () => {
+    const qty = parseInt(panel.querySelector("#tr-qty").value, 10);
+    err.hidden = true;
+    if (!qty || qty <= 0) { err.textContent = "Enter how many units to move."; err.hidden = false; return; }
+    if (qty > row.available) {
+      err.textContent = `Only ${row.available} available to move.`; err.hidden = false; return;
+    }
+    const go = panel.querySelector("#tr-go");
+    go.disabled = true; go.textContent = "Moving…";
+    status.hidden = false; status.className = "pf-status"; status.textContent = "Moving stock…";
+
+    const res = await transferStock({
+      variantId: row.variantId,
+      fromLocationId: row.locationId,
+      toLocationId: panel.querySelector("#tr-to").value,
+      qty,
+      note: panel.querySelector("#tr-note").value.trim() || null,
+    });
+
+    go.disabled = false; go.textContent = "Move stock";
+    if (!res.ok) {
+      // The database's message names the real numbers ("Only 45 available to
+      // move (45 on hand, 0 reserved)"). Passed through, not replaced with
+      // something vaguer.
+      status.className = "pf-status pf-status-error";
+      status.textContent = res.error;
+      return;
+    }
+    toast(`Moved ${qty} unit${qty === 1 ? "" : "s"}`, { type: "success" });
+    onDone();
+  });
+
+  const rowEl = document.getElementById("transfer-anchor");
+  (rowEl || document.getElementById("view-outlet")).appendChild(panel);
+  panel.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 // ---------- Inventory intelligence (Batch 9) ----------
@@ -1691,6 +1803,165 @@ async function catalogsView(outlet) {
 // helper the moment its last caller goes is how the next person ends up
 // writing a seventh slightly-different version of it. If nothing calls it by
 // the time the wholesaler batch is finished, it goes then, deliberately.
+
+// =============================================================================
+// LOCATIONS  (built 18 Aug 2026)
+// =============================================================================
+// Hadi: "add multiple locations to wholesalers".
+//
+// Stock has been keyed on (variant, location) since migration 001 -- what was
+// missing is that nothing could create a second location and nothing could
+// move stock between two. Regression ledger #17 said it plainly: "the only
+// transfer tokens in the entire repo are the enum values on one line. No
+// function, RPC or UI. An enum value is not a feature."
+//
+// EVERY WRITE HERE IS AN RPC. Migration 047 revoked INSERT/UPDATE/DELETE on
+// v2_locations from the browser, because the rules -- at least one active
+// location, exactly one default, never move stock a location does not have
+// available -- have to hold whichever screen is calling. This view cannot
+// break them even by accident.
+//
+// The stock totals are shown BEFORE anyone tries to archive, so "you can't,
+// it still holds 240 units" is visible rather than a surprise at the click.
+// Refusing at the moment of the click is correct but late.
+// =============================================================================
+
+async function locationsView(outlet) {
+  const session = devAuth.getSession();
+  const wid = session.wid;
+  outlet.appendChild(pageHeader(
+    "Locations",
+    "Warehouses and shops that hold your stock. Move stock between them here."
+  ));
+
+  const host = document.createElement("div");
+  outlet.appendChild(host);
+
+  async function paint() {
+    host.innerHTML = `<div class="card" style="padding:16px;font-size:13px;color:var(--text-tertiary);">Loading…</div>`;
+    const [{ ok, rows, error }, totals] = await Promise.all([
+      listLocations(wid), locationStockTotals(wid),
+    ]);
+    host.innerHTML = "";
+
+    if (!ok) {
+      host.appendChild(emptyState({ icon: "⚠️", title: "Could not load your locations", body: error }));
+      return;
+    }
+
+    const bar = document.createElement("div");
+    bar.className = "pf-actions";
+    bar.style.marginTop = "0";
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "btn btn-primary";
+    addBtn.textContent = "+ New location";
+    addBtn.addEventListener("click", async () => {
+      const name = prompt("What is this location called?\n\ne.g. \"Main Warehouse\", \"Beirut Shop\", \"Container 3\"");
+      if (!name) return;
+      const res = await createLocation(wid, name);
+      if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+      toast(`"${name.trim()}" created`, { type: "success" });
+      paint();
+    });
+    bar.appendChild(addBtn);
+    host.appendChild(bar);
+
+    const list = document.createElement("div");
+    list.className = "card";
+    list.style.padding = "8px";
+
+    rows.forEach((loc) => {
+      const t = totals.get(loc.id) || { onHand: 0, reserved: 0, variants: 0 };
+      const r = document.createElement("div");
+      r.className = "inv-row";
+      r.innerHTML = `
+        <div class="inv-row-main">
+          <div class="inv-row-name">${esc(loc.name)}</div>
+          <div class="inv-row-meta">${t.onHand.toLocaleString()} unit${t.onHand === 1 ? "" : "s"} on hand across ${t.variants} variant${t.variants === 1 ? "" : "s"}${t.reserved ? ` · ${t.reserved} reserved` : ""}</div>
+        </div>
+        <div class="inv-row-badge">${loc.isDefault ? '<span class="badge badge-success">Default</span>' : ""}</div>
+      `;
+
+      const actions = document.createElement("div");
+      actions.style.cssText = "grid-area:action;display:flex;gap:6px;flex-wrap:wrap;";
+
+      const ren = document.createElement("button");
+      ren.className = "btn btn-secondary btn-sm";
+      ren.textContent = "Rename";
+      ren.addEventListener("click", async () => {
+        const name = prompt("New name for this location", loc.name);
+        if (!name || name === loc.name) return;
+        const res = await renameLocation(loc.id, name);
+        if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+        toast("Renamed", { type: "success" });
+        paint();
+      });
+      actions.appendChild(ren);
+
+      // Archive is offered for the DEFAULT too, when there is more than one
+      // location. v2_archive_location promotes the oldest survivor to default
+      // afterwards, so this is safe -- and hiding the button was the interface
+      // being stricter than the rule it was meant to reflect, with nothing on
+      // screen explaining the difference.
+      const canArchive = rows.filter((l) => !l.archived).length > 1;
+
+      if (!loc.isDefault) {
+        const def = document.createElement("button");
+        def.className = "btn btn-secondary btn-sm";
+        def.textContent = "Make default";
+        // Worth spelling out, because "default" is otherwise a label with no
+        // stated consequence: it is where new stock lands unless told otherwise.
+        def.title = "New products and received stock go here unless you choose another location";
+        def.addEventListener("click", async () => {
+          const res = await setDefaultLocation(loc.id);
+          if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+          toast(`"${loc.name}" is now the default`, { type: "success" });
+          paint();
+        });
+        actions.appendChild(def);
+
+      }
+
+      if (canArchive) {
+        const arc = document.createElement("button");
+        arc.className = "btn btn-ghost btn-sm";
+        arc.textContent = "Archive";
+        // Disabled up front when it cannot succeed, WITH the reason on it.
+        // The database refuses either way; showing why beforehand is the
+        // difference between a rule and a rejection.
+        if (t.onHand > 0) {
+          arc.disabled = true;
+          arc.title = `Still holds ${t.onHand} unit(s). Transfer them out first.`;
+        } else if (loc.isDefault) {
+          arc.title = "Another location will become the default automatically.";
+        }
+        arc.addEventListener("click", async () => {
+          const res = await archiveLocation(loc.id);
+          if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+          toast(`"${loc.name}" archived`, { type: "success" });
+          paint();
+        });
+        actions.appendChild(arc);
+      }
+
+      r.appendChild(actions);
+      list.appendChild(r);
+    });
+    host.appendChild(list);
+
+    if (rows.length === 1) {
+      host.appendChild(emptyState({
+        icon: "🏬",
+        title: "One location so far",
+        body: "Add another and you can move stock between them — from Inventory, or from the Transfer button on any stock row.",
+      }));
+    }
+  }
+
+  await paint();
+}
+
 function placeholder(outlet, title, batchNote) {
   outlet.appendChild(pageHeader(title, `Not built yet — ${batchNote}`));
   outlet.appendChild(emptyState({ title: `${title} — coming soon`, body: "This route is wired and reachable; the view itself lands with its batch." }));
@@ -1704,6 +1975,7 @@ export function registerWholesalerRoutes(router) {
   router.register("/wholesaler/team", (outlet) => teamView(outlet));
   router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));
   router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet));
+  router.register("/wholesaler/locations", (outlet) => locationsView(outlet));
   router.register("/wholesaler/intelligence", (outlet) => intelligenceView(outlet));
   router.register("/wholesaler/settings", (outlet) => settingsView(outlet));
 }
