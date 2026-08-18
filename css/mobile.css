@@ -441,3 +441,42 @@ body.bottomnav-hub-open {
     /* Invisible. It exists only to be tapped. */
   }
 }
+
+
+/* ---------------------------------------------------------------------------
+   STAT GRID ON A PHONE
+   ---------------------------------------------------------------------------
+   layout.css asks for `repeat(auto-fit, minmax(180px, 1fr))`. At 390px the
+   content box is about 358px, so two 180px tracks plus a gap do not fit and
+   auto-fit collapses to ONE column. The wholesaler dashboard has six headline
+   figures, which became six full-width cards -- roughly two thumb-scrolls of
+   nothing but numbers before the first chart appears.
+
+   Two-up instead. 180px is the wrong floor for a card holding a short label
+   and a number; it was chosen for a desktop grid and inherited here.
+   Measured at 390px and 360px, not guessed.
+   --------------------------------------------------------------------------- */
+.stat-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.stat-card { padding: var(--space-3) var(--space-4); }
+
+/* --text-2xl at two-up wraps "$11,085" onto two lines on a 360px phone. One
+   step down keeps it on one line with room to spare. The minmax(0, 1fr) above
+   is what stops a long value widening its own track and shoving the other card
+   off screen. */
+.stat-card .stat-value { font-size: var(--text-xl); }
+
+@media (min-width: 881px) {
+  /* Desktop keeps layout.css's behaviour exactly as it was. */
+  .stat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-4);
+    margin-bottom: var(--space-6);
+  }
+  .stat-card { padding: var(--space-4) var(--space-5); }
+  .stat-card .stat-value { font-size: var(--text-2xl); }
+}
