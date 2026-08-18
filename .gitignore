@@ -8,3 +8,4 @@ package-lock.json
 # is present, the Cloudflare build would npm-install it on every deploy.
 # checks/*.mjs document their own requirement in their header comments.
 package.json
+checks/screenshots/
