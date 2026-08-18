@@ -321,7 +321,15 @@ export function renderProductForm({
       cells: {},
     };
     colours.push(c);
-    paintColours();
+    // paintGrid() is NOT optional here. Without it a new colour appeared in the
+    // colour list with no row in the stock grid, and the grid only caught up
+    // when something ELSE happened to repaint it -- typing in any name field
+    // did, which is why this looked fine to whoever added a colour and then
+    // named it, and looked broken to Hadi, who added several and then went
+    // looking for the matrix. The check missed it for the same reason: it
+    // typed a name after every colour, so its own ordering repainted the grid
+    // and hid the gap.
+    paintColours(); paintGrid();
     // Focus the name box: naming is the next thing to do.
     setTimeout(() => el.querySelector(`[data-colour-name="${c.id}"]`)?.focus(), 0);
     return c;
@@ -367,7 +375,11 @@ export function renderProductForm({
       hex.className = "pf-color-input";
       hex.value = /^#[0-9a-f]{6}$/i.test(c.hex) ? c.hex : "#111827";
       hex.setAttribute("aria-label", `Colour value for ${c.name || "this colour"}`);
-      hex.addEventListener("input", () => { c.hex = hex.value; paintColours(); });
+      hex.addEventListener("input", () => {
+        c.hex = hex.value;
+        // The grid header carries this colour's dot, so it goes stale too.
+        paintColours(); paintGrid();
+      });
       tools.appendChild(hex);
 
       const del = document.createElement("button");
