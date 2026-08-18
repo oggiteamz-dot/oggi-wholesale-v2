@@ -1,37 +1,76 @@
 // OGGI Wholesale v2 — per-client negotiated price overrides ("Your Price"), Batch 6
+//
+// Batch 16 moved every function here off the table and onto RPCs, for two
+// reasons that pull in opposite directions and are both real:
+//
+//   READS were open to everyone. The table carried `using (true)` for SELECT
+//   from migration 023 until 048 -- per-client negotiated pricing, readable by
+//   any holder of the publishable key, for every wholesaler.
+//
+//   WRITES were closed to the only role that uses this file. Sales reps
+//   authenticate through v2_portal_accounts, so they run as anon with
+//   auth.uid() NULL, which makes v2_my_wid() NULL and v2_is_owner() false --
+//   and 023's scoped INSERT/UPDATE/DELETE policies can therefore never pass
+//   for them. "Set price" on the salesperson screen returned 42501 every time
+//   it was clicked. It has never worked; no sales accounts existed yet, so
+//   nobody had clicked it.
+//
+// Both follow from the same fact -- anon cannot be scoped by a row policy --
+// so both are fixed the same way: SECURITY DEFINER functions that VALIDATE the
+// caller's portal account against v2_portal_accounts instead of believing the
+// caller, and that check the wholesaler of the client AND of the variant so an
+// override can never straddle two tenants.
+//
+// Every function below therefore takes accountId first. For an owner or
+// wholesaler (a real Supabase Auth session) it is ignored -- their JWT is the
+// credential -- so one code path serves all three kinds of actor.
 import { supabase, sbCall } from "../lib/supabase-client.js";
 
-export async function listClientOverrides(clientId) {
+export async function listClientOverrides(accountId, clientId) {
   const { data } = await sbCall(
-    supabase.from("v2_client_price_overrides")
-      .select("*, v2_product_variants(sku, price, extra_attrs, v2_products(name))")
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: false })
+    supabase.rpc("v2_client_overrides_list", { p_account_id: accountId || null, p_client_id: clientId })
   );
   return (data || []).map((o) => ({
     id: o.id,
     variantId: o.variant_id,
     overridePrice: Number(o.override_price),
     note: o.note,
-    basePrice: Number(o.v2_product_variants?.price ?? 0),
-    sku: o.v2_product_variants?.sku,
-    productName: o.v2_product_variants?.v2_products?.name || "Product",
-    color: o.v2_product_variants?.extra_attrs?.color,
-    size: o.v2_product_variants?.extra_attrs?.size,
+    basePrice: Number(o.base_price ?? 0),
+    sku: o.sku,
+    productName: o.product_name || "Product",
+    color: o.color,
+    size: o.size,
   }));
 }
 
-export async function setClientOverride(clientId, variantId, overridePrice, note, createdBy) {
-  return sbCall(
-    supabase.from("v2_client_price_overrides")
-      .upsert({ client_id: clientId, variant_id: variantId, override_price: overridePrice, note: note || null, created_by: createdBy || null }, { onConflict: "client_id,variant_id" })
-      .select()
-      .single()
+/** Returns { ok, error, id }. The error text is the database's own message
+ * ("That product and that client belong to different wholesalers.", "You are
+ * not allowed to price for that client.") -- passed through unchanged, because
+ * it names the actual reason and anything vaguer would be the app knowing more
+ * than it says. */
+export async function setClientOverride(accountId, clientId, variantId, overridePrice, note, createdBy) {
+  const { data, error } = await sbCall(
+    supabase.rpc("v2_set_client_override", {
+      p_account_id: accountId || null,
+      p_client_id: clientId,
+      p_variant_id: variantId,
+      p_price: overridePrice,
+      p_note: note || null,
+      p_created_by: createdBy || null,
+    })
   );
+  if (error) return { ok: false, error: error.message, id: null };
+  const row = data?.[0];
+  return { ok: !!row?.ok, error: row?.error || null, id: row?.id || null };
 }
 
-export async function removeClientOverride(id) {
-  return sbCall(supabase.from("v2_client_price_overrides").delete().eq("id", id));
+export async function removeClientOverride(accountId, id) {
+  const { data, error } = await sbCall(
+    supabase.rpc("v2_remove_client_override", { p_account_id: accountId || null, p_id: id })
+  );
+  if (error) return { ok: false, error: error.message };
+  const row = data?.[0];
+  return { ok: !!row?.ok, error: row?.error || null };
 }
 
 /** Flat searchable list of {variantId, sku, productName, color, size,

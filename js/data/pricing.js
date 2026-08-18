@@ -15,8 +15,9 @@ import { supabase, sbCall } from "../lib/supabase-client.js";
  * view in one round trip: tiers for every given product, MOQ/retail fields
  * already come back on the product/variant rows themselves from
  * catalog.js, so this only needs to add tiers + (if a client is known)
- * that client's overrides. */
-export async function getPricingContext(productIds, clientId) {
+ * that buyer's own overrides (keyed off their portal account, not off a
+ * client id the caller chooses -- see below). */
+export async function getPricingContext(productIds, accountId) {
   const tiersByProduct = new Map();
   if (productIds.length) {
     const { data: tiers } = await sbCall(
@@ -29,10 +30,18 @@ export async function getPricingContext(productIds, clientId) {
     });
   }
 
+  // Batch 16: this used to be a direct select filtered by .eq("client_id", ...),
+  // which meant the client id was whatever the CALLER passed -- and the table
+  // was readable by anon, so anyone holding the publishable key could point it
+  // at any client and read that shop's negotiated prices. It now goes through
+  // v2_buyer_price_overrides, which takes NO client id at all: it validates the
+  // account and reads the client off that row. The strongest question a buyer
+  // can ask is "what do I pay", and there is no longer a parameter through
+  // which to ask a different one.
   const overridesByVariant = new Map();
-  if (clientId) {
+  if (accountId) {
     const { data: overrides } = await sbCall(
-      supabase.from("v2_client_price_overrides").select("variant_id, override_price").eq("client_id", clientId)
+      supabase.rpc("v2_buyer_price_overrides", { p_account_id: accountId })
     );
     (overrides || []).forEach((o) => overridesByVariant.set(o.variant_id, Number(o.override_price)));
   }
