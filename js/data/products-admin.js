@@ -230,6 +230,9 @@ export async function createProduct(wid, draft = {}) {
       category: draft.category?.trim() || null,
       selling_model: model,
       moq_qty: Math.max(1, Number(draft.moqQty) || 1),
+      // Batch 17. Null when the wholesaler did not pick one -- sourcing is
+      // optional and a product must never be blocked on it.
+      supplier_id: draft.supplierId || null,
     }).select("id, name").single()
   );
   if (pErr || !product) {
