@@ -158,8 +158,13 @@ ok(afterCustom[0] === 4 && afterCustom[1] === 3,
 
 // CARRY-FORWARD: type a quantity, then change the size list, and the cells
 // whose size name did not change must keep their numbers. v1's rule, kept.
+// NOTE the input[type="number"] selectors below: as of Batch 16 a cell holds a
+// quantity AND a barcode, so a bare ".pb-cell input" now matches two elements
+// per cell and the indexes below would silently step through qty, barcode,
+// qty, barcode -- passing or failing for reasons that have nothing to do with
+// carry-forward.
 await page.evaluate(() => {
-  const cells = document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell input");
+  const cells = document.querySelectorAll(".pb-grid-row")[0].querySelectorAll('.pb-cell input[type="number"]');
   cells[0].value = "12"; cells[0].dispatchEvent(new Event("input", { bubbles: true }));
   cells[1].value = "9";  cells[1].dispatchEvent(new Event("input", { bubbles: true }));
 });
@@ -171,14 +176,60 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(500);
 const carried = await page.evaluate(() =>
-  [...document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell input")].map((i) => i.value));
+  [...document.querySelectorAll(".pb-grid-row")[0].querySelectorAll('.pb-cell input[type="number"]')].map((i) => i.value));
 ok(carried[0] === "12" && carried[1] === "9",
   `renaming one size carries the others' quantities forward (${carried.join(",")})`);
+
+// SCANNING INTO A CELL. Hadi asked for the barcode scanner v1 had; the point
+// of these assertions is that a scan lands in the RIGHT cell, because a code
+// that goes somewhere plausible-but-wrong is worse than one that goes nowhere.
+// The scan bar is driven exactly as a hardware scanner drives it: type the
+// code, press Enter. No camera is involved, which is also true in the
+// warehouse -- the camera is progressive enhancement over this path.
+await page.evaluate(() => {
+  // Aim at the first colour's second cell by focusing it, the way a finger
+  // would. Aiming is the whole safety mechanism, so it is exercised, not
+  // bypassed by writing to state directly.
+  document.querySelectorAll(".pb-grid-row")[0]
+    .querySelectorAll('.pb-cell input[type="number"]')[1].focus();
+});
+await page.waitForTimeout(200);
+const aimedAt = await page.evaluate(() => document.querySelector("[data-scan-aim]")?.textContent || "");
+ok(/·\s*M\b/.test(aimedAt), `the form says which cell a scan will fill (saw: "${aimedAt}")`);
+
+const scanInput = ".pb-scan input";
+await page.fill(scanInput, "5012345678900");
+await page.press(scanInput, "Enter");
+await page.waitForTimeout(300);
+
+const barcodeValues = await page.evaluate(() =>
+  [...document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell-barcode")].map((i) => i.value));
+ok(barcodeValues[1] === "5012345678900",
+  `a scan fills the aimed cell (cell 2 holds "${barcodeValues[1]}")`);
+ok(barcodeValues[0] === "" && barcodeValues[2] === "",
+  `and fills ONLY that cell (neighbours: "${barcodeValues[0]}" / "${barcodeValues[2]}")`);
+
+// After a scan the aim advances, so a run of codes can be fired in without
+// touching the screen between them.
+const advanced = await page.evaluate(() => document.querySelector("[data-scan-aim]")?.textContent || "");
+ok(advanced !== aimedAt, `the aim moves on after a scan (was "${aimedAt}", now "${advanced}")`);
+
+// A barcode identifies exactly one variant, so the same code twice must be
+// refused AT THE SCAN -- not at save, by which time the operator has put the
+// label gun down and no longer knows which two cells collided.
+await page.fill(scanInput, "5012345678900");
+await page.press(scanInput, "Enter");
+await page.waitForTimeout(300);
+const scanStatus = await page.evaluate(() => document.querySelector("[data-scan-status]")?.textContent || "");
+ok(/already/i.test(scanStatus), `scanning a duplicate barcode is refused on the spot (saw: "${scanStatus}")`);
+const afterDupe = await page.evaluate(() =>
+  [...document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell-barcode")].map((i) => i.value).filter(Boolean).length);
+ok(afterDupe === 1, `and the duplicate is not written anywhere (${afterDupe} barcode(s) on this colour)`);
 
 // One cell WITH stock and one WITHOUT — the second is what used to vanish.
 await page.evaluate(() => {
   const rows = document.querySelectorAll(".pb-grid-row");
-  const navy = rows[1].querySelectorAll(".pb-cell input");
+  const navy = rows[1].querySelectorAll('.pb-cell input[type="number"]');
   navy[0].value = "6"; navy[0].dispatchEvent(new Event("input", { bubbles: true }));
   // navy[1] and navy[2] deliberately left at 0
 });
