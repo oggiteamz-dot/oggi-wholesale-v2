@@ -200,6 +200,32 @@ begin
   end loop;
 
   ------------------------------------------------------------------
+  -- 10. No browser role may hold TRUNCATE, REFERENCES or TRIGGER.
+  --
+  --     TRUNCATE IS NOT SUBJECT TO ROW-LEVEL SECURITY. Policies filter
+  --     SELECT, INSERT, UPDATE and DELETE; they do not apply to TRUNCATE at
+  --     all. A role holding it empties the entire table no matter how
+  --     carefully every policy is written -- v2_locations had four correct,
+  --     tightly scoped policies with an anon TRUNCATE grant underneath them,
+  --     and 35 tables were in that state until migration 043.
+  --
+  --     Not reachable through PostgREST as things stand, which is why it is
+  --     stated plainly rather than dressed up: the reason to assert it is
+  --     that the privilege has no legitimate use here (nothing in the
+  --     application truncates anything) and its blast radius is every order,
+  --     product and stock balance in the system.
+  ------------------------------------------------------------------
+  for txt in
+    select g.grantee || ' holds ' || g.privilege_type || ' on ' || g.table_name
+      from information_schema.role_table_grants g
+     where g.table_schema = 'wholesale_v2'
+       and g.grantee in ('anon', 'authenticated')
+       and g.privilege_type in ('TRUNCATE', 'REFERENCES', 'TRIGGER')
+  loop
+    fails := fails || format('DESTRUCTIVE GRANT: %s -- TRUNCATE bypasses RLS entirely, so no row policy can contain it. See migration 043.', txt);
+  end loop;
+
+  ------------------------------------------------------------------
   if array_length(fails,1) is null then
     raise notice 'check_tenant_isolation: ALL ASSERTIONS HELD';
   else

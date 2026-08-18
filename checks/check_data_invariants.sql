@@ -210,6 +210,97 @@ begin
   end if;
 
   ------------------------------------------------------------------
+  -- EVERY WHOLESALER MUST HAVE A DEFAULT STOCK LOCATION  (added 18 Aug 2026)
+  --
+  -- Stock can only be received INTO a location: v2_receive_stock takes a
+  -- p_location_id and v2_inventory_balances is keyed on (variant_id,
+  -- location_id). A wholesaler with no location cannot hold a single unit of
+  -- inventory -- not through the importer, not through the Inventory screen,
+  -- not through anything.
+  --
+  -- This was real, not hypothetical. v2_create_wholesaler never inserted a
+  -- location, so `test` (jil) -- the only wholesaler made through the owner
+  -- console rather than the v1 data migration -- had zero. It was the ONLY
+  -- one of the five that could not function, and nothing anywhere said so:
+  -- the Inventory screen simply showed an empty state, which is exactly what
+  -- a wholesaler with no products would also see.
+  --
+  -- Fixed in migration 043 (back-fill + the function). This assertion is what
+  -- stops it coming back, and it is a DATA check rather than a code check for
+  -- the reason this whole file exists: a function can keep its name and stop
+  -- doing the thing.
+  ------------------------------------------------------------------
+  for txt in
+    select w.wid from wholesale_v2.v2_wholesalers w
+    where not exists (
+      select 1 from wholesale_v2.v2_locations l
+      where l.wid = w.wid and l.is_default and not l.archived
+    )
+  loop
+    fails := fails || format(
+      'LOCATION: wholesaler "%s" has no default stock location -- it cannot receive inventory at all. See migration 043.', txt);
+  end loop;
+
+  -- Two defaults is as broken as none, only quieter: "receive" paths pick the
+  -- default with a LIMIT 1, so stock lands in whichever row sorts first and
+  -- appears to vanish from the other.
+  for txt in
+    select l.wid from wholesale_v2.v2_locations l
+    where l.is_default and not l.archived
+    group by l.wid having count(*) > 1
+  loop
+    fails := fails || format(
+      'LOCATION: wholesaler "%s" has more than one default location -- receives will land unpredictably in one of them', txt);
+  end loop;
+
+  ------------------------------------------------------------------
+  -- EVERY WHOLESALER MUST HAVE EXACTLY ONE DEFAULT CATALOG  (18 Aug 2026)
+  --
+  -- Same class of gap as the location assertion above, and it happened for
+  -- the same reason: migration 045 created the catalog tables and back-filled
+  -- one catalog per EXISTING wholesaler, but did not teach the creation path
+  -- to make one. A wholesaler created after 045 therefore had a location and
+  -- no catalog -- found within a minute by creating a throwaway wholesaler
+  -- through the console's own function and looking at what it was born with.
+  --
+  -- The point of asserting it here rather than trusting migration 046's
+  -- trigger: a back-fill and a creation path are two different things, and
+  -- fixing only one leaves a hole that opens for the NEXT customer rather
+  -- than an existing one. Nobody notices, because everyone already on the
+  -- system is fine. That is precisely the shape of bug a data invariant
+  -- catches and a code review does not.
+  ------------------------------------------------------------------
+  for txt in
+    select w.wid from wholesale_v2.v2_wholesalers w
+    where not exists (
+      select 1 from wholesale_v2.v2_catalogs c where c.wid = w.wid and c.is_default
+    )
+  loop
+    fails := fails || format(
+      'CATALOG: wholesaler "%s" has no default catalog -- products created from Inventory have nowhere to be filed, and the Catalogs screen shows an error. See migration 046.', txt);
+  end loop;
+
+  ------------------------------------------------------------------
+  -- A PRODUCT MUST BE FILED IN AT LEAST ONE CATALOG
+  --
+  -- A product in no catalog is not broken data, but it is unfindable: the
+  -- Catalogs screen is organised entirely by catalog, so an unfiled product
+  -- exists, is sellable, and appears on no list the wholesaler browses.
+  -- Reported as a WARNING rather than a failure -- it is a housekeeping
+  -- problem, not a corruption, and a wholesaler may legitimately have just
+  -- removed something from its last catalog on purpose.
+  ------------------------------------------------------------------
+  select count(*) into n
+    from wholesale_v2.v2_products p
+   where coalesce(p.archived, false) = false
+     and not exists (
+       select 1 from wholesale_v2.v2_catalog_products cp where cp.product_id = p.id
+     );
+  if n > 0 then
+    warns := warns || format('%s live product(s) are in no catalog -- they are sellable but appear on no catalog screen', n);
+  end if;
+
+  ------------------------------------------------------------------
   -- REPORT
   ------------------------------------------------------------------
   if array_length(warns,1) is not null then

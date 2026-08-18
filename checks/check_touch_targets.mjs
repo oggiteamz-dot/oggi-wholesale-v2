@@ -118,6 +118,32 @@ const GALLERY = `<!DOCTYPE html><html><head>
   </div>
 </div>
 
+<!-- NEW PRODUCT FORM swatches (js/components/product-form.js, 18 Aug 2026).
+     Different markup from the catalogue swatch above and a different class,
+     so passing that one says nothing about this one. These are the smallest
+     controls on the product form and there are eighteen of them in a row on a
+     390px screen -- exactly the shape that ends up 26px and untappable if
+     nobody measures it. The real component's classes are used so the real
+     stylesheet decides the size; only the surrounding scaffolding is copied. -->
+<section class="card detail-card product-form" style="margin-bottom:12px">
+  <div class="detail-card-body">
+    <div class="pf-colorbar">
+      <span class="pf-label">Swatch</span>
+      <div class="pf-swatches">
+        <button type="button" class="pf-swatch" data-t="pf-swatch" aria-label="Black" aria-pressed="false"><span class="pf-swatch-dot" style="background:#111827"></span></button>
+        <button type="button" class="pf-swatch" data-t="pf-swatch-2" aria-label="Mint" aria-pressed="true"><span class="pf-swatch-dot" style="background:#54E5A0"></span></button>
+        <button type="button" class="pf-swatch" data-t="pf-swatch-3" aria-label="Sand" aria-pressed="false"><span class="pf-swatch-dot" style="background:#D6C3A5"></span></button>
+      </div>
+      <label class="pf-label pf-custom-label" for="pf-hex">Custom</label>
+      <input type="color" class="pf-color-input" id="pf-hex" data-t="pf-color-input" value="#111827">
+    </div>
+    <div class="pf-actions">
+      <button type="button" class="btn btn-primary" data-t="pf-create">Create product</button>
+      <button type="button" class="btn btn-secondary" data-t="pf-cancel">Cancel</button>
+    </div>
+  </div>
+</section>
+
 </main>
 <nav id="sidenav"><div class="nav-section-label">Navigate</div>
   <a href="#" class="nav-item"><span class="nav-icon">◆</span><span>Dashboard</span></a>
@@ -192,18 +218,36 @@ for (const r of results) {
 // expanded areas overlap make a tap ambiguous, which is worse than a small
 // but unambiguous target.
 const overlap = await page.evaluate(() => {
-  const sw = [...document.querySelectorAll(".color-swatch")];
-  const boxes = sw.map((el) => {
-    const r = el.getBoundingClientRect();
-    const b = getComputedStyle(el, "::before");
-    const px = (v) => parseFloat(v) || 0;
-    const grow = b && b.content !== "none" && b.position === "absolute";
-    return { l: r.left - (grow ? -px(b.left) : 0), r: r.right + (grow ? -px(b.right) : 0) };
-  });
+  // PER ROW, not across the whole document. Two swatch rows now exist -- the
+  // catalogue's (.color-swatch, in product-card.js) and the new product form's
+  // (.pf-swatch). Comparing the last swatch of one row against the first of
+  // another compares elements that are nowhere near each other and reports a
+  // large fictitious overlap. Only siblings can be mis-tapped for each other.
   let worst = 0;
-  for (let i = 1; i < boxes.length; i++) {
-    worst = Math.max(worst, Math.round(boxes[i - 1].r - boxes[i].l));
-  }
+  document.querySelectorAll(".swatch-row, .pf-swatches").forEach((rowEl) => {
+    const sw = [...rowEl.querySelectorAll(".color-swatch, .pf-swatch")];
+    const boxes = sw.map((el) => {
+      const r = el.getBoundingClientRect();
+      const b = getComputedStyle(el, "::before");
+      const px = (v) => parseFloat(v) || 0;
+      const grow = b && b.content !== "none" && b.position === "absolute";
+      return { l: r.left - (grow ? -px(b.left) : 0), r: r.right + (grow ? -px(b.right) : 0),
+               top: Math.round(r.top) };
+    });
+    // Wrapped rows put some swatches on a second visual line; those are not
+    // horizontal neighbours either, so compare only within the same line.
+    const byLine = new Map();
+    boxes.forEach((b) => {
+      if (!byLine.has(b.top)) byLine.set(b.top, []);
+      byLine.get(b.top).push(b);
+    });
+    byLine.forEach((line) => {
+      line.sort((a, b) => a.l - b.l);
+      for (let i = 1; i < line.length; i++) {
+        worst = Math.max(worst, Math.round(line[i - 1].r - line[i].l));
+      }
+    });
+  });
   return worst;
 });
 const overlapOk = overlap <= 0;
@@ -217,9 +261,39 @@ await page.screenshot({ path: join(SHOTS, "touch-targets-375.png"), fullPage: tr
 // It becomes one on a touchscreen laptop: coarse pointer, desktop width.
 // Measuring it at 375px would measure a hidden element and report nonsense.
 console.log("\n  --- touchscreen laptop (1280px, coarse pointer) ---");
-await page.setViewportSize({ width: 1280, height: 900 });
-await page.waitForTimeout(300);
-const sideItems = await page.$$eval("#sidenav .nav-item", (els, min) =>
+// A SEPARATE CONTEXT, not page.setViewportSize() on the phone one.
+//
+// This used to resize the existing page. That relies on Chromium's mobile
+// emulation surviving a viewport change, and it does not do so reliably --
+// `matchMedia("(pointer: coarse)")` came back FALSE after the resize, so the
+// coarse-pointer rules stopped applying and the check reported 36px for a
+// nav item that is 44px on a real touch laptop. It went unnoticed because the
+// assertion happened to pass while it was passing for the wrong reason.
+//
+// Creating the context at the target size means the emulation is set up once,
+// for the conditions being measured, and never mutated underneath the test.
+const laptopCtx = await browser.newContext({
+  viewport: { width: 1280, height: 900 },
+  hasTouch: true,
+  isMobile: false,          // a laptop is not a phone; it just has a touchscreen
+  deviceScaleFactor: 1,
+});
+const laptop = await laptopCtx.newPage();
+await laptop.route("**/gallery.html", (r) => r.fulfill({ status: 200, contentType: "text/html", body: GALLERY }));
+await laptop.goto(`http://127.0.0.1:${PORT}/gallery.html`);
+await laptop.waitForTimeout(600);
+
+// State the conditions being measured, so a pass cannot be silently vacuous.
+const laptopConds = await laptop.evaluate(() => ({
+  coarse: matchMedia("(pointer: coarse)").matches,
+  width: window.innerWidth,
+}));
+console.log(`     (context: ${laptopConds.width}px, pointer: coarse = ${laptopConds.coarse})`);
+if (!laptopConds.coarse) {
+  failures.push("the touchscreen-laptop pass is not running with a coarse pointer — its result means nothing");
+}
+
+const sideItems = await laptop.$$eval("#sidenav .nav-item", (els, min) =>
   els.map((el) => {
     const r = el.getBoundingClientRect();
     return { name: "sidenav nav-item", w: Math.round(r.width), h: Math.round(r.height),
@@ -229,6 +303,7 @@ for (const r of sideItems.slice(0, 1)) {
   console.log(`  ${r.ok ? "✓" : "✗"} ${r.name.padEnd(22)} ${String(r.w).padStart(3)} x ${String(r.h).padStart(3)} px`);
   if (!r.ok) failures.push(`${r.name}: ${r.w}x${r.h}px on a touch laptop, needs ${MIN}px tall`);
 }
+await laptopCtx.close();
 await browser.close();
 server.close();
 
