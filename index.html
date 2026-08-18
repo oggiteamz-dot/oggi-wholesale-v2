@@ -14,7 +14,20 @@
      handler once v2 is actually deployed -- see
      docs/BATCH-14-SCHEMA-MIGRATION-RECORD.md §5. Keep this tag's policy
      in sync with those two files by hand if it ever changes. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' https://olaipgdckbgjediddloj.supabase.co wss://olaipgdckbgjediddloj.supabase.co; base-uri 'self'; form-action 'self'; object-src 'none'" />
+<!-- img-src includes blob: as of 18 Aug 2026.
+     The product builder previews photos before they are uploaded, using
+     URL.createObjectURL(file) -- a blob: URL. Without blob: in img-src the
+     browser refuses to load the preview, the <img> reports naturalWidth 0, and
+     the eyedropper samples a blank canvas and returns black. The photo feature
+     looked broken end to end and the console explained why in one line nobody
+     was reading.
+     blob: is a narrow addition: these URLs are minted by this page, are
+     same-origin by construction, cannot be forged by a third party, and are
+     revoked when the form resets. It does NOT widen what can be fetched from
+     the network. data: was the alternative and was rejected -- a 12MP phone
+     photo as base64 is megabytes of string held in memory, several times over,
+     on the device least able to afford it. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self'; connect-src 'self' https://olaipgdckbgjediddloj.supabase.co wss://olaipgdckbgjediddloj.supabase.co; base-uri 'self'; form-action 'self'; object-src 'none'" />
 
 <!-- PWA / installability (added for the Cloudflare Workers + TWA build --
      see docs/PWA-AND-TWA.md). manifest.json + an active service worker
