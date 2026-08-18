@@ -13,20 +13,199 @@ import { getReorderSuggestions, getInventoryIntelligenceReport, getCycleCountSch
 import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
+import { listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
+         addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
+import { createProduct } from "../data/products-admin.js";
+import { renderProductForm } from "../components/product-form.js";
 import { listPortalAccounts, setPortalAccountActive } from "../data/team.js";
+
+import { renderDateRangeFilter } from "../components/date-range-filter.js";
+import { renderLineChart, renderBarChart } from "../components/chart.js";
+import { getWholesalerSummary, getTopProducts, getTopClients, getSalesSeries } from "../data/owner-analytics.js";
 
 import { esc, money, pageHeader } from "../lib/utils.js";
 // ---------- Dashboard ----------
 
+// =============================================================================
+// DASHBOARD  (rebuilt 18 Aug 2026)
+// =============================================================================
+// Hadi's ask, verbatim: "Total orders, revenue, and clients -- these should be
+// their own, like build a dashboard, to be wholesaler specific."
+//
+// Those three lived only on the OWNER dashboard, where they are platform-wide
+// totals summed across every wholesaler. This screen previously showed open
+// orders, variants tracked, low stock and out of stock: useful operationally,
+// and completely silent about money.
+//
+// WHERE THE NUMBERS COME FROM, AND WHERE THEY DO NOT
+// --------------------------------------------------
+// Every commercial figure here comes from the SQL functions in migration 039,
+// through js/data/owner-analytics.js. NOTHING on this screen re-computes a
+// total in JavaScript. That is not tidiness -- it is the reason the owner's
+// drill-down and this dashboard cannot ever quote different revenue for the
+// same month. Migration 044 changed those functions' guard from "is the owner"
+// to "is the owner, or is this your own wid", specifically so both screens
+// could share one definition instead of growing two.
+//
+// If you are about to add a figure here, add it to 039 and read it back. The
+// moment a total is summed in this file, it is a second opinion.
+//
+// The operational stats are KEPT, below the commercial ones. They answer a
+// different question -- "what do I need to do today" rather than "how is the
+// business doing" -- and deleting them to make room would be a regression
+// dressed up as a redesign.
+//
+// TIME FRAME
+// ----------
+// Reuses js/components/date-range-filter.js exactly as the owner drill-down
+// does: today, this week, this month, 6 months, this year, lifetime, custom.
+// Its `bucketForRange` picks the chart granularity, so a lifetime view draws
+// months and a week draws days without this file deciding anything.
+// =============================================================================
+
 async function dashboard(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
-  outlet.appendChild(pageHeader(`${session.wholesalerName || wid} — Dashboard`, "Live order and inventory snapshot."));
+  outlet.appendChild(pageHeader(
+    `${session.wholesalerName || wid} — Dashboard`,
+    "Your orders, revenue and clients. Everything here is yours alone."
+  ));
 
+  // --- the time frame drives everything commercial on the page ---
+  const commercial = document.createElement("div");
+  const filter = renderDateRangeFilter({
+    initial: "30d",
+    onChange: (range) => paintCommercial(commercial, wid, range, session),
+  });
+  outlet.appendChild(filter.el);
+  outlet.appendChild(commercial);
+
+  // Mount with the default range. Deliberately not awaited before the
+  // operational block below renders: the two halves load independently, so a
+  // slow analytics query does not hold back the low-stock counts.
+  filter.trigger();
+
+  await paintOperational(outlet, wid);
+}
+
+/** Headline figures + charts for the chosen window. Re-runs on every range
+ *  change, so it fully replaces its container rather than appending. */
+async function paintCommercial(host, wid, range, session) {
+  host.innerHTML = `<div class="card" style="padding:16px;font-size:13px;color:var(--text-tertiary);">Loading your figures…</div>`;
+
+  const currency = session.currency || "$";
+  const [summary, series, products, clients] = await Promise.all([
+    getWholesalerSummary(wid, range),
+    getSalesSeries(wid, { ...range, bucket: range.bucket }),
+    getTopProducts(wid, { ...range, limit: 8 }),
+    getTopClients(wid, { ...range, limit: 8 }),
+  ]);
+
+  host.innerHTML = "";
+
+  if (!summary.ok) {
+    host.appendChild(emptyState({
+      icon: "⚠️", title: "Could not load your figures", body: summary.error,
+    }));
+    return;
+  }
+
+  const fmt = (n) => currency + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+  // The three Hadi named come first, in the order he named them.
+  const stats = document.createElement("div");
+  stats.className = "stat-grid";
+  [
+    ["Total orders", String(summary.orders)],
+    ["Revenue", fmt(summary.revenue)],
+    ["Clients", String(summary.clientsTotal)],
+    ["Average order", fmt(summary.avgOrder)],
+    ["Units sold", String(summary.units)],
+    // Shown as a count, not a bare percentage: "3 cancelled" is actionable
+    // where "12.5%" of eight orders reads as a trend that isn't there.
+    ["Cancelled", String(summary.cancelled)],
+  ].forEach(([label, value]) => {
+    const c = document.createElement("div");
+    c.className = "card stat-card";
+    c.innerHTML = `<div class="stat-label">${esc(label)}</div><div class="stat-value">${esc(value)}</div>`;
+    stats.appendChild(c);
+  });
+  host.appendChild(stats);
+
+  // An honest word about an empty window. "0 orders" for a range with no
+  // trading is a fact; showing charts of nothing underneath it is noise.
+  if (!summary.orders) {
+    host.appendChild(emptyState({
+      icon: "◆",
+      title: `No orders in ${range.label.toLowerCase()}`,
+      body: summary.clientsTotal
+        ? `You have ${summary.clientsTotal} client${summary.clientsTotal === 1 ? "" : "s"} set up. Nothing was ordered in this period — try a wider time frame.`
+        : "Once buyers start ordering from your catalogue, revenue and top products appear here.",
+    }));
+    return;
+  }
+
+  host.appendChild(chartCard(
+    "Revenue over time",
+    "Every period is drawn, including the ones with no sales — a gap would imply orders that never happened.",
+    renderLineChart({
+      buckets: series.rows.map((r) => r.at),
+      series: [{ name: "Revenue", points: series.rows.map((r) => r.revenue) }],
+      currency,
+    })
+  ));
+
+  if (products.rows.length) {
+    host.appendChild(chartCard(
+      "Top products",
+      "By revenue in this period. Hover a bar for units and order count.",
+      renderBarChart({
+        currency,
+        rows: products.rows.map((r) => ({
+          label: r.name,
+          value: r.revenue,
+          detail: [["Units", String(r.units)], ["Orders", String(r.orders)],
+                   ["Share", `${r.pctOfRevenue.toFixed(1)}%`]],
+        })),
+      })
+    ));
+  }
+
+  if (clients.rows.length) {
+    host.appendChild(chartCard(
+      "Top clients",
+      "By revenue in this period.",
+      renderBarChart({
+        currency,
+        rows: clients.rows.map((r) => ({
+          label: r.shopName || "Unnamed client",
+          value: r.revenue,
+          detail: [["Orders", String(r.orders)],
+                   ["Average", currency + r.avgOrder.toFixed(0)],
+                   ["Share", `${r.pctOfRevenue.toFixed(1)}%`]],
+        })),
+      })
+    ));
+  }
+}
+
+/** The operational half: what needs doing today. Unchanged in substance from
+ *  the original dashboard -- these counts were already correct and already
+ *  scoped to this wholesaler. */
+async function paintOperational(outlet, wid) {
   const [orders, stock] = await Promise.all([getWholesalerOrders(wid), getStockTable(wid)]);
   const openOrders = orders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
   const lowStockCount = stock.filter((s) => s.available > 0 && s.available <= 15).length;
   const outOfStockCount = stock.filter((s) => s.available <= 0).length;
+
+  const wrap = document.createElement("section");
+  wrap.className = "card detail-card";
+  wrap.innerHTML = `<header class="detail-card-head">
+      <h3>Needs attention</h3>
+      <p>Live right now, not filtered by the time frame above — an order waiting to ship is waiting regardless of which month you are looking at.</p>
+    </header>`;
+  const body = document.createElement("div");
+  body.className = "detail-card-body";
 
   const stats = document.createElement("div");
   stats.className = "stat-grid";
@@ -38,14 +217,30 @@ async function dashboard(outlet) {
   ].forEach(([label, value]) => {
     const c = document.createElement("div");
     c.className = "card stat-card";
-    c.innerHTML = `<div class="stat-label">${label}</div><div class="stat-value">${value}</div>`;
+    c.innerHTML = `<div class="stat-label">${esc(label)}</div><div class="stat-value">${value}</div>`;
     stats.appendChild(c);
   });
-  outlet.appendChild(stats);
+  body.appendChild(stats);
+  wrap.appendChild(body);
+  outlet.appendChild(wrap);
+}
 
-  if (!orders.length) {
-    outlet.appendChild(emptyState({ icon: "◆", title: "No orders yet", body: "Orders placed by buyers browsing this wholesaler's catalog will appear here." }));
-  }
+/** A titled card wrapping a chart. Local on purpose: owner-wholesaler-detail.js
+ *  has its own `card()` helper, and importing across two view files to save six
+ *  lines is how this codebase ended up with pageHeader in seven copies. If a
+ *  third view wants this, it graduates to js/components/. */
+function chartCard(title, subtitle, chartEl) {
+  const el = document.createElement("section");
+  el.className = "card detail-card";
+  el.innerHTML = `<header class="detail-card-head">
+      <h3>${esc(title)}</h3>
+      <p>${esc(subtitle)}</p>
+    </header>`;
+  const body = document.createElement("div");
+  body.className = "detail-card-body";
+  body.appendChild(chartEl);
+  el.appendChild(body);
+  return el;
 }
 
 // ---------- Orders (fulfillment ladder) ----------
@@ -580,8 +775,55 @@ async function inventoryView(outlet) {
   outlet.appendChild(pageHeader("Inventory", "Live stock by variant and location — lowest available first."));
 
   const [stock, locations] = await Promise.all([getStockTable(wid), getLocations(wid)]);
+  const location = locations[0] || null;
+
+  // The SECOND entry point for product creation. Same component, same
+  // createProduct(), same guarantees -- it just does not name a catalog, so
+  // the product is filed in the wholesaler's default one. Hadi asked for both:
+  // "you can either create a product inside the inventory, or you can create a
+  // product inside the actual catalogs".
+  const defaultCatalog = await getDefaultCatalog(wid);
+
+  const bar = document.createElement("div");
+  bar.className = "pf-actions";
+  bar.style.marginTop = "0";
+  const newBtn = document.createElement("button");
+  newBtn.type = "button";
+  newBtn.className = "btn btn-primary";
+  newBtn.textContent = "+ New product";
+  bar.appendChild(newBtn);
+  outlet.appendChild(bar);
+
+  const formHost = document.createElement("div");
+  outlet.appendChild(formHost);
+
+  newBtn.addEventListener("click", () => {
+    if (formHost.firstChild) { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; return; }
+    newBtn.textContent = "Close the form";
+    const form = renderProductForm({
+      catalogName: defaultCatalog?.name || "your main catalog",
+      hasLocation: !!location,
+      locationName: location?.name || "",
+      onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
+      onSubmit: async (draft) => {
+        const res = await createProduct(wid, { ...draft, locationId: location?.id || null });
+        if (res.ok) {
+          toast(res.message, { type: res.variantsFailed?.length ? "warning" : "success" });
+          outlet.innerHTML = "";
+          inventoryView(outlet);
+        }
+        return res;
+      },
+    });
+    formHost.appendChild(form.el);
+    form.focus();
+  });
+
   if (!stock.length) {
-    outlet.appendChild(emptyState({ icon: "📊", title: "No stock records yet", body: "Stock appears here once products with variants exist." }));
+    outlet.appendChild(emptyState({
+      icon: "📊", title: "Nothing in stock yet",
+      body: "Add a product with the button above, or import a catalog. Every variant you create shows up here — including ones you have not received stock into yet.",
+    }));
     return;
   }
 
@@ -591,23 +833,39 @@ async function inventoryView(outlet) {
 
   stock.forEach((row) => {
     const r = document.createElement("div");
-    r.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-subtle);";
-    const badge = row.available <= 0 ? '<span class="badge badge-danger">Out</span>' : row.available <= 15 ? '<span class="badge badge-warning">Low</span>' : "";
+    // A CLASS, not an inline style. The row now carries a badge, a quantity
+    // block and a button, and at 390px the inline `display:flex` squeezed the
+    // product name into a one-word-per-line column. Layout that has to change
+    // with the viewport cannot live in a style attribute -- there is no media
+    // query for an inline style. See css/mobile.css.
+    r.className = "inv-row";
+    // "Never stocked" and "Out" are different facts and must not share a
+    // badge. One needs reordering; the other has simply never been received
+    // into, which is the normal state of a product created five seconds ago.
+    // Before the getStockTable rewrite these rows did not appear at all.
+    const badge = row.neverStocked
+      ? '<span class="badge badge-neutral">Not stocked yet</span>'
+      : row.available <= 0 ? '<span class="badge badge-danger">Out</span>'
+      : row.available <= 15 ? '<span class="badge badge-warning">Low</span>' : "";
     r.innerHTML = `
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:600;font-size:13px;">${esc(row.productName)} <span style="color:var(--text-tertiary);font-weight:400;">${esc(row.color)} / ${esc(row.size)}</span></div>
-        <div style="font-size:11px;color:var(--text-tertiary);">${esc(row.locationName)} · SKU ${esc(row.sku)}</div>
+      <div class="inv-row-main">
+        <div class="inv-row-name">${esc(row.productName)} <span class="inv-row-variant">${esc(row.color || "—")} / ${esc(row.size || "—")}</span></div>
+        <div class="inv-row-meta">${esc(row.locationName)} · SKU ${esc(row.sku)}</div>
       </div>
-      <div style="text-align:right;width:90px;">
-        <div style="font-weight:700;">${row.available} avail.</div>
-        <div style="font-size:11px;color:var(--text-tertiary);">${row.onHand} on hand${row.reserved ? `, ${row.reserved} held` : ""}</div>
+      <div class="inv-row-qty">
+        <div class="inv-row-avail">${row.available} avail.</div>
+        <div class="inv-row-meta">${row.onHand} on hand${row.reserved ? `, ${row.reserved} held` : ""}</div>
       </div>
-      ${badge}
+      <div class="inv-row-badge">${badge}</div>
     `;
     const receiveBtn = document.createElement("button");
     receiveBtn.className = "btn btn-secondary btn-sm";
     receiveBtn.textContent = "Receive";
     receiveBtn.addEventListener("click", async () => {
+      if (!row.locationId) {
+        toast("There is no stock location set up to receive into. Tell OGGI — every wholesaler should have one.", { type: "danger" });
+        return;
+      }
       const qty = parseInt(prompt(`Receive how many units of ${row.productName} (${row.color}/${row.size})?`, "10"), 10);
       if (!qty || qty <= 0) return;
       const { error } = await receiveStock(row.variantId, row.locationId, qty);
@@ -1223,6 +1481,216 @@ async function teamView(outlet) {
 
 // ---------- Deferred (not this batch) ----------
 
+
+// =============================================================================
+// CATALOGS  (built 18 Aug 2026 — was a "scheduled later" stub)
+// =============================================================================
+// Hadi: "there's an actual catalog, and inside of the actual catalog builder,
+// create new products. And when you create these new products, you
+// automatically have them be put into the inventory."
+//
+// Before this, /wholesaler/catalogs rendered a literal placeholder and there
+// was no catalog table in the schema at all. Migration 045 added
+// v2_catalogs + v2_catalog_products and back-filled a "Main Catalog" per
+// wholesaler holding everything they already had, so this screen is never
+// empty on first open -- a blank "no catalogs" page for a wholesaler with 64
+// live variants would read as their products having gone missing.
+//
+// The "New product" button here and the one on Inventory call the SAME
+// createProduct() with the SAME form component. The only difference is which
+// catalog id goes along.
+// =============================================================================
+
+async function catalogsView(outlet) {
+  const session = devAuth.getSession();
+  const wid = session.wid;
+  outlet.appendChild(pageHeader(
+    "Catalogs",
+    "Group your products into catalogs. New products land in the one you are looking at."
+  ));
+
+  const { ok, rows: catalogs, error } = await listCatalogs(wid);
+  if (!ok) {
+    outlet.appendChild(emptyState({ icon: "⚠️", title: "Could not load your catalogs", body: error }));
+    return;
+  }
+  if (!catalogs.length) {
+    // Migration 045 back-fills one per wholesaler, so this is genuinely
+    // unexpected rather than a normal empty state -- and says so.
+    outlet.appendChild(emptyState({
+      icon: "🗂", title: "No catalogs found",
+      body: "Every wholesaler should have a Main Catalog. If you are seeing this, tell OGGI — it means one was not created for you.",
+    }));
+    return;
+  }
+
+  let activeId = catalogs.find((c) => c.isDefault)?.id || catalogs[0].id;
+
+  const tabs = document.createElement("div");
+  tabs.className = "date-range-row";
+  tabs.style.marginBottom = "var(--space-4)";
+  tabs.setAttribute("role", "group");
+  tabs.setAttribute("aria-label", "Your catalogs");
+  outlet.appendChild(tabs);
+
+  const panel = document.createElement("div");
+  outlet.appendChild(panel);
+
+  // A real reference, set when the panel is built. It used to be re-found with
+  // panel.querySelector("div:last-child"), which is a description of a shape
+  // rather than an identity -- and the shape matched the OPEN FORM's body
+  // (the last child of its section) before it reached the list. Refreshing the
+  // list therefore emptied the form, including the line that had just
+  // confirmed what was created. Selectors that describe position are fine for
+  // reading and dangerous for writing.
+  let listHost = null;
+
+  function paintTabs() {
+    tabs.innerHTML = "";
+    catalogs.forEach((c) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn btn-sm " + (c.id === activeId ? "btn-primary" : "btn-secondary");
+      b.textContent = c.name + (c.isDefault ? " ★" : "");
+      b.setAttribute("aria-pressed", String(c.id === activeId));
+      b.addEventListener("click", () => { activeId = c.id; paintTabs(); paintPanel(); });
+      tabs.appendChild(b);
+    });
+
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "btn btn-ghost btn-sm";
+    add.textContent = "+ New catalog";
+    add.addEventListener("click", async () => {
+      const name = prompt("What is this catalog called?\n\ne.g. \"Summer 26\", \"Outlet\", \"Wholesale only\"");
+      if (!name) return;
+      const res = await createCatalog(wid, { name });
+      if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+      toast(`"${res.name}" created`, { type: "success" });
+      outlet.innerHTML = "";
+      catalogsView(outlet);
+    });
+    tabs.appendChild(add);
+  }
+
+  async function paintPanel() {
+    const catalog = catalogs.find((c) => c.id === activeId);
+    panel.innerHTML = `<div class="card" style="padding:16px;font-size:13px;color:var(--text-tertiary);">Loading ${esc(catalog.name)}…</div>`;
+
+    const [{ rows: products }, location] = await Promise.all([
+      getCatalogProducts(activeId),
+      getLocations(wid).then((ls) => ls[0] || null),
+    ]);
+
+    panel.innerHTML = "";
+
+    const bar = document.createElement("div");
+    bar.className = "pf-actions";
+    bar.style.marginTop = "0";
+    const newBtn = document.createElement("button");
+    newBtn.type = "button";
+    newBtn.className = "btn btn-primary";
+    newBtn.textContent = "+ New product";
+    bar.appendChild(newBtn);
+    panel.appendChild(bar);
+
+    const formHost = document.createElement("div");
+    panel.appendChild(formHost);
+
+    // The list gets its own container so a refresh after a save repaints ONLY
+    // the list. Repainting the whole panel wiped the open form -- including
+    // the line confirming what had just been created, which the operator then
+    // never saw. Adding one product almost always means adding the next.
+    listHost = document.createElement("div");
+    panel.appendChild(listHost);
+
+    newBtn.addEventListener("click", () => {
+      if (formHost.firstChild) { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; return; }
+      newBtn.textContent = "Close the form";
+      const form = renderProductForm({
+        catalogName: catalog.name,
+        hasLocation: !!location,
+        locationName: location?.name || "",
+        onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
+        onSubmit: async (draft) => {
+          const res = await createProduct(wid, {
+            ...draft, catalogId: activeId, locationId: location?.id || null,
+          });
+          if (res.ok) {
+            toast(res.message, { type: res.variantsFailed?.length ? "warning" : "success" });
+            await paintList();   // the list only -- the form stays open
+          }
+          return res;
+        },
+      });
+      formHost.appendChild(form.el);
+      form.focus();
+    });
+
+    await paintList(products);
+  }
+
+  /** Renders just the product list. Called on first paint and after a save. */
+  async function paintList(preloaded) {
+    const catalog = catalogs.find((c) => c.id === activeId);
+    if (!listHost) return;
+    const products = preloaded || (await getCatalogProducts(activeId)).rows;
+    listHost.innerHTML = "";
+
+    if (!products.length) {
+      listHost.appendChild(emptyState({
+        icon: "🗂", title: `${catalog.name} is empty`,
+        body: "Add a product with the button above. It will appear here and in Inventory straight away.",
+      }));
+      return;
+    }
+
+    const list = document.createElement("div");
+    list.className = "card";
+    list.style.padding = "8px";
+    products.forEach((p) => {
+      const r = document.createElement("div");
+      r.style.cssText = "display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;";
+      const swatches = p.colors.map((c) =>
+        `<span title="${esc(c.name)}" style="display:inline-block;width:14px;height:14px;border-radius:4px;background:${esc(c.hex)};box-shadow:inset 0 0 0 1px rgba(14,34,48,.18);"></span>`
+      ).join("");
+      r.innerHTML = `
+        <div style="flex:1;min-width:180px;">
+          <div style="font-weight:600;font-size:14px;">${esc(p.name)}${p.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
+          <div style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <span>${p.variantCount} variant${p.variantCount === 1 ? "" : "s"}</span>
+            ${p.priceRange[1] > 0 ? `<span>· ${money(p.priceRange[0])}–${money(p.priceRange[1])}</span>` : ""}
+            ${swatches ? `<span style="display:inline-flex;gap:4px;align-items:center;">${swatches}</span>` : ""}
+          </div>
+        </div>
+      `;
+      const rm = document.createElement("button");
+      rm.className = "btn btn-ghost btn-sm";
+      // Wording matters: this unfiles, it does not delete. "Remove" alone
+      // reads as destructive and would stop people using catalogs at all.
+      rm.textContent = "Remove from catalog";
+      rm.addEventListener("click", async () => {
+        const res = await removeProductFromCatalog(activeId, p.id);
+        if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+        toast(`"${p.name}" removed from ${catalog.name}. The product itself is untouched.`, { type: "success" });
+        await paintList();
+      });
+      r.appendChild(rm);
+      list.appendChild(r);
+    });
+    listHost.appendChild(list);
+  }
+
+  paintTabs();
+  await paintPanel();
+}
+
+// Currently unused: /wholesaler/catalogs was its last caller and now has a
+// real screen. Kept rather than deleted because every remaining stub in the
+// app should look identical when it is written, and because deleting a shared
+// helper the moment its last caller goes is how the next person ends up
+// writing a seventh slightly-different version of it. If nothing calls it by
+// the time the wholesaler batch is finished, it goes then, deliberately.
 function placeholder(outlet, title, batchNote) {
   outlet.appendChild(pageHeader(title, `Not built yet — ${batchNote}`));
   outlet.appendChild(emptyState({ title: `${title} — coming soon`, body: "This route is wired and reachable; the view itself lands with its batch." }));
@@ -1234,7 +1702,7 @@ export function registerWholesalerRoutes(router) {
   router.register("/wholesaler/orders", (outlet) => ordersView(outlet));
   router.register("/wholesaler/clients", (outlet) => clientsView(outlet));
   router.register("/wholesaler/team", (outlet) => teamView(outlet));
-  router.register("/wholesaler/catalogs", (outlet) => placeholder(outlet, "Catalogs", "multi-catalog/white-label, scheduled later in the batch plan."));
+  router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));
   router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet));
   router.register("/wholesaler/intelligence", (outlet) => intelligenceView(outlet));
   router.register("/wholesaler/settings", (outlet) => settingsView(outlet));
