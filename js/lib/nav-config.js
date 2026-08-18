@@ -24,6 +24,10 @@ export const NAV_BY_ROLE = {
     // migration 001, but nothing could create a second location and nothing
     // could move stock between two -- regression ledger #17.
     { icon: "🏬", label: "Locations", path: "/wholesaler/locations" },
+    // Batch 17. Sits next to Locations because both answer "where does stock
+    // come from and go" -- Locations is inside the business, Suppliers is the
+    // step before it.
+    { icon: "🏭", label: "Suppliers", path: "/wholesaler/suppliers" },
     { icon: "🧠", label: "Intelligence", path: "/wholesaler/intelligence" },
     { icon: "📷", label: "Scan to Receive", path: "/wholesaler/receive-scan" },
     { icon: "⬆️", label: "Import Catalog", path: "/wholesaler/import" },
