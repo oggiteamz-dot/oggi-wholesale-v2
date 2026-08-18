@@ -161,7 +161,17 @@ async function clientsView(outlet) {
 // ---------- Per-client "Your Price" overrides (Batch 6) ----------
 
 async function renderClientPricingPanel(panel, wid, client) {
-  const [overrides, variants] = await Promise.all([listClientOverrides(client.id), listVariantsForPicker(wid)]);
+  // Batch 16: every call in this panel now carries the rep's real
+  // v2_portal_accounts id. The database validates it (exists, role='sales',
+  // active, belongs to this client's wholesaler) rather than trusting it --
+  // a rep runs as anon and could otherwise claim to be anyone. Before this,
+  // these calls hit the table directly and RLS refused every write, so this
+  // panel could list prices but never change one.
+  const accountId = devAuth.getSession()?.accountId || null;
+  const [overrides, variants] = await Promise.all([
+    listClientOverrides(accountId, client.id),
+    listVariantsForPicker(wid),
+  ]);
   panel.innerHTML = "";
 
   const header = document.createElement("div");
@@ -180,7 +190,11 @@ async function renderClientPricingPanel(panel, wid, client) {
       rmBtn.className = "btn btn-ghost btn-sm";
       rmBtn.textContent = "Remove";
       rmBtn.addEventListener("click", async () => {
-        await removeClientOverride(o.id);
+        // The removal has to be confirmed by the server before the row leaves
+        // the screen: this used to drop it from the list unconditionally, so a
+        // refusal looked exactly like a success until the next reload.
+        const res = await removeClientOverride(accountId, o.id);
+        if (!res.ok) { toast(res.error || "Could not remove that price", { type: "danger" }); return; }
         const idx = overrides.findIndex((x) => x.id === o.id);
         if (idx >= 0) overrides.splice(idx, 1);
         renderList();
@@ -211,8 +225,12 @@ async function renderClientPricingPanel(panel, wid, client) {
     if (isNaN(price)) { toast("Enter a price", { type: "danger" }); return; }
     const variant = variants.find((v) => v.variantId === select.value);
     const session = devAuth.getSession();
-    const { data: saved, error } = await setClientOverride(client.id, select.value, price, noteInput.value, session?.actorLabel || "Rep");
-    if (error || !saved) { toast("Failed to save", { type: "danger" }); return; }
+    const saved = await setClientOverride(accountId, client.id, select.value, price, noteInput.value, session?.actorLabel || "Rep");
+    // Surface the database's own refusal instead of a generic "Failed to save":
+    // it distinguishes "you aren't allowed to price for that client" from
+    // "that product belongs to a different wholesaler", and the rep can act on
+    // the difference.
+    if (!saved.ok) { toast(saved.error || "Failed to save", { type: "danger" }); return; }
     const existingIdx = overrides.findIndex((o) => o.variantId === select.value);
     const newRow = { id: saved.id, variantId: select.value, overridePrice: price, note: noteInput.value, basePrice: variant.price, sku: variant.sku, productName: variant.productName, color: variant.color, size: variant.size };
     if (existingIdx >= 0) overrides[existingIdx] = newRow; else overrides.unshift(newRow);

@@ -93,21 +93,23 @@ async function dashboard(outlet) {
   // distinction) -- both are pure display/UX; the submit RPC re-derives
   // all of this itself and is the real authority (see cart.js/pricing.js).
   const label = buyerLabel();
-  // Batch 14: v2_client_price_overrides' client_id is authoritative from
-  // the real login response (session.clientId) now that buyers have a
-  // real account -- prefer it, and only fall back to the old
-  // shop_name-matching lookup for a session with no real accountId yet
-  // (e.g. mid "switch supplier" browsing, see the suppliers() handler
-  // below). The fallback itself now always resolves to null under the
-  // Batch 14 RLS pass (v2_clients direct reads are wholesaler/owner-only)
-  // -- that's the documented, safe "no override applies" default, not a
-  // crash, so this stays a strict behavior improvement, never a break.
+  // clientId is resolved here for ORDER SUBMISSION only. It no longer has
+  // anything to do with pricing: as of Batch 16 the buyer's negotiated prices
+  // come from v2_buyer_price_overrides, which derives the client from the
+  // validated account row and accepts no client id at all. Prefer the real
+  // login response (session.clientId); the shop_name fallback is for a session
+  // with no real accountId yet (mid "switch supplier" browsing, see the
+  // suppliers() handler below) and always resolves to null under the Batch 14
+  // RLS pass, which is the safe default rather than a crash.
   const [clientId, orderedProductIds] = await Promise.all([
     session.clientId || resolveClientId(wid, label),
     getBuyerOrderedProductIds(session.accountId),
   ]);
   const [{ tiersByProduct, overridesByVariant }, packsByProduct] = await Promise.all([
-    getPricingContext(catalog.map((p) => p.id), clientId),
+    // Batch 16: pricing takes the ACCOUNT id now, not a client id -- the
+    // database resolves which client that account belongs to. clientId above
+    // is still needed, but only for order submission below.
+    getPricingContext(catalog.map((p) => p.id), session.accountId),
     listPacksForProducts(catalog.map((p) => p.id)),
   ]);
 
@@ -210,11 +212,9 @@ async function cartView(outlet) {
   // in the cart; pack lines don't carry a single product's tiers (a pack
   // can span multiple sizes of one product but is sold as a flat unit) so
   // they're excluded, matching Batch 7's pack-lines-are-exempt precedent.
-  const label = buyerLabel();
-  const clientId = session.clientId || (await resolveClientId(wid, label));
   const cartProductIds = [...new Set(lines.filter((l) => !l.isPack && l.productId).map((l) => l.productId))];
   const { tiersByProduct } = cartProductIds.length
-    ? await getPricingContext(cartProductIds, clientId)
+    ? await getPricingContext(cartProductIds, session.accountId)
     : { tiersByProduct: new Map() };
 
   const list = document.createElement("div");

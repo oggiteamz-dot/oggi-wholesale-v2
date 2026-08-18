@@ -22,6 +22,10 @@
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { toast } from "../components/toast.js";
+// Batch 16: renderScanBar moved to components/scan-bar.js so the product
+// builder can scan into grid cells without a second implementation. The
+// behaviour here is unchanged -- it is the same function, in a new file.
+import { renderScanBar } from "../components/scan-bar.js";
 import { emptyState } from "../components/empty-state.js";
 import { lookupByCode } from "../data/barcode-lookup.js";
 import { receiveStock, getLocations } from "../data/inventory-admin.js";
@@ -30,68 +34,6 @@ import { getPickProgress, scanPickItem, undoPickItem } from "../data/picking.js"
 import { advanceOrderStatus } from "../data/wholesaler-orders.js";
 
 import { esc, pageHeader } from "../lib/utils.js";
-/** Scan input shared by both screens: big, autofocused, submits on Enter,
- * clears and refocuses itself after every submit so a warehouse worker can
- * keep scanning without touching the screen between items. Also wires the
- * optional camera-scan button when BarcodeDetector is available. */
-function renderScanBar({ placeholder, onSubmit }) {
-  const wrap = document.createElement("div");
-  wrap.className = "card";
-  wrap.style.cssText = "padding:14px;margin-bottom:16px;display:flex;gap:8px;align-items:center;";
-
-  const input = document.createElement("input");
-  input.className = "input";
-  input.type = "text";
-  input.placeholder = placeholder;
-  input.autocomplete = "off";
-  input.style.cssText = "flex:1;font-size:18px;padding:14px;";
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && input.value.trim()) {
-      const code = input.value.trim();
-      input.value = "";
-      onSubmit(code);
-    }
-  });
-  wrap.appendChild(input);
-
-  // Progressive enhancement only -- see file header. Never assumed present.
-  if (typeof window !== "undefined" && "BarcodeDetector" in window) {
-    const camBtn = document.createElement("button");
-    camBtn.className = "btn btn-secondary";
-    camBtn.style.cssText = "font-size:14px;padding:14px 16px;white-space:nowrap;";
-    camBtn.textContent = "📷 Scan";
-    camBtn.addEventListener("click", async () => {
-      try {
-        const detector = new window.BarcodeDetector();
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        const video = document.createElement("video");
-        video.srcObject = stream;
-        video.setAttribute("playsinline", "true");
-        video.style.cssText = "position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:9999;background:#000;";
-        document.body.appendChild(video);
-        await video.play();
-        const stop = () => { stream.getTracks().forEach((t) => t.stop()); video.remove(); };
-        video.addEventListener("click", stop);
-        const tick = async () => {
-          if (!video.isConnected) return;
-          try {
-            const codes = await detector.detect(video);
-            if (codes.length) { stop(); onSubmit(codes[0].rawValue); return; }
-          } catch { /* keep trying until stopped */ }
-          requestAnimationFrame(tick);
-        };
-        tick();
-      } catch (err) {
-        toast("Camera scan unavailable (" + (err?.message || "permission denied") + ") — use the keyboard/scanner input instead", { type: "danger" });
-      }
-    });
-    wrap.appendChild(camBtn);
-  }
-
-  setTimeout(() => input.focus(), 50);
-  return { el: wrap, refocus: () => input.focus() };
-}
-
 // ---------- Receive-scan ----------
 
 async function receiveScanView(outlet) {
