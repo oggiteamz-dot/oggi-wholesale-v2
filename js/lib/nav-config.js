@@ -37,7 +37,16 @@ export const NAV_BY_ROLE = {
     { icon: "🧺", label: "Cart", path: "/buyer/cart" },
     { icon: "📦", label: "My Orders", path: "/buyer/orders" },
     { icon: "★", label: "Favourites", path: "/buyer/favourites" },
-    { icon: "🏢", label: "Suppliers", path: "/buyer/suppliers" },
+    // "Suppliers" removed 18 Aug 2026. It led to a grid of every wholesaler on
+    // the platform by brand name -- OGGI's entire client list, shown to every
+    // buyer. The /buyer/suppliers ROUTE still exists and explains itself (see
+    // js/views/buyer.js) so an installed PWA with the old tab cached does not
+    // land on a 404; it simply has no entry in the navigation any more.
+    //
+    // Its replacement is the Marketplace: products from many wholesalers, no
+    // wholesaler names anywhere, all of it presented as OGGI. When that ships
+    // it is added HERE, as a new item, and Gate 2 picks it up on both the
+    // desktop sidebar and the phone bar automatically.
   ],
 };
 
@@ -92,7 +101,6 @@ export const SHORT_LABEL = {
   "/sales/clients": "Clients",
   "/sales/visits": "Visits",
   "/buyer/favourites": "Saved",
-  "/buyer/suppliers": "Sellers",
   "/buyer": "Catalog",
   // "Dashboard" ellipsises in a 5-slot bar at 375px once the active tab
   // takes its heavier weight. Measured, not guessed.
