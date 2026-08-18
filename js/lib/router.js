@@ -52,6 +52,24 @@ export const router = {
     return hash.slice(1) || "/";
   },
 
+  /**
+   * Does a path resolve to a registered route?
+   *
+   * Added 18 Aug 2026 because app.js needed to ask this question and could
+   * not, so it guessed instead -- it checked only for an EMPTY hash and
+   * therefore missed the single most common case: signing in while the hash
+   * still reads "#/login". The shell mounted correctly, the router found no
+   * route for "/login", and the first thing every new user saw after entering
+   * their password was "Page not found".
+   *
+   * Uses the same `routes` array and the same compiled regexes as _resolve(),
+   * so it cannot disagree with what _resolve() will actually do -- which a
+   * hand-maintained list of "known paths" in app.js certainly would.
+   */
+  matches(path) {
+    return routes.some((r) => path.match(r.regex));
+  },
+
   async _resolve() {
     const path = this.currentPath();
     for (const r of routes) {
