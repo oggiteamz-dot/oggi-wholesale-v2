@@ -20,7 +20,12 @@ import { shows } from "./_rendered-text.mjs";
 
 const EMAIL = process.env.LOC_EMAIL, PASS = process.env.LOC_PASS;
 if (!EMAIL || !PASS) { console.log("  LOC_EMAIL / LOC_PASS not set — skipping."); process.exit(0); }
-const SHOP = process.env.LOC_NAME || "Check Shop";
+// A UNIQUE name per run. The first version reused "Check Shop", so a second
+// run collided with the location the first one left behind: createLocation
+// refused the duplicate, the name was still on screen from before, and the
+// assertions after it drifted into testing last run's leftovers. A check must
+// not depend on -- or be broken by -- its own history.
+const SHOP = process.env.LOC_NAME || `Check Shop ${Date.now().toString(36).slice(-5)}`;
 
 const ROOT = process.env.APP_ROOT || process.cwd(), PORT = 8217;
 const MIME = { ".css":"text/css",".js":"text/javascript",".woff2":"font/woff2",
@@ -182,27 +187,53 @@ ok(/Transfer them out first/i.test(blocked.title),
 await page.screenshot({ path: join(ROOT, "checks/screenshots/locations-mobile.png"), fullPage: true });
 ok(errs.length === 0, `no uncaught page errors (${errs.length}${errs.length ? ": " + errs[0].slice(0,80) : ""})`);
 
-// Leave the tenant as it was found: move the units back and remove the
-// location. A check that leaves state behind makes the NEXT run's failures
-// about the leftovers rather than about the code.
-try {
-  await page.evaluate(async (shop) => {
-    const { listLocations, transferStock, archiveLocation } = await import("/js/data/locations.js");
-    const { getStockTable } = await import("/js/data/inventory-admin.js");
-    const wid = JSON.parse(localStorage.getItem("oggi-v2-dev-session") || "{}").wid;
-    const { rows } = await listLocations(wid);
-    const target = rows.find((l) => l.name === shop);
-    const home = rows.find((l) => l.isDefault);
-    if (!target || !home) return;
-    const stock = await getStockTable(wid);
-    for (const r of stock.filter((r) => r.locationId === target.id && r.onHand > 0)) {
-      await transferStock({ variantId: r.variantId, fromLocationId: target.id,
-                            toLocationId: home.id, qty: r.onHand, note: "check cleanup" });
-    }
-    await archiveLocation(target.id);
-  }, SHOP);
-  console.log(`  (cleanup: "${SHOP}" emptied and archived)`);
-} catch (e) { console.log(`  (cleanup failed: ${e.message.slice(0,70)})`); }
+// ---- put it back, and prove the last transition works ----
+//
+// The first version of this teardown called the app's data-layer functions
+// inside page.evaluate(). Those are ES module imports; they do not exist in
+// the page's global scope, so the whole block threw, was swallowed by its own
+// catch, and every run quietly left another shop behind. A cleanup that fails
+// silently is worse than none -- it looks like it worked. (Found by counting
+// locations in the database after two runs: three, not one.)
+//
+// Driving the UI instead does the job AND tests the one transition nothing
+// else covers: archiving is blocked while stock is present, so moving the
+// units home should make it possible again. Blocked becoming allowed once the
+// reason goes away is the half of the rule that is easy to get wrong.
+await page.goto(`http://127.0.0.1:${PORT}/index.html#/wholesaler/inventory`, { waitUntil: "load" });
+await page.waitForTimeout(4500);
+await page.evaluate((shop) => {
+  const row = [...document.querySelectorAll(".inv-row")].find((r) => r.textContent.includes(shop));
+  [...(row?.querySelectorAll("button") || [])].find((b) => b.textContent.trim() === "Transfer")?.click();
+}, SHOP);
+await page.waitForSelector("#transfer-panel", { timeout: 10000 });
+await page.evaluate(() => {
+  const sel = document.querySelector("#tr-to");
+  const opt = [...sel.options].find((o) => o.textContent.includes("Main Warehouse"));
+  if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+});
+await page.fill("#tr-qty", "7");
+await page.fill("#tr-note", "check: putting it back");
+await page.click("#tr-go");
+await page.waitForTimeout(6000);
+
+await page.goto(`http://127.0.0.1:${PORT}/index.html#/wholesaler/locations`, { waitUntil: "load" });
+await page.waitForTimeout(4000);
+const freed = await page.evaluate((shop) => {
+  const row = [...document.querySelectorAll(".inv-row")].find((r) => r.textContent.includes(shop));
+  const btn = row?.querySelector("button.btn-ghost");
+  return btn ? btn.disabled : null;
+}, SHOP);
+ok(freed === false,
+  "once the stock is moved back out, archiving becomes possible again — the block was about the stock, not the location");
+
+await page.evaluate((shop) => {
+  const row = [...document.querySelectorAll(".inv-row")].find((r) => r.textContent.includes(shop));
+  row?.querySelector("button.btn-ghost")?.click();
+}, SHOP);
+await page.waitForTimeout(4500);
+const gone = await page.evaluate((shop) => !document.body.innerText.includes(shop), SHOP);
+ok(gone, `the test location archives cleanly, leaving nothing behind (${SHOP})`);
 
 await browser.close();
 server.close();

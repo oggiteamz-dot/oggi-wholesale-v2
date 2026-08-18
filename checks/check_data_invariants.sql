@@ -301,6 +301,60 @@ begin
   end if;
 
   ------------------------------------------------------------------
+  -- STOCK MUST NOT SIT AT AN ARCHIVED LOCATION  (18 Aug 2026)
+  --
+  -- Archiving refuses while a location holds units (migration 047), so a
+  -- balance at an archived location means something bypassed that rule --
+  -- which is exactly what a script writing v2_inventory_balances directly
+  -- does. Those units are invisible in every screen and in every total.
+  ------------------------------------------------------------------
+  for txt in
+    select l.name || ' (' || l.wid || ')'
+      from wholesale_v2.v2_inventory_balances b
+      join wholesale_v2.v2_locations l on l.id = b.location_id
+     where l.archived and b.qty_on_hand > 0
+     group by l.name, l.wid
+  loop
+    fails := fails || format('STRANDED STOCK: units are sitting at the archived location %s -- nothing can see or sell them', txt);
+  end loop;
+
+  ------------------------------------------------------------------
+  -- A BALANCE MUST BELONG TO ONE WHOLESALER ON BOTH SIDES
+  --
+  -- v2_inventory_balances joins a variant to a location. The variant knows
+  -- its wholesaler through its product; the location knows its own. Nothing
+  -- in the schema forces those two to agree -- there is no composite foreign
+  -- key, because wid is not on this table. If they ever disagree, one
+  -- wholesaler's stock is being counted at another's warehouse.
+  ------------------------------------------------------------------
+  select count(*) into n
+    from wholesale_v2.v2_inventory_balances b
+    join wholesale_v2.v2_product_variants v on v.id = b.variant_id
+    join wholesale_v2.v2_products pr on pr.id = v.product_id
+    join wholesale_v2.v2_locations l on l.id = b.location_id
+   where pr.wid is distinct from l.wid;
+  if n > 0 then
+    fails := fails || format('CROSS-TENANT STOCK: %s balance row(s) put one wholesaler''s variant at another wholesaler''s location', n);
+  end if;
+
+  ------------------------------------------------------------------
+  -- A TRANSFER HAS TWO HALVES
+  --
+  -- v2_transfer_stock writes transfer_out and transfer_in in one
+  -- transaction, so they can only ever disagree if something wrote the
+  -- ledger by hand. Reported as a WARNING, not a failure: the demo tenant
+  -- was seeded by inserting balances directly with no movements at all, so
+  -- this schema cannot be expected to reconcile globally -- but a lopsided
+  -- TRANSFER specifically is always worth looking at.
+  ------------------------------------------------------------------
+  select coalesce(sum(qty_delta), 0) into n
+    from wholesale_v2.v2_inventory_movements
+   where reference_type = 'transfer';
+  if n <> 0 then
+    warns := warns || format('transfer movements sum to %s, not 0 -- some transfer wrote one leg and not the other', n);
+  end if;
+
+  ------------------------------------------------------------------
   -- REPORT
   ------------------------------------------------------------------
   if array_length(warns,1) is not null then
