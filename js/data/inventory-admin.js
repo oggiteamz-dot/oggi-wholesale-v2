@@ -5,7 +5,25 @@
 import { supabase, sbCall } from "../lib/supabase-client.js";
 
 export async function getLocations(wid) {
-  const { data } = await sbCall(supabase.from("v2_locations").select("*").eq("wid", wid).eq("archived", false).order("is_default", { ascending: false }));
+  // An EXPLICIT column list, not select("*").
+  //
+  // Migration 047 dropped the table-wide grant on v2_locations and granted a
+  // named set of columns instead. Under a column-level grant, `select("*")`
+  // expands to every column in the table -- including ones the role cannot
+  // read -- and the whole query is refused. So `*` does not mean "everything
+  // I'm allowed", it means "everything, and fail if that isn't permitted".
+  //
+  // Same reasoning as js/data/catalog.js's variant select, which has carried
+  // this warning since the 15 Aug cost leak: adding a sensitive column to this
+  // table must never silently start publishing it, and must never silently
+  // break every caller either.
+  const { data } = await sbCall(
+    supabase.from("v2_locations")
+      .select("id, wid, name, is_default, archived, created_at")
+      .eq("wid", wid).eq("archived", false)
+      .order("is_default", { ascending: false })
+      .order("name", { ascending: true })
+  );
   return data || [];
 }
 
