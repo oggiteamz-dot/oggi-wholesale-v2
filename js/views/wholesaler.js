@@ -804,11 +804,12 @@ async function inventoryView(outlet) {
     newBtn.textContent = "Close the form";
     const form = renderProductForm({
       catalogName: defaultCatalog?.name || "your main catalog",
+      locations,
       hasLocation: !!location,
       locationName: location?.name || "",
       onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
       onSubmit: async (draft) => {
-        const res = await createProduct(wid, { ...draft, locationId: location?.id || null });
+        const res = await createProduct(wid, { ...draft, locationId: draft.locationId || location?.id || null });
         if (res.ok) {
           toast(res.message, { type: res.variantsFailed?.length ? "warning" : "success" });
           outlet.innerHTML = "";
@@ -1689,10 +1690,11 @@ async function catalogsView(outlet) {
     const catalog = catalogs.find((c) => c.id === activeId);
     panel.innerHTML = `<div class="card" style="padding:16px;font-size:13px;color:var(--text-tertiary);">Loading ${esc(catalog.name)}…</div>`;
 
-    const [{ rows: products }, location] = await Promise.all([
+    const [{ rows: products }, allLocations] = await Promise.all([
       getCatalogProducts(activeId),
-      getLocations(wid).then((ls) => ls[0] || null),
+      getLocations(wid),
     ]);
+    const location = allLocations[0] || null;
 
     panel.innerHTML = "";
 
@@ -1721,12 +1723,17 @@ async function catalogsView(outlet) {
       newBtn.textContent = "Close the form";
       const form = renderProductForm({
         catalogName: catalog.name,
+        locations: allLocations,
         hasLocation: !!location,
         locationName: location?.name || "",
         onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
         onSubmit: async (draft) => {
           const res = await createProduct(wid, {
-            ...draft, catalogId: activeId, locationId: location?.id || null,
+            ...draft,
+            catalogId: activeId,
+            // The form now offers a location picker, so its choice wins; the
+            // default is only the fallback for a wholesaler with one location.
+            locationId: draft.locationId || location?.id || null,
           });
           if (res.ok) {
             toast(res.message, { type: res.variantsFailed?.length ? "warning" : "success" });
