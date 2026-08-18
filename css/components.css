@@ -701,7 +701,10 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
    its own label. */
 .product-builder .pb-cells {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  /* 72px fitted a quantity box; a cell now also holds a barcode, and at 72px a
+     13-digit EAN renders as an unreadable smear the operator cannot check
+     against the label in their hand. */
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   gap: var(--space-2);
 }
 
@@ -724,6 +727,51 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   padding-left: var(--space-1);
   padding-right: var(--space-1);
 }
+
+/* Barcodes in the grid (Batch 16).
+   Each cell now carries a quantity AND the barcode for that exact colour+size,
+   so the track has to fit a ~13-character code rather than a two-digit count --
+   hence the wider minmax above this rule's sibling. The barcode field is
+   deliberately quieter than the quantity: quantity is the number the
+   wholesaler is thinking about, the barcode is usually fired in by a scanner
+   and only read back to confirm it landed. */
+.product-builder .pb-cell-barcode {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+/* The aimed cell -- the one the next scan will fill. A scanner fires in a
+   fraction of a second with the operator looking at the label gun and not the
+   screen, so where the code is about to land has to be obvious at a glance and
+   from across a desk. Outline rather than border: a border would resize the
+   cell and shift the whole grid every time the aim moved. */
+.product-builder .pb-cell-aimed {
+  outline: 2px solid var(--accent-600);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.product-builder .pb-scan { margin-bottom: var(--space-3); }
+
+.product-builder .pb-scan-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-1);
+}
+
+.product-builder .pb-scan-aim {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* Used by the scan status line when a scan is refused (duplicate code, or the
+   aimed cell disappeared because the sizes were edited). It reuses the same
+   red the rest of the app refuses in, so a rejected scan reads as a rejection
+   rather than as a neutral note. */
+.product-builder .pf-error-text { color: var(--danger-700); }
 
 @media (min-width: 560px) {
   .product-builder .pb-colour-tools { width: auto; margin-left: auto; }
