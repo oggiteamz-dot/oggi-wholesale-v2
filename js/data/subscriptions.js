@@ -26,7 +26,20 @@ import { supabase, sbCall } from "../lib/supabase-client.js";
  * any report all read the same definition of "are they paid up" -- it is
  * computed from the date and cannot go stale like a stored flag. */
 export async function getBillingByWholesaler() {
-  const { data } = await sbCall(supabase.from("v2_wholesaler_billing").select("*"));
+  //
+  // 18 Aug 2026 (migration 042): reads the owner-checked FUNCTION, not the
+  // view. v2_wholesaler_billing was created without security_invoker, which
+  // means it runs with its owner's rights and bypasses row-level security on
+  // v2_wholesalers completely -- and the anon role held SELECT on it. Every
+  // wholesaler's subscription price, status and expiry date was readable with
+  // the publishable key and no login at all.
+  //
+  // Worth stating plainly because it is not obvious: a definer view is a hole
+  // straight THROUGH RLS, and it does not show up in pg_policies. Hardening
+  // the base table would not have closed this. The view is now revoked from
+  // both anon and authenticated, and v2_owner_billing_list() calls
+  // v2_require_owner() before it returns a single byte.
+  const { data } = await sbCall(supabase.rpc("v2_owner_billing_list"));
   const byWid = new Map();
   (data || []).forEach((r) => byWid.set(r.wid, r));
   return byWid;

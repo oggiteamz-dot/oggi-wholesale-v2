@@ -24,17 +24,47 @@ export async function getWholesaler(wid) {
   // filter, the other three feed the cart trust/guarantee card -- so the
   // one getWholesaler() call already every buyer page makes covers both,
   // no extra query needed.
+  //
+  // 18 Aug 2026 (migration 042): this no longer selects the table. Buyers and
+  // sales reps run as the `anon` role -- they authenticate through
+  // v2_portal_accounts, so auth.uid() is NULL and the database has no way to
+  // tell WHICH wholesaler an anon caller belongs to. That meant no row policy
+  // could scope this read, and anon consequently held SELECT on every row and
+  // every column: the whole roster plus contact phone, contact email, owner
+  // notes and subscription prices, readable with the publishable key alone.
+  //
+  // v2_public_wholesaler() takes an exact id and returns AT MOST ONE ROW of
+  // catalogue-facing columns. There is no argument to it that returns a list,
+  // so the roster cannot be enumerated even by a caller who bypasses this file
+  // entirely and hits the REST endpoint by hand.
   const { data } = await sbCall(
-    supabase.from("v2_wholesalers").select("wid,brand,name,currency,active,low_moq_threshold,trust_message,return_policy,payment_terms").eq("wid", wid).maybeSingle()
+    supabase.rpc("v2_public_wholesaler", { p_wid: wid })
   );
-  return data;
+  return (Array.isArray(data) ? data[0] : data) || null;
 }
 
+/**
+ * REMOVED AS A CAPABILITY, KEPT AS A FUNCTION. Always returns [].
+ *
+ * This used to return every active wholesaler, and it fed the buyer app's
+ * "Suppliers" screen -- a grid of every OGGI customer by brand name with a
+ * "Browse catalog" button beside each one. Any buyer of any wholesaler could
+ * read the full client list of the platform and walk into a competitor's
+ * catalogue.
+ *
+ * It is left here, returning an empty array, rather than deleted outright, so
+ * that any caller added later fails visibly (an empty list) instead of failing
+ * to compile and getting "fixed" by someone re-adding the query.
+ *
+ * The database now refuses this read regardless of what this file does:
+ * migration 042 revoked the anon role's access to v2_wholesalers entirely.
+ *
+ * The buyer-facing way to see products from more than one wholesaler is the
+ * Marketplace -- deliberately unbranded, no wholesaler names, everything
+ * presented as OGGI. That is a separate build, not a rename of this.
+ */
 export async function listWholesalers() {
-  const { data } = await sbCall(
-    supabase.from("v2_wholesalers").select("wid,brand,name,currency,active").eq("active", true).order("brand")
-  );
-  return data || [];
+  return [];
 }
 
 /** Returns [{ id, name, description, createdAt, isNew, sellingModel, variants: [{id, sku, price, cost, compareAtPrice, color, colorHex, size, sellMode, available, onHand, reserved}] }] */
