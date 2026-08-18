@@ -333,3 +333,122 @@ Stated plainly so nobody over-trusts a green run:
 7. **Nothing here has been walked by a human on a real phone.** Chromium at
    375px is not an iPhone in a warehouse. The screenshots are the closest
    substitute, and they are not a substitute.
+
+---
+
+# check_tenant_isolation.sql — assertions 7, 8, 9 (added 18 Aug 2026)
+
+Three assertions were added after the wholesaler-roster leak. Each was proven
+to go RED before being trusted.
+
+## The bug they exist to catch
+
+Verified live against production using only the publishable key that ships in
+the public JS bundle — no login, no session, no token:
+
+```
+GET /rest/v1/v2_wholesalers?select=wid,brand,contact_phone,contact_email,owner_notes,price_amount,paid_until
+→ 5 rows, including contact_phone "03141333" and contact_email
+  "oggi.teamz@gmail.com", plus one customer's paid_until date.
+
+GET /rest/v1/v2_wholesaler_billing?select=*
+→ every wholesaler's subscription_status, price_amount, paid_until,
+  days_remaining, status_label.
+```
+
+Two independent causes, and fixing either alone would have left the other open:
+
+1. `anon` and `authenticated` held table-wide SELECT, INSERT, UPDATE, DELETE
+   and TRUNCATE on `v2_wholesalers`, with a `using (true)` read policy.
+2. `v2_wholesaler_billing` is a view created **without** `security_invoker`, so
+   it runs with its owner's rights and bypasses RLS on the base table entirely.
+   It does not appear in `pg_policies`. A policy audit would never have found it.
+
+## Negative test — the assertions were made to fail on purpose
+
+A throwaway table and view were built in the same shape as the bug. Nothing in
+this test touched `v2_wholesalers`; the probe objects were dropped immediately
+after and confirmed gone (`probe_objects_remaining: 0`).
+
+```sql
+create table wholesale_v2.zz_leak_probe (wid text primary key, brand text,
+  contact_email text, contact_phone text, owner_notes text,
+  price_amount numeric, paid_until date);
+grant select on wholesale_v2.zz_leak_probe to anon, authenticated;
+create view wholesale_v2.zz_definer_view as
+  select wid, price_amount from wholesale_v2.zz_leak_probe;   -- no security_invoker
+grant select on wholesale_v2.zz_definer_view to anon;
+```
+
+RED — all three fired:
+
+```
+A7_pii_columns_found      anon.contact_email, anon.contact_phone, anon.owner_notes,
+                          anon.paid_until, anon.price_amount, authenticated.contact_email,
+                          authenticated.contact_phone, authenticated.owner_notes,
+                          authenticated.paid_until, authenticated.price_amount
+A8_anon_privileges_count  21 privilege(s) held by anon
+A9_definer_views_found    zz_definer_view
+```
+
+GREEN — same assertions, real objects, after migration 042:
+
+```
+A1 table-wide anon SELECT                     clean
+A7 PII columns readable by a browser role     clean
+A8 anon privileges on v2_wholesalers          0 (must be 0)
+A8b v2_public_wholesaler exists               yes
+A9 definer views readable by a browser role   clean
+```
+
+## Behaviour proven, not just permissions
+
+Re-running the original anon requests after the fix:
+
+| Request (anon, no login)                    | Before              | After |
+|---------------------------------------------|---------------------|-------|
+| `v2_wholesalers` PII columns                 | phone + email + dates | `42501 permission denied` |
+| `v2_wholesalers` roster (wid, brand)         | 5 rows              | `42501 permission denied` |
+| `v2_wholesaler_billing`                      | every price + expiry | `42501 permission denied for view` |
+| `v2_wholesaler_brands`                       | readable            | `42501 permission denied` |
+| `PATCH v2_wholesalers` (brand → "HACKED")    | granted             | `42501 permission denied` |
+| `DELETE v2_wholesalers`                      | granted             | `42501 permission denied` |
+| `rpc/v2_public_wholesaler {"p_wid":"mg"}`    | n/a                 | 1 row, public columns only |
+| `rpc/v2_public_wholesaler {"p_wid":"%"}`     | n/a                 | `[]` — cannot be turned into a list |
+| `rpc/v2_owner_billing_list`                  | n/a                 | `42501 permission denied for function` |
+
+And the legitimate paths still work — checked by impersonating real profiles:
+
+```
+owner  (7fac8927…)  → 5 wholesalers, 5 billing rows, 8 brand rows
+sq     (a315d124…)  → exactly 1 wholesaler row ("sq"), 1 wid in brands
+sq  contact_email        blocked: permission denied for table v2_wholesalers
+sq  contact_phone        blocked: permission denied for table v2_wholesalers
+sq  price_amount         blocked: permission denied for table v2_wholesalers
+sq  paid_until           blocked: permission denied for table v2_wholesalers
+sq  owner_notes          blocked: permission denied for table v2_wholesalers
+sq  v2_owner_billing_list()   blocked: Only the platform owner can read cross-wholesaler analytics
+sq  v2_wholesaler_billing     blocked: permission denied for view
+sq  brand (should work)       readable
+```
+
+## Gate 1 fired, and was overridden deliberately
+
+`check_no_feature_loss.sh` went RED at 46 removed lines — correctly. The
+removal is the point: the buyer app's "Suppliers" screen listed every
+wholesaler on the platform. Re-run with the override, and the deletions are
+confined to exactly four files:
+
+```
++36  -6   js/data/catalog.js
++14  -1   js/data/subscriptions.js
++10  -2   js/lib/nav-config.js
++36  -37  js/views/buyer.js
+```
+
+All other gates green with the change in place: Gate 2 (20 assertions,
+27 destinations), Gate 3 (37 assertions, 0 page errors — buyer now 4 tabs),
+Gate 4 (18 contrast pairs), Gate 5 (86 tokens), Gate 6 (15 controls at 44px),
+tag input (13), escaping (13), image downscale (8).
+
+Screenshot of the replacement screen: `checks/screenshots/suppliers-mobile.png`.

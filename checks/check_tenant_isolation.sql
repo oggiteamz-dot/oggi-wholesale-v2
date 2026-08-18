@@ -50,7 +50,13 @@ begin
       join pg_namespace ns on ns.oid = c.relnamespace and ns.nspname = 'wholesale_v2'
      where g.grantee = 'anon' and g.privilege_type = 'SELECT'
        and g.table_schema = 'wholesale_v2'
-       and g.table_name in ('v2_product_variants')
+       -- 18 Aug 2026: v2_wholesalers and v2_wholesaler_brands added after the
+       -- roster leak. Same shape as the cost leak, one table over: `anon` held
+       -- a table-wide SELECT, so the `using (true)` read policy published the
+       -- whole client list -- brand, name, contact phone, contact email, owner
+       -- notes, subscription price and expiry -- to anyone holding the
+       -- publishable key that ships in the JS bundle.
+       and g.table_name in ('v2_product_variants', 'v2_wholesalers', 'v2_wholesaler_brands')
   loop
     fails := fails || format(
       'GRANT: anon holds a table-wide SELECT on %s. A column-level REVOKE will NOT override this -- drop the table grant and grant an explicit safe column list instead.', txt);
@@ -123,6 +129,75 @@ begin
   if n = 0 then
     fails := fails || 'MISSING: v2_my_variant_costs() is gone -- wholesalers have no scoped way to read their own costs';
   end if;
+
+  ------------------------------------------------------------------
+  -- 7. Wholesaler PII and billing must be unreachable from a browser.
+  --
+  --    Checked as a COLUMN privilege, for either browser role. `authenticated`
+  --    is the owner AND the wholesalers, so a grant here would hand every
+  --    wholesaler OGGI's private notes and every other customer's price.
+  --    The owner reads these through v2_require_owner()-gated functions.
+  ------------------------------------------------------------------
+  for txt in
+    select cp.grantee || ' can read v2_wholesalers.' || cp.column_name
+      from information_schema.column_privileges cp
+     where cp.table_schema = 'wholesale_v2'
+       and cp.table_name = 'v2_wholesalers'
+       and cp.privilege_type = 'SELECT'
+       and cp.grantee in ('anon', 'authenticated')
+       and cp.column_name in ('contact_phone','contact_email','owner_notes',
+                              'price_amount','price_currency','billing_period',
+                              'paid_until','subscription_status',
+                              'cancelled_at','cancel_reason','created_by')
+  loop
+    fails := fails || format('PII: %s -- this is a customer PII / revenue column and no browser role may hold SELECT on it', txt);
+  end loop;
+
+  ------------------------------------------------------------------
+  -- 8. anon must hold NOTHING on v2_wholesalers.
+  --
+  --    Buyers and sales reps run as `anon` and authenticate through
+  --    v2_portal_accounts, so auth.uid() is NULL for them and NO row policy
+  --    can scope their read to their own wholesaler. Any SELECT grant here,
+  --    however narrow the columns, permits enumerating the whole roster.
+  --    Their only route is v2_public_wholesaler(p_wid): exact id, one row.
+  ------------------------------------------------------------------
+  select count(*) into n
+    from information_schema.column_privileges cp
+   where cp.table_schema = 'wholesale_v2' and cp.table_name = 'v2_wholesalers'
+     and cp.grantee = 'anon';
+  if n > 0 then
+    fails := fails || format('ENUMERATION: anon holds %s privilege(s) on v2_wholesalers. It must hold none -- buyers reach a wholesaler only through v2_public_wholesaler(p_wid).', n);
+  end if;
+
+  select count(*) into n
+    from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'wholesale_v2' and p.proname = 'v2_public_wholesaler';
+  if n = 0 then
+    fails := fails || 'MISSING: v2_public_wholesaler() is gone -- buyers have no way to read their own supplier''s name and currency, so the catalogue will render blank';
+  end if;
+
+  ------------------------------------------------------------------
+  -- 9. No SECURITY DEFINER view may be readable by a browser role.
+  --
+  --    A view created without security_invoker runs with ITS OWNER's rights
+  --    and bypasses row-level security on every base table it touches. It
+  --    does not appear in pg_policies, so a policy audit will not find it.
+  --    That is exactly how v2_wholesaler_billing published every
+  --    subscription price and expiry date to the anon role while
+  --    v2_wholesalers itself looked like it had policies.
+  ------------------------------------------------------------------
+  for txt in
+    select c.relname
+      from pg_class c
+      join pg_namespace ns on ns.oid = c.relnamespace and ns.nspname = 'wholesale_v2'
+     where c.relkind = 'v'
+       and coalesce(array_to_string(c.reloptions, ','), '') not like '%security_invoker=true%'
+       and (has_table_privilege('anon', c.oid, 'SELECT')
+            or has_table_privilege('authenticated', c.oid, 'SELECT'))
+  loop
+    fails := fails || format('DEFINER VIEW: %s runs with its owner''s rights (no security_invoker) AND is readable by a browser role -- it bypasses RLS on every table it reads. Either set security_invoker=true or revoke it and expose an owner-checked function.', txt);
+  end loop;
 
   ------------------------------------------------------------------
   if array_length(fails,1) is null then
