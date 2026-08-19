@@ -54,7 +54,78 @@
 // loads behind. Anything needing immediate correctness (orders,
 // inventory, auth, pricing) never touches this cache: it is Supabase
 // traffic, excluded below.
-const CACHE_NAME = "oggi-wholesale-v2-shell-v2";
+// ---------------------------------------------------------------------
+// WHY THIS FILE CHANGED AGAIN — 19 Aug 2026
+// ---------------------------------------------------------------------
+// The stale-while-revalidate above works. What it cannot do is tell
+// anyone, and that turned out to be the part that mattered.
+//
+// This app is a single-page app. Moving between Inventory, Products and
+// Catalogs only changes the URL hash, so the page never loads again. A
+// person who leaves the tab open -- which is what you do with the tool
+// you run your business on -- can go days without a single navigation,
+// and SWR only revalidates on a fetch. Their app keeps working
+// perfectly, from code that is weeks old, and nothing anywhere says so.
+//
+// That happened. On 19 Aug a build was deployed, verified byte-for-byte
+// against the live URL, and reported as live -- and it was. The person
+// using it was still looking at a build four commits older, and we spent
+// a round trip talking past each other about a feature that was on his
+// screen in one version and not the other. He had no way to know. Nor
+// did I: "the server serves the new file" and "the user is running the
+// new file" are different claims, and only the first was ever checked.
+//
+// Two changes:
+//
+//   1. event.waitUntil() around the revalidation. Without it the browser
+//      may terminate the worker the instant respondWith settles, killing
+//      the in-flight cache write. It usually wins that race, which is
+//      the worst kind of bug -- one that works until it matters.
+//
+//   2. The worker now COMPARES what it fetched with what it had (by
+//      ETag) and posts a message to every open page when they differ.
+//      The page turns that into a "new version -- reload" bar. A tab
+//      that has been open for a week can also ask, via a
+//      "check-for-update" message, and the worker re-validates
+//      everything it holds and answers honestly.
+//
+// The cache name is bumped once more so any client still holding the
+// August shell -- including the one this was found on -- drops it on
+// activation rather than carrying it forward.
+const CACHE_NAME = "oggi-wholesale-v2-shell-v3";
+
+/** Tell every open page that the code on the server has moved on. */
+async function announceUpdate(url) {
+  const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  clients.forEach((c) => c.postMessage({ type: "app-updated", url }));
+}
+
+/** Have these two responses for the same URL got different code in them?
+ *
+ *  ETag first: it is what Cloudflare sends, it is what must-revalidate is
+ *  built on, and it costs nothing to compare. Then content-length.
+ *
+ *  Then, if the server offers NEITHER validator, the bodies themselves --
+ *  because the alternative is returning false and silently never announcing
+ *  anything, which is the exact failure this whole mechanism exists to end.
+ *  A guarantee that quietly depends on a response header is not a guarantee;
+ *  it is the header's behaviour wearing a guarantee's name. Reading two small
+ *  text bodies on a path that only runs when a file was refetched anyway is a
+ *  cheap price for the check not being a lie on some future host.
+ */
+async function changed(cached, fresh) {
+  if (!cached || !fresh) return false;
+  const a = cached.headers.get("etag"), b = fresh.headers.get("etag");
+  if (a && b) return a !== b;
+  const la = cached.headers.get("content-length"), lb = fresh.headers.get("content-length");
+  if (la && lb) return la !== lb;
+  try {
+    const [x, y] = await Promise.all([cached.clone().text(), fresh.clone().text()]);
+    return x !== y;
+  } catch {
+    return false;
+  }
+}
 
 const SHELL_FILES = [
   "/",
@@ -128,21 +199,55 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const fresh = fetch(event.request)
-        .then((response) => {
+        .then(async (response) => {
           // Only cache real successes. Caching an opaque or error
           // response would poison the cache with a broken asset that
           // then gets served instantly forever -- exactly the failure
           // mode this rewrite exists to remove.
           if (response && response.ok && response.type === "basic") {
             const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+            if (await changed(cached, response)) await announceUpdate(event.request.url);
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(event.request, copy);
           }
           return response;
         })
         .catch(() => cached);
 
+      // waitUntil, not fire-and-forget. Once respondWith settles the
+      // browser is entitled to shut this worker down, and an unawaited
+      // fetch/cache.put dies with it. On a fast connection it usually
+      // finishes first, which is precisely why its absence survived two
+      // rewrites of this file.
+      event.waitUntil(fresh);
+
       // Cached copy now if we have one; otherwise wait for the network.
       return cached || fresh;
     })
   );
+});
+
+// A page that has been open for days never fetches anything, so the
+// revalidation above never runs and the tab has no way to discover that
+// it is behind. It can ask instead: the worker re-validates everything it
+// is holding and replies honestly either way. Nothing is hardcoded here --
+// the cache already knows exactly which files this build consists of.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "check-for-update") return;
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const keys = await cache.keys();
+    let stale = null;
+    await Promise.all(keys.map(async (request) => {
+      try {
+        const cached = await cache.match(request);
+        const fresh = await fetch(request, { cache: "reload" });
+        if (!fresh || !fresh.ok || fresh.type !== "basic") return;
+        if (await changed(cached, fresh)) stale = stale || request.url;
+        await cache.put(request, fresh.clone());
+      } catch { /* offline: nothing to report, keep what we have */ }
+    }));
+    const source = event.source;
+    if (source) source.postMessage(stale ? { type: "app-updated", url: stale } : { type: "app-current" });
+  })());
 });
