@@ -48,22 +48,39 @@ categories they sell.
 
 ---
 
-## 3. Catalog builder — remaining pieces
+## 3. The customer side — DELIBERATELY NOT DESIGNED YET
+
+Hadi, 19 Aug: *"We will talk about the customer side when we get to it. Right
+now we're focusing on the wholesaler. But basically, when they go in, they see
+their past orders. They see a list of the different catalogs by the different
+wholesalers that they have access to, that they've been granted access to. And
+I don't know what else. We'll discuss it when we get to it."*
+
+So a catalog LINK works today and shows the catalog. What has not been designed
+and must not be guessed at:
+
+- Guest checkout on a public catalog — "the second they click order, they just
+  have to put in their name and phone number". Nothing collects that yet.
+- What a returning customer lands on when they open the app without a link.
+- Whether the buyer dashboard as it stands (browse everything, favourites)
+  survives at all. It currently narrows to the customer's default catalog,
+  which is a placeholder, not a decision.
+
+---
+
+## 4. Catalog builder — remaining pieces
 
 Done: the price rule, tier/discount/mode on the catalog, the two add buttons,
 the picker.
 
 Still to do:
 
-- `catalog_id` threaded through `v2_submit_order`, so an order records which
-  catalog it was placed through. Until then the invoice applies the customer's
-  discount but not the catalog's.
-- The tier-gated buyer read (`SECURITY DEFINER`, because buyers run as `anon`).
-- Buyer-side display of the struck-through customer price.
+- Guest ordering on a public catalog (name + phone at checkout).
+- The billboard and the highlighted section, below.
 
 ---
 
-## 4. Billboard and highlights — SPECIFIED, NOT BUILT
+## 5. Billboard and highlights — SPECIFIED, NOT BUILT
 
 Agreed 19 Aug 2026, to be built once buyers can actually see catalogs.
 
@@ -82,7 +99,7 @@ explicitly. Then the rest of the catalog below it.
 
 ---
 
-## 5. Known, logged, not fixed
+## 6. Known, logged, not fixed
 
 - `v2_pricing_tiers` still has a permissive read policy.
 - **The tier gate is not a hard boundary yet.** `v2_products` and
