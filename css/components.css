@@ -490,17 +490,24 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 
 .inv-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  /* A `thumb` column was added in Batch 18. It has to be a NAMED AREA, not
+     just a child: this grid uses grid-template-areas, and an element with no
+     area assigned gets auto-placed after every named cell -- which is exactly
+     what happened, dropping the photo onto its own row underneath the text
+     instead of beside it. Caught by a screenshot; no assertion about the
+     thumbnail existing would have noticed. */
+  grid-template-columns: auto 1fr auto;
   grid-template-areas:
-    "main   main"
-    "qty    badge"
-    "action action";
+    "thumb  main   main"
+    "thumb  qty    badge"
+    "action action action";
   gap: var(--space-2) var(--space-3);
   align-items: center;
   padding: var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.inv-row .prod-thumb { grid-area: thumb; align-self: start; }
 .inv-row-main   { grid-area: main; min-width: 0; }
 .inv-row-qty    { grid-area: qty; }
 .inv-row-badge  { grid-area: badge; justify-self: end; }
@@ -517,8 +524,8 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 
 @media (min-width: 640px) {
   .inv-row {
-    grid-template-columns: 1fr auto auto auto;
-    grid-template-areas: "main qty badge action";
+    grid-template-columns: auto 1fr auto auto auto;
+    grid-template-areas: "thumb main qty badge action";
     gap: var(--space-3);
   }
   .inv-row-qty { text-align: right; min-width: 96px; }
@@ -1025,3 +1032,205 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   background: var(--danger-50);
   border-color: var(--danger-700);
 }
+
+/* The camera scanner overlay (Batch 18).
+   Full screen for the same reason the colour picker is: the person is holding
+   a garment tag up to a camera and needs to see what the camera sees, at a
+   size where they can tell whether the barcode is in frame and straight. */
+.scan-cam-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;              /* above the colour picker, which can open it */
+  background: #000;
+  display: flex;
+  flex-direction: column;
+}
+
+.scan-cam-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-page);
+}
+
+.scan-cam-title { font-size: var(--text-sm); font-weight: 650; }
+
+.scan-cam-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.scan-cam-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Marks the band that is actually decoded. Without it people aim at the
+   centre of the whole screen while the decoder reads the middle third, which
+   feels like the scanner randomly failing. */
+.scan-cam-reticle {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 50%;
+  height: 35%;
+  transform: translateY(-50%);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.scan-cam-hint {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--bg-page);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* Marks the four fields a supplier cannot be saved without. Rendered as a word
+   rather than an asterisk: an asterisk needs a legend somewhere else on the
+   page to mean anything, and the legend is always the thing that scrolls off. */
+.pf-required {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--danger-700);
+}
+
+/* The field the next scan will fill, for the product and colour barcode tiers.
+   Outline rather than border, same as .pb-cell-aimed, so nothing reflows when
+   the aim moves between tiers. */
+.product-builder .pb-aimed-field {
+  outline: 2px solid var(--accent-600);
+  outline-offset: 2px;
+}
+
+.product-builder .pb-colour-bc {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: var(--space-2) 0;
+}
+
+.product-builder .pb-product-barcode { margin-top: var(--space-2); }
+
+/* Section headings inside the supplier form. Twenty inputs in one undivided
+   grid is a wall; these split it into the four questions someone actually
+   answers at four different moments (who they are, what they sell, what it
+   costs to order, and what you think of them). */
+.sup-group {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.sup-row-trade { font-size: var(--text-xs); color: var(--text-secondary); margin-top: 4px; }
+
+/* ---- product thumbnails and the gallery (Batch 18) ---- */
+
+/* A fixed square regardless of the photo's aspect ratio, so a list of forty
+   products stays a list and does not become a ragged column. A product with
+   no photo still gets the same box: a missing image must not change the shape
+   of the row, or the eye loses the column it was scanning down. */
+.prod-thumb {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-sunken);
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+}
+.prod-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.prod-thumb-empty { cursor: default; font-size: 18px; color: var(--text-tertiary); }
+
+/* How many more there are, so it is obvious the thumbnail opens something. */
+.prod-thumb-count {
+  position: absolute;
+  right: 2px; bottom: 2px;
+  background: rgba(0, 0, 0, 0.66);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.gallery {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  background: var(--bg-page);
+  display: flex;
+  flex-direction: column;
+}
+
+.gallery-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.gallery-title { font-size: var(--text-sm); font-weight: 650; }
+.gallery-count { font-size: var(--text-xs); color: var(--text-secondary); margin-left: auto; }
+
+/* Scroll-snap so a swipe lands on one photo rather than halfway between two.
+   This is the "scrollable image" Hadi asked for, and on a phone the swipe IS
+   the interaction -- the thumbnail strip below is the desktop affordance. */
+.gallery-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.gallery-stage::-webkit-scrollbar { display: none; }
+.gallery-stage img {
+  min-width: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  scroll-snap-align: center;
+  flex: none;
+}
+
+.gallery-strip {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.gallery-thumb {
+  width: 52px; height: 52px;
+  flex: none;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: none;
+  overflow: hidden;
+  cursor: pointer;
+}
+.gallery-thumb.is-active { border-color: var(--accent-600); }
+.gallery-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
