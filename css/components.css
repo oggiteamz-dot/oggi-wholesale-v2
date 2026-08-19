@@ -1858,3 +1858,108 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 /* Quiet, because it invalidates every link already sent and should not be the
    thing the eye lands on. */
 .cat-link-rotate { align-self: flex-start; }
+
+/* ===========================================================================
+   THE CATALOG BILLBOARD AND THE PINNED GROUP                    (Batch 22)
+   ---------------------------------------------------------------------------
+   Hadi: "like a billboard essentially... either an advertisement for a
+   specific product, where they click on a button and they move to that
+   specific item, or just a normal poster." And later: "they might choose to
+   put in a video or a GIF."
+   =========================================================================== */
+
+.billboard {
+  position: relative;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: var(--space-4);
+  background: var(--bg-sunken);
+}
+
+/* 16:9 on a laptop, 4:5 on a phone. A wide poster letterboxed into a phone is
+   a thin strip nobody reads; the taller ratio gives an uploaded portrait
+   design somewhere to live. object-fit: cover on both, so whatever the
+   wholesaler exported fills the frame rather than sitting in bars. */
+.billboard-media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  background: var(--bg-sunken);
+}
+@media (min-width: 720px) {
+  .billboard-media { aspect-ratio: 16 / 9; }
+}
+.billboard-media img,
+.billboard-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The button sits ON the artwork, bottom-left, over a gradient rather than a
+   flat panel — a solid bar would cover the part of the poster the designer
+   most likely put the product in. */
+.billboard-bar {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: var(--space-4);
+  display: flex;
+  background: linear-gradient(to top, rgba(0, 0, 0, .55), rgba(0, 0, 0, 0));
+}
+.billboard-cta { box-shadow: var(--shadow-md); }
+
+/* ---- section headers ---- */
+
+.cat-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-5) 0 var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.cat-section-head:first-child { margin-top: 0; }
+.cat-section-head h3 { margin: 0; font-size: var(--text-md); }
+.cat-section-head span { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+/* Where the billboard button just sent you. Fades rather than sits, because a
+   permanent highlight on one card would read as a property of the product. */
+.card-pointed-at {
+  box-shadow: 0 0 0 3px var(--brand-emerald);
+  transition: box-shadow var(--duration-base) var(--ease-standard);
+}
+
+/* Billboard and highlight setup, in the wholesaler's catalog settings card. */
+.cat-billboard {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.cat-billboard h5 {
+  margin: 0;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-tertiary);
+}
+.cat-billboard-body { display: flex; flex-direction: column; gap: var(--space-3); }
+
+/* A preview, not the real thing: capped so a 16:9 poster does not push the
+   settings it belongs to off the screen. */
+.cat-billboard-preview { max-width: 460px; margin: 0; }
+
+.cat-bb-target {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cat-bb-target select { flex: 1 1 220px; min-width: 0; }
+.cat-bb-target input  { flex: 1 1 180px; min-width: 0; }
+
+/* A label styled as a button, wrapping a hidden file input — clicking the file
+   input directly opens a picker that cannot be styled at all. */
+.cat-bb-upload { cursor: pointer; display: inline-flex; align-items: center; }
