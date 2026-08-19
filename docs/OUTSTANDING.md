@@ -65,6 +65,12 @@ and must not be guessed at:
 - Whether the buyer dashboard as it stands (browse everything, favourites)
   survives at all. It currently narrows to the customer's default catalog,
   which is a placeholder, not a decision.
+- **The link page has no chrome of its own.** It renders inside whatever shell
+  the visitor already has, so opening a link while signed in as a wholesaler
+  shows the wholesaler sidebar around it. A customer following a link from
+  WhatsApp is not signed in as anything and does not see that, so it is not
+  broken today — but a page whose whole job is to be opened by strangers
+  should carry its own minimal frame rather than borrowing one.
 
 ---
 
@@ -80,24 +86,12 @@ Still to do:
 
 ---
 
-## 5. Billboard and highlights — SPECIFIED, NOT BUILT
+## 5. Billboard and highlights — BUILT
 
-Agreed 19 Aug 2026, to be built once buyers can actually see catalogs.
-
-**Billboard.** A hero panel at the top of a catalog. Either an advertisement
-for one specific product, with a button that jumps to that item inside that
-catalog, or just a poster with no link. Toggleable on and off per catalog, so
-it either appears or it does not. The image is an **uploaded poster only** —
-not a product photo — because the point is a designed banner.
-
-**Highlights.** The wholesaler marks as many items as they like, and those
-items always sort to the top no matter what order anything else is in. One
-named group per catalog, with a name the wholesaler chooses: "New Arrivals",
-"Top Selling", "Favourites", whatever. It renders as a **header above the
-group**, not a ribbon on the corner of each card — he corrected that
-explicitly. Then the rest of the catalog below it.
-
----
+Shipped 19 Aug 2026, migrations 057 and 058. Billboard: uploaded poster, GIF or
+clip, toggleable, optionally carrying a button to one product in the catalog.
+Highlights: any number of pinned products under a header the wholesaler names,
+always at the top.
 
 ## 6. Known, logged, not fixed
 
