@@ -3,6 +3,7 @@ import { supabase, sbCall } from "../lib/supabase-client.js";
 import { imagesForVariants } from "../components/image-gallery.js";
 import { getDefaultCatalog, addProductToCatalog } from "./catalogs.js";
 import { uploadProductImage } from "./uploads.js";
+import { getSupplier } from "./suppliers.js";
 
 export async function listProductsForAdmin(wid) {
   const { data: products } = await sbCall(
@@ -398,5 +399,296 @@ export async function createProduct(wid, draft = {}) {
         ? `It is in Inventory, but could not be added to the catalog (${fileError}) — add it from the catalog screen.`
         : "",
     ].filter(Boolean).join(" "),
+  };
+}
+
+/** Everything the edit form needs to reopen a product exactly as it stands:
+ *  its own fields, every variant with colour/size/price/barcode, the colour
+ *  barcode tier, and the photos. */
+export async function getProductForEdit(productId) {
+  const [{ data: product }, { data: variants }, { data: colourBarcodes }] = await Promise.all([
+    sbCall(supabase.from("v2_products")
+      .select("id, wid, name, description, category, selling_model, moq_qty, barcode, supplier_id, archived")
+      .eq("id", productId).maybeSingle()),
+    sbCall(supabase.from("v2_product_variants")
+      .select("id, sku, price, cost, retail_price, moq_qty, barcode, extra_attrs, image_url, images, archived")
+      .eq("product_id", productId)),
+    sbCall(supabase.from("v2_product_colour_barcodes")
+      .select("id, color, barcode").eq("product_id", productId)),
+  ]);
+  if (!product) return { ok: false, error: "That product no longer exists." };
+  return { ok: true, product, variants: variants || [], colourBarcodes: colourBarcodes || [] };
+}
+
+/** How much history each variant carries, so the editor can tell the
+ *  difference between "this was a typo, delete it" and "this has been sold".
+ *  Returns a Map of variantId -> { onHand, ordered }. */
+export async function variantUsage(variantIds) {
+  const usage = new Map(variantIds.map((id) => [id, { onHand: 0, ordered: 0 }]));
+  if (!variantIds.length) return usage;
+
+  const [{ data: balances }, { data: lines }] = await Promise.all([
+    sbCall(supabase.from("v2_inventory_balances").select("variant_id, qty_on_hand").in("variant_id", variantIds)),
+    sbCall(supabase.from("v2_order_items").select("variant_id").in("variant_id", variantIds)),
+  ]);
+  (balances || []).forEach((b) => {
+    const u = usage.get(b.variant_id);
+    if (u) u.onHand += Number(b.qty_on_hand) || 0;
+  });
+  (lines || []).forEach((l) => {
+    const u = usage.get(l.variant_id);
+    if (u) u.ordered += 1;
+  });
+  return usage;
+}
+
+/**
+ * Saves an edited product.
+ *
+ * The hard part is not the product row -- it is reconciling variants. A
+ * wholesaler editing a product will rename a colour, add a size, fix a
+ * barcode, and delete the size they typed by mistake, all in one sitting, and
+ * the save has to tell those apart.
+ *
+ * Variants are matched by (colour, size), NOT by id, because that is the pair
+ * the form actually edits and the pair a SKU is built from. Matching by id
+ * would make "rename Crimson to Red" look like "delete Crimson, create Red",
+ * which would throw away that variant's stock and its order history.
+ *
+ * A variant that disappears from the form is NEVER hard-deleted:
+ *   - if it holds stock or appears on any order, the save is refused and says
+ *     which one, because deleting it would silently corrupt what happened;
+ *   - otherwise it is ARCHIVED, so it stops appearing without the row (and
+ *     anything that may yet reference it) being destroyed.
+ */
+export async function updateProduct(productId, draft = {}) {
+  const name = String(draft.name || "").trim();
+  if (!name) return { ok: false, error: "Give the product a name." };
+
+  const current = await getProductForEdit(productId);
+  if (!current.ok) return current;
+
+  const wanted = (draft.variants || []).filter((v) => String(v.sku || "").trim());
+  if (!wanted.length) return { ok: false, error: "A product needs at least one variant." };
+
+  const key = (color, size) =>
+    `${String(color || "").trim().toLowerCase()}|${String(size || "").trim().toLowerCase()}`;
+
+  const existingByKey = new Map(
+    current.variants.map((v) => [key(v.extra_attrs?.color, v.extra_attrs?.size), v])
+  );
+  const wantedKeys = new Set(wanted.map((v) => key(v.color, v.size)));
+
+  // ---- refuse to destroy history -------------------------------------
+  const dropped = current.variants.filter(
+    (v) => !v.archived && !wantedKeys.has(key(v.extra_attrs?.color, v.extra_attrs?.size))
+  );
+  if (dropped.length) {
+    const usage = await variantUsage(dropped.map((v) => v.id));
+    const blocked = dropped.filter((v) => {
+      const u = usage.get(v.id);
+      return u && (u.onHand > 0 || u.ordered > 0);
+    });
+    if (blocked.length) {
+      const names = blocked
+        .map((v) => `${v.extra_attrs?.color || "—"}/${v.extra_attrs?.size || "—"}`)
+        .join(", ");
+      return {
+        ok: false,
+        error: `Cannot remove ${names} — ${blocked.length === 1 ? "it has" : "they have"} stock on hand or ${blocked.length === 1 ? "appears" : "appear"} on an order. Move the stock out first, or leave the size in place; removing it would change what your past orders say they contained.`,
+      };
+    }
+  }
+
+  // ---- the product row ------------------------------------------------
+  const model = draft.sellingModel || current.product.selling_model || "open";
+  const { error: pErr } = await sbCall(
+    supabase.from("v2_products").update({
+      name,
+      description: draft.description?.trim() || null,
+      category: draft.category?.trim() || null,
+      selling_model: model,
+      moq_qty: Math.max(1, Number(draft.moqQty) || 1),
+      supplier_id: draft.supplierId || null,
+      barcode: String(draft.barcode || "").trim() || null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", productId)
+  );
+  if (pErr) {
+    return {
+      ok: false,
+      error: pErr.code === "23505"
+        ? "That product barcode is already used on another product."
+        : pErr.message,
+    };
+  }
+
+  // ---- variants: update, insert, archive -------------------------------
+  const updated = [], added = [], archived = [], failed = [];
+
+  for (const v of wanted) {
+    const existing = existingByKey.get(key(v.color, v.size));
+    const payload = {
+      sku: String(v.sku).trim(),
+      price: v.price === "" || v.price == null ? null : Number(v.price),
+      cost: v.cost === "" || v.cost == null ? null : Number(v.cost),
+      retail_price: v.retailPrice === "" || v.retailPrice == null ? null : Number(v.retailPrice),
+      moq_qty: Math.max(1, Number(v.moqQty) || 1),
+      barcode: String(v.barcode || "").trim() || null,
+      extra_attrs: {
+        ...(existing?.extra_attrs || {}),
+        color: String(v.color || "").trim() || null,
+        size: String(v.size || "").trim() || null,
+        colorHex: String(v.colorHex || "").trim() || null,
+      },
+      archived: false,          // re-adding a previously archived pair revives it
+    };
+
+    if (existing) {
+      const { error } = await sbCall(
+        supabase.from("v2_product_variants").update(payload).eq("id", existing.id)
+      );
+      if (error) failed.push({ sku: payload.sku, error: error.message });
+      else updated.push(payload.sku);
+    } else {
+      const { error } = await sbCall(
+        supabase.from("v2_product_variants").insert({ product_id: productId, ...payload })
+      );
+      if (error) failed.push({ sku: payload.sku, error: error.message });
+      else added.push(payload.sku);
+    }
+  }
+
+  for (const v of dropped) {
+    const { error } = await sbCall(
+      supabase.from("v2_product_variants").update({ archived: true }).eq("id", v.id)
+    );
+    if (!error) archived.push(`${v.extra_attrs?.color || "—"}/${v.extra_attrs?.size || "—"}`);
+  }
+
+  // ---- colour barcodes -------------------------------------------------
+  // Replaced wholesale rather than diffed: there are at most a handful per
+  // product, and a delete-then-insert cannot leave a stale colour behind when
+  // a colour is renamed.
+  const colourBarcodes = (draft.colourBarcodes || []).filter((cb) => cb.color && cb.barcode);
+  await sbCall(supabase.from("v2_product_colour_barcodes").delete().eq("product_id", productId));
+  let barcodeProblem = null;
+  if (colourBarcodes.length) {
+    const { error } = await sbCall(
+      supabase.from("v2_product_colour_barcodes").insert(
+        colourBarcodes.map((cb) => ({ product_id: productId, color: cb.color, barcode: cb.barcode }))
+      )
+    );
+    if (error) {
+      barcodeProblem = error.code === "23505"
+        ? "One colour barcode is already used elsewhere, so the colour barcodes were not saved. Everything else was."
+        : `Colour barcodes could not be saved: ${error.message}`;
+    }
+  }
+
+  return {
+    ok: true,
+    productId,
+    name,
+    updated: updated.length,
+    added: added.length,
+    archived: archived.length,
+    failed,
+    message: [
+      `"${name}" saved.`,
+      added.length ? `${added.length} new variant${added.length === 1 ? "" : "s"}.` : "",
+      archived.length ? `${archived.length} removed (${archived.join(", ")}) — archived, not deleted.` : "",
+      failed.length ? `${failed.length} variant${failed.length === 1 ? "" : "s"} failed: ${failed[0].error}` : "",
+      barcodeProblem || "",
+    ].filter(Boolean).join(" "),
+  };
+}
+
+/**
+ * Everything a person needs to ANSWER A QUESTION about a product without
+ * changing it.
+ *
+ * Hadi asked for "a button to essentially edit or a button to view or both",
+ * and the two are not the same job. Edit is for when you already know what is
+ * wrong. View is for "is this the right one?", "what did we pay?", "why is the
+ * scanner not finding it?" -- and every one of those is answered by seeing the
+ * data laid out, not by being dropped into a form where any stray keystroke is
+ * a change you now have to undo. Opening a form to read something is how
+ * accidental edits happen.
+ *
+ * So this returns the same object the editor loads, PLUS the three things the
+ * editor does not carry because it does not need them: the supplier's own
+ * record, stock split by location (the editor only shows a total), and the
+ * variant's cost. Read-only can afford to show cost; a form field cannot,
+ * because a mistyped cost silently rewrites margin on every future order.
+ */
+export async function getProductDetail(productId) {
+  const base = await getProductForEdit(productId);
+  if (!base.ok) return base;
+
+  const variantIds = base.variants.map((v) => v.id);
+
+  // The join, not two queries: v2_inventory_balances already carries the
+  // location relationship, and v2_locations is under a column-level grant
+  // where select("*") is REFUSED outright rather than trimmed. Naming the one
+  // column needed keeps this working the next time a sensitive column lands on
+  // that table.
+  const [{ data: balances }, supplier] = await Promise.all([
+    variantIds.length
+      ? sbCall(supabase.from("v2_inventory_balances")
+          .select("variant_id, location_id, qty_on_hand, qty_reserved, v2_locations(name)")
+          .in("variant_id", variantIds))
+      : Promise.resolve({ data: [] }),
+    getSupplier(base.product.supplier_id),
+  ]);
+
+  const byVariant = new Map(variantIds.map((id) => [id, []]));
+  (balances || []).forEach((b) => {
+    const list = byVariant.get(b.variant_id);
+    if (!list) return;
+    list.push({
+      locationId: b.location_id,
+      locationName: b.v2_locations?.name || "Unnamed location",
+      onHand: Number(b.qty_on_hand) || 0,
+      reserved: Number(b.qty_reserved) || 0,
+      available: (Number(b.qty_on_hand) || 0) - (Number(b.qty_reserved) || 0),
+    });
+  });
+
+  const colourBarcodeByColour = new Map(
+    base.colourBarcodes.map((cb) => [String(cb.color || "").toLowerCase(), cb.barcode])
+  );
+
+  const variants = base.variants
+    .filter((v) => !v.archived)
+    .map((v) => {
+      const colour = v.extra_attrs?.color || "";
+      const stock = byVariant.get(v.id) || [];
+      return {
+        id: v.id,
+        sku: v.sku,
+        colour,
+        colourHex: v.extra_attrs?.colorHex || "",
+        size: v.extra_attrs?.size || "",
+        price: v.price,
+        cost: v.cost,
+        retailPrice: v.retail_price,
+        moqQty: v.moq_qty,
+        sizeBarcode: v.barcode || "",
+        colourBarcode: colourBarcodeByColour.get(colour.toLowerCase()) || "",
+        stock,
+        onHand: stock.reduce((s, r) => s + r.onHand, 0),
+        available: stock.reduce((s, r) => s + r.available, 0),
+      };
+    });
+
+  return {
+    ok: true,
+    product: base.product,
+    supplier: supplier || null,
+    images: imagesForVariants(base.variants),
+    colourBarcodes: base.colourBarcodes,
+    variants,
+    archivedVariantCount: base.variants.filter((v) => v.archived).length,
   };
 }

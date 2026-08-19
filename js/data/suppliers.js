@@ -80,6 +80,18 @@ export function missingRequired(form) {
   return `A supplier needs a ${list}.`;
 }
 
+/** One supplier, shaped like every other one. Lives here rather than being
+ *  hand-rolled at the call site so the COLS list above stays the single place
+ *  the column grant is described -- a second select() elsewhere is exactly how
+ *  a column gets added to the table and one screen quietly starts failing. */
+export async function getSupplier(id) {
+  if (!id) return null;
+  const { data } = await sbCall(
+    supabase.from("v2_suppliers").select(COLS).eq("id", id).maybeSingle()
+  );
+  return data ? shape(data) : null;
+}
+
 /** Live suppliers for this wholesaler, alphabetically -- a sourcing list is
  *  something people scan by name, not by when it was added. */
 export async function listSuppliers(wid, { includeArchived = false } = {}) {

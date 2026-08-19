@@ -104,6 +104,7 @@ export async function getStockTable(wid) {
       variantId: b.variant_id,
       locationId: b.location_id,
       locationName: b.v2_locations?.name || "—",
+      productId: variant.product_id,
       productName: productById.get(variant.product_id) || "—",
       // Batch 18: the row shows what the garment looks like. Variants carry
       // the photo (a colourway has its own), so it comes from here.
@@ -135,6 +136,7 @@ export async function getStockTable(wid) {
       variantId: variant.id,
       locationId: defaultLocation?.id || null,
       locationName: defaultLocation?.name || "No location set",
+      productId: variant.product_id,
       productName: productById.get(variant.product_id) || "—",
       // Batch 18: the row shows what the garment looks like. Variants carry
       // the photo (a colourway has its own), so it comes from here.
@@ -187,4 +189,69 @@ export async function adjustStock(variantId, locationId, qty, note) {
     }));
   }
   return { ok: true };
+}
+
+
+/** The same stock, grouped one entry per PRODUCT.
+ *
+ *  Inventory used to be a row per colour+size+location, which meant a
+ *  seven-variant product filled seven rows carrying the same photo and the
+ *  same name. As cards that becomes seven near-identical playing cards, which
+ *  is not what a wall of cards is for -- so the card is the product and the
+ *  variant detail lives inside it.
+ *
+ *  Nothing is thrown away: every original row is kept on `variants`, so the
+ *  breakdown, Receive and Transfer all still work on the exact rows they
+ *  always did. This is a regrouping, not a second source of truth. */
+export async function getStockByProduct(wid) {
+  const rows = await getStockTable(wid);
+  const byProduct = new Map();
+
+  rows.forEach((r) => {
+    const key = r.productId || r.productName;
+    let p = byProduct.get(key);
+    if (!p) {
+      p = {
+        productId: r.productId || null,
+        productName: r.productName,
+        images: [],
+        variants: [],
+        onHand: 0,
+        available: 0,
+        reserved: 0,
+      };
+      byProduct.set(key, p);
+    }
+    p.variants.push(r);
+    p.onHand += r.onHand;
+    p.available += r.available;
+    p.reserved += r.reserved;
+    (r.images || []).forEach((u) => { if (!p.images.includes(u)) p.images.push(u); });
+  });
+
+  return [...byProduct.values()].map((p) => {
+    // Counted per COLOUR+SIZE, not per row: the same variant can appear once
+    // per location, and "3 sizes are out" must not become "6 are out" just
+    // because the wholesaler happens to run two warehouses.
+    const byVariant = new Map();
+    p.variants.forEach((v) => {
+      const cur = byVariant.get(v.variantId);
+      if (cur) { cur.available += v.available; cur.neverStocked = cur.neverStocked && v.neverStocked; }
+      else byVariant.set(v.variantId, { available: v.available, neverStocked: v.neverStocked });
+    });
+    const list = [...byVariant.values()];
+    return {
+      ...p,
+      variantCount: list.length,
+      outCount: list.filter((v) => !v.neverStocked && v.available <= 0).length,
+      lowCount: list.filter((v) => !v.neverStocked && v.available > 0 && v.available <= 15).length,
+      neverStockedCount: list.filter((v) => v.neverStocked).length,
+    };
+  }).sort((a, b) => {
+    // Anything needing attention first -- out of stock, then low, then the
+    // rest alphabetically. The old view sorted purely by lowest available,
+    // which buried a product with one dead size beneath forty healthy ones.
+    const rank = (x) => (x.outCount ? 0 : x.lowCount ? 1 : 2);
+    return rank(a) - rank(b) || a.productName.localeCompare(b.productName);
+  });
 }
