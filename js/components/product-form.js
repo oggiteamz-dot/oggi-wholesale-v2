@@ -130,6 +130,9 @@ export function renderProductForm({
     price: nid(), cost: nid(), retail: nid(), loc: nid(), sizes: nid(),
     supplier: nid(), supName: nid(), supContact: nid(), supPhone: nid(),
     supEmail: nid(), supAddress: nid(), supCountry: nid(), supRef: nid(), supNotes: nid(),
+    supSells: nid(), supBrands: nid(), supMoq: nid(), supLead: nid(), supTerms: nid(),
+    supCurrency: nid(), supSite: nid(), supWhats: nid(), supInsta: nid(), supCatalog: nid(),
+    barcode: nid(),
   };
   // Mutable so a supplier created inline can join the list without a reload.
   let supplierList = suppliers.slice();
@@ -200,6 +203,16 @@ export function renderProductForm({
       <div class="pf-section-head"><h4>Sizes and stock</h4>
         <p>Set the sizes once; any colour that differs can have its own.</p></div>
       <div class="pb-sizes" id="pb-sizes"></div>
+      <div class="pf-field pf-span-2 pb-product-barcode">
+        <label class="pf-label" for="${ids.barcode}">Barcode for the whole product <span class="pf-optional">optional</span></label>
+        <div class="pb-cell-bc">
+          <input class="input" id="${ids.barcode}" autocomplete="off" placeholder="One code for every colour and size">
+          <button type="button" class="btn btn-secondary btn-sm" data-scan-product>Scan</button>
+        </div>
+        <p class="pf-hint">Use this if one code covers the entire style. You can also give each colour its own, and each size its own — fill in whichever levels your labels actually use.</p>
+        <p class="pf-error" data-for="${ids.barcode}" hidden></p>
+      </div>
+
       <div class="pb-scan" id="pb-scan"></div>
       <div class="pb-grid" id="pb-grid"></div>
 
@@ -773,16 +786,16 @@ export function renderProductForm({
     form.className = "pb-supplier-new pf-grid";
     form.innerHTML = `
       <div class="pf-field pf-span-2">
-        <label class="pf-label" for="${ids.supName}">Supplier name</label>
+        <label class="pf-label" for="${ids.supName}">Supplier name <span class="pf-required">required</span></label>
         <input class="input" id="${ids.supName}" autocomplete="off" placeholder="e.g. Zhejiang Textiles">
         <p class="pf-error" data-for="${ids.supName}" hidden></p>
       </div>
       <div class="pf-field">
-        <label class="pf-label" for="${ids.supContact}">Contact person</label>
+        <label class="pf-label" for="${ids.supContact}">Contact person <span class="pf-required">required</span></label>
         <input class="input" id="${ids.supContact}" autocomplete="off">
       </div>
       <div class="pf-field">
-        <label class="pf-label" for="${ids.supPhone}">Phone</label>
+        <label class="pf-label" for="${ids.supPhone}">Phone <span class="pf-required">required</span></label>
         <input class="input" id="${ids.supPhone}" type="tel" autocomplete="off">
       </div>
       <div class="pf-field">
@@ -794,8 +807,16 @@ export function renderProductForm({
         <input class="input" id="${ids.supCountry}" autocomplete="off">
       </div>
       <div class="pf-field pf-span-2">
-        <label class="pf-label" for="${ids.supAddress}">Address</label>
+        <label class="pf-label" for="${ids.supAddress}">Address <span class="pf-required">required</span></label>
         <input class="input" id="${ids.supAddress}" autocomplete="off">
+      </div>
+      <div class="pf-field pf-span-2">
+        <label class="pf-label" for="${ids.supSells}">What they sell <span class="pf-optional">optional</span></label>
+        <input class="input" id="${ids.supSells}" autocomplete="off" placeholder="Denim, knitwear, outerwear — separate with commas">
+      </div>
+      <div class="pf-field pf-span-2">
+        <label class="pf-label" for="${ids.supBrands}">Brands they carry <span class="pf-optional">optional</span></label>
+        <input class="input" id="${ids.supBrands}" autocomplete="off" placeholder="Separate with commas">
       </div>
       <div class="pf-field">
         <label class="pf-label" for="${ids.supRef}">Your reference <span class="pf-optional">optional</span></label>
@@ -805,6 +826,7 @@ export function renderProductForm({
         <label class="pf-label" for="${ids.supNotes}">Notes <span class="pf-optional">optional</span></label>
         <input class="input" id="${ids.supNotes}" autocomplete="off">
       </div>
+      <p class="pf-hint pf-span-2">Trade terms, links and your own rating live on the Suppliers screen — this form keeps to what you need right now so you can get back to the product.</p>
     `;
     supplierHost.appendChild(form);
 
@@ -814,9 +836,20 @@ export function renderProductForm({
     saveBtn.textContent = "Save supplier";
     saveBtn.addEventListener("click", async () => {
       const val = (k) => el.querySelector(`#${ids[k]}`)?.value || "";
-      if (!val("supName").trim()) {
-        showError(ids.supName, "Give the supplier a name.");
-        el.querySelector(`#${ids.supName}`)?.focus();
+      // The same four required fields the Suppliers screen enforces, named all
+      // at once rather than one refusal at a time.
+      const missing = [];
+      if (!val("supName").trim()) missing.push(["name", ids.supName]);
+      if (!val("supContact").trim()) missing.push(["contact person", ids.supContact]);
+      if (!val("supPhone").trim()) missing.push(["phone", ids.supPhone]);
+      if (!val("supAddress").trim() && !val("supCountry").trim()) missing.push(["location", ids.supAddress]);
+      if (missing.length) {
+        const words = missing.map((m) => m[0]);
+        const list = words.length === 1
+          ? words[0]
+          : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+        showError(ids.supName, `A supplier needs a ${list}.`);
+        el.querySelector(`#${missing[0][1]}`)?.focus();
         return;
       }
       if (typeof onCreateSupplier !== "function") {
@@ -829,6 +862,7 @@ export function renderProductForm({
         name: val("supName"), contactName: val("supContact"), phone: val("supPhone"),
         email: val("supEmail"), address: val("supAddress"), country: val("supCountry"),
         refCode: val("supRef"), notes: val("supNotes"),
+        sells: val("supSells"), brands: val("supBrands"),
       });
       saveBtn.disabled = false;
       saveBtn.textContent = "Save supplier";
@@ -865,12 +899,44 @@ export function renderProductForm({
   // warehouse scan bar refocuses itself. It stops at the last cell rather than
   // wrapping: wrapping would quietly overwrite the first barcode with the last
   // scan, and an operator watching the label gun would not see it happen.
-  let scanAim = null;      // { cid, size }
+  // The aim now has a KIND, because there are three barcode tiers and a scan
+  // has to land on exactly one of them. Guessing which level a code belongs to
+  // is not possible from the code itself -- an EAN-13 for a whole style looks
+  // identical to one for a single size -- so the operator points first and the
+  // scan follows the pointer.
+  let scanAim = null;      // { kind: "cell"|"colour"|"product", cid?, size? }
   let scanBarRef = null;   // the live scan bar, so a cell button can hand it focus
 
   function aimScanner(cid, size) {
-    scanAim = { cid, size };
+    scanAim = { kind: "cell", cid, size };
     paintScanAim();
+  }
+
+  function aimColourScanner(cid) {
+    scanAim = { kind: "colour", cid };
+    paintScanAim();
+  }
+
+  function aimProductScanner() {
+    scanAim = { kind: "product" };
+    paintScanAim();
+  }
+
+  /** Every barcode currently on the form, across all three tiers, as
+   *  { code, where } -- so a duplicate can be refused with the place it
+   *  already lives rather than a bare "already used". */
+  function allBarcodes() {
+    const out = [];
+    const prod = el.querySelector(`#${ids.barcode}`)?.value.trim();
+    if (prod) out.push({ code: prod, where: "the whole product", kind: "product" });
+    colours.forEach((c) => {
+      if (c.barcode) out.push({ code: c.barcode, where: `${c.name || "a colour"} (whole colourway)`, kind: "colour", cid: c.id });
+      c.sizes.forEach((size) => {
+        const bc = c.cells[size]?.barcode;
+        if (bc) out.push({ code: bc, where: `${c.name || "a colour"} · ${size}`, kind: "cell", cid: c.id, size });
+      });
+    });
+    return out;
   }
 
   function cellSequence() {
@@ -883,11 +949,21 @@ export function renderProductForm({
     const label = scanHost.querySelector("[data-scan-aim]");
     if (!label) return;
     const c = colours.find((x) => x.id === scanAim?.cid);
-    label.textContent = c && scanAim
-      ? `${c.name || "Unnamed colour"} · ${scanAim.size}`
-      : "pick a cell first";
+    if (!scanAim) label.textContent = "pick a cell first";
+    else if (scanAim.kind === "product") label.textContent = "the whole product";
+    else if (scanAim.kind === "colour") label.textContent = `${c?.name || "Unnamed colour"} — whole colourway`;
+    else label.textContent = `${c?.name || "Unnamed colour"} · ${scanAim.size}`;
+
     gridHost.querySelectorAll(".pb-cell").forEach((n) => n.classList.remove("pb-cell-aimed"));
-    if (scanAim) {
+    gridHost.querySelectorAll(".pb-colour-barcode").forEach((n) => n.classList.remove("pb-aimed-field"));
+    el.querySelector(`#${ids.barcode}`)?.classList.remove("pb-aimed-field");
+
+    if (!scanAim) return;
+    if (scanAim.kind === "product") {
+      el.querySelector(`#${ids.barcode}`)?.classList.add("pb-aimed-field");
+    } else if (scanAim.kind === "colour") {
+      gridHost.querySelector(`[data-colour-barcode="${scanAim.cid}"]`)?.classList.add("pb-aimed-field");
+    } else {
       const node = gridHost.querySelector(`[data-barcode-for="${scanAim.cid}|${scanAim.size}"]`);
       node?.closest(".pb-cell")?.classList.add("pb-cell-aimed");
     }
@@ -897,32 +973,55 @@ export function renderProductForm({
     const value = String(code || "").trim();
     if (!value) return;
     if (!scanAim) {
-      setStatus("Tap the cell you are scanning into first, so the code has somewhere to go.", true);
+      setStatus("Tap the barcode box you are scanning into first, so the code has somewhere to go.", true);
       return;
     }
-    const c = colours.find((x) => x.id === scanAim.cid);
-    if (!c || !c.sizes.includes(scanAim.size)) {
-      // The aimed cell can disappear underneath the operator if the size list
-      // was edited between scans. Refusing is right; silently retargeting
-      // would put the code on a different garment than the one in their hand.
-      setStatus("That cell is gone — the sizes changed. Tap a cell and scan again.", true);
-      scanAim = null;
+
+    // A barcode identifies exactly one thing, at exactly one level. The same
+    // code on a colour AND on a size inside it would make a scan ambiguous in
+    // the warehouse, which is the failure the tiers exist to avoid -- so the
+    // clash is checked across ALL THREE tiers, not within one.
+    const clash = allBarcodes().find((b) => {
+      if (b.code.toLowerCase() !== value.toLowerCase()) return false;
+      if (scanAim.kind === "product") return b.kind !== "product";
+      if (scanAim.kind === "colour") return !(b.kind === "colour" && b.cid === scanAim.cid);
+      return !(b.kind === "cell" && b.cid === scanAim.cid && b.size === scanAim.size);
+    });
+    if (clash) {
+      setStatus(`${value} is already on ${clash.where}. Each barcode belongs to one thing.`, true);
+      return;
+    }
+
+    if (scanAim.kind === "product") {
+      const field = el.querySelector(`#${ids.barcode}`);
+      if (field) field.value = value;
+      setStatus(`${value} → the whole product.`, false);
       paintScanAim();
       return;
     }
 
-    // A barcode identifies exactly one variant (migration 016 makes it unique
-    // where not null), so the same code on two cells cannot both be true.
-    // Caught here, at the moment of the scan, rather than at save: by then the
-    // operator has put the label gun down and no longer knows which two.
-    const clash = cellSequence().find(({ cid, size }) => {
-      if (cid === scanAim.cid && size === scanAim.size) return false;
-      const other = colours.find((x) => x.id === cid);
-      return (other?.cells[size]?.barcode || "").toLowerCase() === value.toLowerCase();
-    });
-    if (clash) {
-      const other = colours.find((x) => x.id === clash.cid);
-      setStatus(`${value} is already on ${other?.name || "another colour"} · ${clash.size}. Each barcode belongs to one variant.`, true);
+    const c = colours.find((x) => x.id === scanAim.cid);
+    if (!c) {
+      setStatus("That colour is gone. Pick a barcode box and scan again.", true);
+      scanAim = null; paintScanAim();
+      return;
+    }
+
+    if (scanAim.kind === "colour") {
+      c.barcode = value;
+      const field = gridHost.querySelector(`[data-colour-barcode="${c.id}"]`);
+      if (field) field.value = value;
+      setStatus(`${value} → every size in ${c.name || "this colour"}.`, false);
+      paintScanAim();
+      return;
+    }
+
+    if (!c.sizes.includes(scanAim.size)) {
+      // The aimed cell can disappear underneath the operator if the size list
+      // was edited between scans. Refusing is right; silently retargeting
+      // would put the code on a different garment than the one in their hand.
+      setStatus("That cell is gone — the sizes changed. Tap a cell and scan again.", true);
+      scanAim = null; paintScanAim();
       return;
     }
 
@@ -941,9 +1040,7 @@ export function renderProductForm({
       false
     );
     if (next) {
-      scanAim = next;
-      // Keep the bar itself saying where the NEXT trigger pull will land, so a
-      // run stays readable without looking away from the label gun.
+      scanAim = { kind: "cell", cid: next.cid, size: next.size };
       const nc = colours.find((x) => x.id === next.cid);
       scanBarRef?.setPlaceholder(`Scan for ${nc?.name || "colour"} · ${next.size}…`);
     }
@@ -1013,6 +1110,39 @@ export function renderProductForm({
       // Starts a run at this colour's first size. Each scan advances to the
       // next size on its own, so a colour with six sizes is one button press
       // and six trigger pulls rather than twelve alternating actions.
+      const cbWrap = document.createElement("div");
+      cbWrap.className = "pb-colour-bc";
+      const cbLabel = document.createElement("span");
+      cbLabel.className = "pf-label";
+      cbLabel.textContent = "Barcode for this colour";
+      const cbInput = document.createElement("input");
+      cbInput.className = "input pb-colour-barcode";
+      cbInput.autocomplete = "off";
+      cbInput.placeholder = "Covers every size in this colour";
+      cbInput.value = c.barcode || "";
+      cbInput.dataset.colourBarcode = c.id;
+      cbInput.setAttribute("aria-label", `Barcode for ${c.name || "this colour"}`);
+      cbInput.addEventListener("input", () => { c.barcode = cbInput.value.trim(); });
+      cbInput.addEventListener("focus", () => aimColourScanner(c.id));
+      const cbScan = document.createElement("button");
+      cbScan.type = "button";
+      cbScan.className = "btn btn-secondary btn-xs";
+      cbScan.textContent = "Scan";
+      cbScan.dataset.scanColour = c.id;
+      cbScan.setAttribute("aria-label", `Scan the barcode for ${c.name || "this colour"}`);
+      cbScan.addEventListener("click", () => {
+        aimColourScanner(c.id);
+        scanBarRef?.setPlaceholder(`Scan for the whole ${c.name || "colour"} colourway…`);
+        scanBarRef?.refocus();
+        scanHost.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+      const cbRow = document.createElement("div");
+      cbRow.className = "pb-cell-bc";
+      cbRow.appendChild(cbInput);
+      cbRow.appendChild(cbScan);
+      cbWrap.appendChild(cbLabel);
+      cbWrap.appendChild(cbRow);
+
       const runBtn = document.createElement("button");
       runBtn.type = "button";
       runBtn.className = "btn btn-secondary btn-xs pb-grid-scanall";
@@ -1028,6 +1158,7 @@ export function renderProductForm({
       });
       head.appendChild(runBtn);
       block.appendChild(head);
+      block.appendChild(cbWrap);
 
       const sizeField = document.createElement("div");
       sizeField.className = "pb-grid-sizes";
@@ -1132,7 +1263,11 @@ export function renderProductForm({
 
     // The grid is rebuilt wholesale on every change, so the aim has to be
     // re-checked against what now exists rather than assumed to still be valid.
-    if (scanAim && !colours.find((x) => x.id === scanAim.cid && x.sizes.includes(scanAim.size))) {
+    if (scanAim?.kind === "cell" &&
+        !colours.find((x) => x.id === scanAim.cid && x.sizes.includes(scanAim.size))) {
+      scanAim = null;
+    }
+    if (scanAim?.kind === "colour" && !colours.find((x) => x.id === scanAim.cid)) {
       scanAim = null;
     }
     paintScanner();
@@ -1191,6 +1326,10 @@ export function renderProductForm({
       locationId: v(ids.loc) || null,
       photos: photos.map((p) => p.file),
       supplierId: selectedSupplierId || null,
+      barcode: v(ids.barcode).trim(),
+      colourBarcodes: colours
+        .filter((c) => (c.barcode || "").trim())
+        .map((c) => ({ color: c.name.trim(), barcode: c.barcode.trim() })),
       // Product-level pricing spread onto every variant -- see the header.
       variants: variants.map((x) => ({ ...x, price, cost, retailPrice: retail, moqQty: 1 })),
     };
@@ -1282,6 +1421,13 @@ export function renderProductForm({
     }
     status.className = "pf-status pf-status-ok";
     status.textContent = result.message || "Created.";
+  });
+
+  el.querySelector("[data-scan-product]")?.addEventListener("click", () => {
+    aimProductScanner();
+    scanBarRef?.setPlaceholder("Scan the code for the whole product…");
+    scanBarRef?.refocus();
+    scanHost.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
 
   paintPhotos();

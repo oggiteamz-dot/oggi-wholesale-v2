@@ -22,6 +22,7 @@
 // mobile-ops screens keep behaving exactly as they did.
 
 import { toast } from "./toast.js";
+import { decodeImageData, hasNativeDetector } from "../lib/barcode-decode.js";
 
 /** Returns { el, refocus, setPlaceholder }. onSubmit receives the trimmed
  *  code; the input clears itself first, so a handler that throws cannot leave
@@ -53,42 +54,31 @@ export function renderScanBar({ placeholder, onSubmit, autofocus = true, compact
   });
   wrap.appendChild(input);
 
-  // Progressive enhancement only -- never assumed present.
-  if (typeof window !== "undefined" && "BarcodeDetector" in window) {
-    const camBtn = document.createElement("button");
-    camBtn.className = "btn btn-secondary";
-    camBtn.type = "button";
-    camBtn.style.cssText = compact
-      ? "font-size:13px;padding:10px 12px;white-space:nowrap;"
-      : "font-size:14px;padding:14px 16px;white-space:nowrap;";
-    camBtn.textContent = "📷 Scan";
-    camBtn.addEventListener("click", async () => {
-      try {
-        const detector = new window.BarcodeDetector();
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        const video = document.createElement("video");
-        video.srcObject = stream;
-        video.setAttribute("playsinline", "true");
-        video.style.cssText = "position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:9999;background:#000;";
-        document.body.appendChild(video);
-        await video.play();
-        const stop = () => { stream.getTracks().forEach((t) => t.stop()); video.remove(); };
-        video.addEventListener("click", stop);
-        const tick = async () => {
-          if (!video.isConnected) return;
-          try {
-            const codes = await detector.detect(video);
-            if (codes.length) { stop(); onSubmit(codes[0].rawValue); return; }
-          } catch { /* keep trying until stopped */ }
-          requestAnimationFrame(tick);
-        };
-        tick();
-      } catch (err) {
-        toast("Camera scan unavailable (" + (err?.message || "permission denied") + ") — use the keyboard/scanner input instead", { type: "danger" });
-      }
-    });
-    wrap.appendChild(camBtn);
-  }
+  // THE CAMERA BUTTON IS ALWAYS PRESENT NOW.
+  //
+  // It used to render only where window.BarcodeDetector existed, which meant
+  // it silently did not exist on most devices this app is aimed at. Hadi
+  // reported "I don't see the scanner" and he was describing exactly that: on
+  // Chrome for Windows the button was never created. Checking his browser
+  // confirmed it, and the platform picture is worse than one laptop --
+  // BarcodeDetector ships on Chrome for Android and essentially nowhere else,
+  // and Chrome on iOS is WebKit underneath, so Safari iOS and Chrome iOS share
+  // the same gap. One of his three target platforms had a scanner.
+  //
+  // So: native detector when the browser has one (it is faster and reads more
+  // symbologies), and the bundled EAN/UPC decoder everywhere else. A control
+  // that quietly disappears is worse than one that appears and explains its
+  // limits, because the first is indistinguishable from the feature not
+  // existing.
+  const camBtn = document.createElement("button");
+  camBtn.className = "btn btn-secondary scan-cam";
+  camBtn.type = "button";
+  camBtn.style.cssText = compact
+    ? "font-size:13px;padding:10px 12px;white-space:nowrap;"
+    : "font-size:14px;padding:14px 16px;white-space:nowrap;";
+  camBtn.textContent = "📷 Scan with camera";
+  camBtn.addEventListener("click", () => openCamera({ onSubmit, input }));
+  wrap.appendChild(camBtn);
 
   if (autofocus) setTimeout(() => input.focus(), 50);
   return {
@@ -96,4 +86,116 @@ export function renderScanBar({ placeholder, onSubmit, autofocus = true, compact
     refocus: () => input.focus(),
     setPlaceholder: (text) => { input.placeholder = text; },
   };
+}
+
+
+/** The camera overlay. Kept in this module so both the warehouse screens and
+ *  the product builder get the identical scanner rather than two of them. */
+async function openCamera({ onSubmit, input }) {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      // environment = the rear camera on a phone. Ignored on a laptop, which
+      // only has one, so the same request is correct on both.
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+  } catch (err) {
+    // Permission denied, no camera, or an insecure context. Say which, and
+    // point at the path that still works rather than leaving a dead end.
+    toast(
+      `Camera unavailable (${err?.message || "permission denied"}). You can still type the code, or use a handheld scanner — it types the code and presses Enter.`,
+      { type: "danger" }
+    );
+    input?.focus();
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "scan-cam-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Scan a barcode with the camera");
+  overlay.innerHTML = `
+    <div class="scan-cam-bar">
+      <span class="scan-cam-title">Point the camera at the barcode</span>
+      <button type="button" class="btn btn-secondary btn-sm" data-cancel>Cancel</button>
+    </div>
+    <div class="scan-cam-stage">
+      <video playsinline muted></video>
+      <div class="scan-cam-reticle" aria-hidden="true"></div>
+    </div>
+    <p class="scan-cam-hint" data-hint>Hold the barcode straight and fill the box. Nothing is sent anywhere — the read happens on this device.</p>
+  `;
+
+  const video = overlay.querySelector("video");
+  const hint = overlay.querySelector("[data-hint]");
+  video.srcObject = stream;
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  let stopped = false;
+  let detector = null;
+  if (hasNativeDetector()) {
+    try { detector = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"] }); }
+    catch { detector = null; }
+  }
+
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    stream.getTracks().forEach((t) => t.stop());
+    document.removeEventListener("keydown", onKey);
+    overlay.remove();
+    document.body.style.overflow = prevOverflow;
+  }
+  function onKey(ev) { if (ev.key === "Escape") stop(); }
+  function found(code) {
+    stop();
+    onSubmit(String(code).trim());
+  }
+
+  overlay.querySelector("[data-cancel]").addEventListener("click", stop);
+  document.addEventListener("keydown", onKey);
+  const prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  document.body.appendChild(overlay);
+
+  try { await video.play(); } catch { /* autoplay policies; the loop copes */ }
+
+  let misses = 0;
+  async function tick() {
+    if (stopped || !video.isConnected) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    if (w && h) {
+      if (detector) {
+        try {
+          const codes = await detector.detect(video);
+          if (codes.length && codes[0].rawValue) { found(codes[0].rawValue); return; }
+        } catch { detector = null; }   // fall through to the bundled decoder
+      }
+      if (!detector) {
+        // Only the middle band is read. A barcode fills the reticle, and
+        // decoding the whole frame every tick is wasted work on a phone --
+        // this is the difference between a scanner that feels instant and one
+        // that heats the device up.
+        const bandH = Math.max(40, Math.floor(h * 0.35));
+        const y0 = Math.floor((h - bandH) / 2);
+        canvas.width = w; canvas.height = bandH;
+        ctx.drawImage(video, 0, y0, w, bandH, 0, 0, w, bandH);
+        try {
+          const code = decodeImageData(ctx.getImageData(0, 0, w, bandH));
+          if (code) { found(code); return; }
+        } catch { /* keep trying */ }
+      }
+      misses++;
+      // After a few seconds of not reading anything, say something useful
+      // instead of letting the person conclude the feature is broken.
+      if (misses === 90) {
+        hint.textContent = "Not reading yet — try moving closer, steadying your hand, or turning on a light. You can also cancel and type the code.";
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
 }
