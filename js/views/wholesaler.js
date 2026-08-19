@@ -2257,7 +2257,7 @@ async function catalogsView(outlet) {
       if (p.highlighted) badges.push({ text: catalog.highlightLabel || "Featured", kind: "badge-success" });
       p.colors.slice(0, 6).forEach((c) => badges.push({ text: c.name, kind: "badge-neutral" }));
 
-      grid.appendChild(renderProductTile({
+      const tile = renderProductTile({
         id: p.id,
         name: p.name,
         images: p.images || [],
@@ -2291,7 +2291,11 @@ async function catalogsView(outlet) {
             } },
         ],
         onOpen: () => openProductView(p.id, () => paintList()),
-      }));
+      });
+      // The same glow the customer sees. Arranging a catalog and reading it
+      // should look like the same catalog.
+      if (p.highlighted) tile.classList.add("pcard-highlighted");
+      grid.appendChild(tile);
     });
     listHost.appendChild(grid);
   }

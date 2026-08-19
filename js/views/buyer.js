@@ -674,6 +674,7 @@ async function catalogLinkView(outlet, params) {
     tiers: tiersByProduct.get(product.id) || [],
     overridesByVariant, discountPct, customerPct,
     packs: [],
+    highlighted: pinned.has(product.id),
   });
   // Same grid the buyer dashboard builds. Written inline there rather than as a
   // class, so it is matched here rather than inventing a second one that would
