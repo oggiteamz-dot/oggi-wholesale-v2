@@ -22,9 +22,14 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
 </head><body><div id="settings"></div><div id="host"></div>
 <script type="module">
 import { renderProductPicker } from "/js/components/product-picker.js";
+import { renderCardFactsPicker } from "/js/components/card-facts-picker.js";
 const sw=(c)=>"data:image/svg+xml;utf8,"+encodeURIComponent(\`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="120" height="160" fill="\${c}"/></svg>\`);
 
-document.getElementById("settings").innerHTML = \`
+const fp = renderCardFactsPicker({selected:["price","available","onHand"],
+  locations:[{id:"l1",name:"Main Warehouse"},{id:"l2",name:"Showroom"}], onSave:async()=>({ok:true})});
+document.getElementById("settings").appendChild(fp.el);
+fp.el.querySelector(".facts-toggle").click();
+document.getElementById("host").innerHTML = \`
 <div class="card cat-settings">
   <div class="cat-settings-head"><h4>Summer 26 <span class="badge badge-neutral">Default</span></h4>
     <p>Who can see this catalog, and what it does to every price in it.</p></div>
@@ -43,17 +48,18 @@ document.getElementById("settings").innerHTML = \`
 </div>\`;
 
 const products = [
-  {id:"p1",name:"Heavyweight Oversized Tee — Garment Dyed",variantCount:7,priceRange:[18,22],images:[sw("#B91C1C")],colors:[],variants:[]},
-  {id:"p2",name:"Wide-Leg Denim Trouser",variantCount:9,priceRange:[30,30],images:[sw("#2F4A6B")],colors:[],variants:[]},
-  {id:"p3",name:"Linen Camp Shirt",variantCount:4,priceRange:[0,0],images:[],colors:[],variants:[]},
-  {id:"p4",name:"Ribbed Knit Cardigan",variantCount:5,priceRange:[24,26],images:[sw("#7C6A46")],colors:[],variants:[]},
-  {id:"p5",name:"Cropped Bomber Jacket",variantCount:6,priceRange:[40,44],images:[sw("#3A3A3A")],colors:[],variants:[]},
+  {id:"p1",name:"Heavyweight Oversized Tee — Garment Dyed",variantCount:7,priceRange:[18,22],available:0,onHand:12,images:[sw("#B91C1C")],colors:[],variants:[]},
+  {id:"p2",name:"Wide-Leg Denim Trouser",variantCount:9,priceRange:[30,30],available:18,onHand:18,images:[sw("#2F4A6B")],colors:[],variants:[]},
+  {id:"p3",name:"Linen Camp Shirt",variantCount:4,priceRange:[0,0],available:6,onHand:6,images:[],colors:[],variants:[]},
+  {id:"p4",name:"Ribbed Knit Cardigan",variantCount:5,priceRange:[24,26],available:40,onHand:40,images:[sw("#7C6A46")],colors:[],variants:[]},
+  {id:"p5",name:"Cropped Bomber Jacket",variantCount:6,priceRange:[40,44],available:120,onHand:140,images:[sw("#3A3A3A")],colors:[],variants:[]},
 ];
 const picker = renderProductPicker({products, alreadyIn:new Set(["p4"]), catalogName:"Summer 26",
+  cardFacts:["price","available","onHand"], locations:[],
   onAdd:async()=>{}, onClose:()=>{}});
 document.body.appendChild(picker.el);
-picker.el.querySelectorAll('.picker-row input[type=checkbox]')[0].click();
-picker.el.querySelectorAll('.picker-row input[type=checkbox]')[1].click();
+[...picker.el.querySelectorAll('.picker-card')].filter(c=>!c.classList.contains('picker-card-in')).slice(0,2)
+  .forEach(c=>c.dispatchEvent(new MouseEvent('click',{bubbles:true})));
 <\/script></body></html>`;
 await writeFile(join(ROOT, "checks/catalog_builder_preview.html"), html);
 

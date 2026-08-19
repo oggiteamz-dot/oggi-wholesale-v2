@@ -54,12 +54,12 @@ ok(/between -100 and 100/.test(settingsProblem({ ...good, discountPct: 250 }) ||
 ok(settingsProblem({ ...good, discountMode: "whatever" }) !== null, "an unknown mode is refused");
 ok(settingsProblem({ ...good, accessTier: 2.5 }) !== null, "tier 2.5 is refused");
 
-// ---- the picker ------------------------------------------------------------
+// ---- the picker: a wall of photographs, not a list of bars -----------------
 const products = [
-  { id: "p1", name: "Heavyweight Hoodie", variantCount: 6, priceRange: [18, 22], images: [], colors: [{ name: "Crimson" }], variants: [{ sku: "HOOD-CRI-M" }] },
-  { id: "p2", name: "Wide-Leg Denim",     variantCount: 9, priceRange: [30, 30], images: [], colors: [{ name: "Indigo" }],  variants: [{ sku: "DEN-IND-32" }] },
-  { id: "p3", name: "Linen Camp Shirt",   variantCount: 4, priceRange: [0, 0],   images: [], colors: [],                    variants: [] },
-  { id: "p4", name: "Already Filed Tee",  variantCount: 2, priceRange: [9, 9],   images: [], colors: [],                    variants: [] },
+  { id: "p1", name: "Heavyweight Hoodie", variantCount: 6, priceRange: [18, 22], available: 40, onHand: 44, images: ["u1"], colors: [{ name: "Crimson" }], variants: [{ sku: "HOOD-CRI-M" }] },
+  { id: "p2", name: "Wide-Leg Denim",     variantCount: 9, priceRange: [30, 30], available: 12, onHand: 12, images: ["u2"], colors: [{ name: "Indigo" }],  variants: [{ sku: "DEN-IND-32" }] },
+  { id: "p3", name: "Linen Camp Shirt",   variantCount: 4, priceRange: [0, 0],   available: 0,  onHand: 0,  images: [],     colors: [],                    variants: [] },
+  { id: "p4", name: "Already Filed Tee",  variantCount: 2, priceRange: [9, 9],   available: 5,  onHand: 5,  images: ["u4"], colors: [],                    variants: [] },
 ];
 
 let added = null;
@@ -67,57 +67,78 @@ const picker = renderProductPicker({
   products,
   alreadyIn: new Set(["p4"]),
   catalogName: "Summer 26",
+  cardFacts: ["price", "available", "onHand"],
+  locations: [],
   onAdd: async (ids) => { added = ids; },
   onClose: () => {},
 });
 document.body.appendChild(picker.el);
 const el = picker.el;
 
-ok(el.querySelectorAll(".picker-row").length === 4, "every product is listed, including the one already filed");
-ok(el.querySelectorAll(".picker-row-in").length === 1, "the already-filed one is marked");
-ok(/already in this catalog/.test(el.textContent), "and says so in words");
-ok(el.querySelectorAll(".picker-tick[type=checkbox]").length === 3,
-  "only the three that can be added have a tickbox");
+const cards = () => [...el.querySelectorAll(".picker-card")];
+
+ok(cards().length === 4, `every product is a card, including the one already filed (${cards().length})`);
+// Hadi: "I don't want it to be a bar. I want them to be large images." The
+// photo block is the first child of the tile, so this is a structural fact and
+// is checked structurally rather than by looking at CSS.
+ok(cards().every((c) => c.firstElementChild?.classList.contains("pcard-media")),
+  "each card leads with the photo, not a stamp beside text");
+ok(el.querySelector(".pcard-grid"), "and they are laid out as a grid");
+ok(el.querySelectorAll(".picker-row").length === 0, "the old row layout is gone");
+
+ok(el.querySelectorAll(".picker-card-in").length === 1, "the already-filed one is marked");
+ok(/Already in this catalog/i.test(el.textContent), "and says so in words");
+ok(el.querySelector(".picker-card-in").getAttribute("role") !== "checkbox",
+  "and cannot be ticked");
 
 const addBtn = el.querySelector(".picker-add");
 ok(addBtn.disabled, "Add is disabled until something is picked");
 
-function tick(id) {
-  const row = [...el.querySelectorAll(".picker-row")].find((r) => r.textContent.includes(id));
-  const box = row.querySelector("input[type=checkbox]");
-  box.checked = !box.checked;
-  box.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+function tick(name) {
+  const card = cards().find((c) => c.textContent.includes(name));
+  card.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
 }
 
 tick("Heavyweight Hoodie");
 tick("Wide-Leg Denim");
 ok(!addBtn.disabled && /Add 2 products/.test(addBtn.textContent),
   `the button counts what is picked (“${addBtn.textContent}”)`);
+ok(el.querySelectorAll(".picker-card-on").length === 2, "and the picked cards are visibly picked");
 
-// THE ONE THAT MATTERS: searching re-renders the list, and must not lose ticks.
+// A card must be reachable and operable by keyboard, since the whole card is
+// the target and there is no checkbox left to tab to.
+const first = cards().find((c) => !c.classList.contains("picker-card-in"));
+ok(first.getAttribute("role") === "checkbox" && first.tabIndex === 0,
+  "a pickable card is a real checkbox to a screen reader, and reachable by tab");
+ok(first.getAttribute("aria-checked") === "true", "and reports whether it is picked");
+
+// THE ONE THAT MATTERS: searching re-renders, and must not lose the picks.
 const search = el.querySelector(".picker-search");
 search.value = "linen";
 search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-ok(el.querySelectorAll(".picker-row").length === 1, "searching filters the list");
+ok(cards().length === 1, "searching filters the wall");
 ok(/Add 2 products/.test(addBtn.textContent),
-  `and the two already picked are still picked (“${addBtn.textContent}”) — they are off screen, not forgotten`);
+  `and the two already picked are still picked (“${addBtn.textContent}”) — off screen, not forgotten`);
 
 tick("Linen Camp Shirt");
-ok(/Add 3 products/.test(addBtn.textContent), "a third can be picked from the filtered list");
+ok(/Add 3 products/.test(addBtn.textContent), "a third can be picked from the filtered wall");
 
 search.value = "";
 search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-const stillTicked = [...el.querySelectorAll(".picker-row input[type=checkbox]")].filter((b) => b.checked).length;
-ok(stillTicked === 3, `clearing the search brings all three back still ticked (${stillTicked})`);
+ok(el.querySelectorAll(".picker-card-on").length === 3,
+  `clearing the search brings all three back still picked (${el.querySelectorAll(".picker-card-on").length})`);
 
-ok(/Nothing matches/.test((() => {
-  search.value = "zzzz";
-  search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  const t = el.textContent;
-  search.value = "";
-  search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  return t;
-})()), "a search with no matches says so rather than showing an empty box");
+// Clicking a picked card again must UNPICK it, or there is no way to correct a
+// mis-tap on a screen where the whole card is the target.
+tick("Linen Camp Shirt");
+ok(/Add 2 products/.test(addBtn.textContent), "clicking a picked card again unpicks it");
+tick("Linen Camp Shirt");
+
+search.value = "zzzz";
+search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+ok(/Nothing matches/.test(el.textContent), "a search with no matches says so rather than showing an empty box");
+search.value = "";
+search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
 
 addBtn.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 30));
