@@ -454,10 +454,16 @@ ok(shows(inv, PRODUCT), "the product reached Inventory");
 // arbitrary older upload -- including ones written before the harness bug
 // above was fixed, which is how this assertion failed on a run that had just
 // stored a perfectly good file.
+// Batch 19 turned the inventory list from text rows into cards, so the
+// thumbnail moved from .inv-row .prod-thumb to .pcard-media. Updated here
+// rather than left to "no thumbnail on screen -- skipped", which is what this
+// assertion would have degraded to: a check that silently stops checking when
+// the markup it targets is renamed is worse than one that fails, because it
+// keeps reporting a pass it is no longer earning.
 const storedSrc = await page.evaluate((name) => {
-  const row = [...document.querySelectorAll(".inv-row")]
-    .find((r) => r.innerText.includes(name));
-  return row?.querySelector(".prod-thumb img")?.src || "";
+  const card = [...document.querySelectorAll(".pcard")]
+    .find((c) => c.innerText.includes(name));
+  return card?.querySelector(".pcard-media img")?.src || "";
 }, PRODUCT);
 if (!storedSrc) {
   console.log("  NOTE  no thumbnail on screen — skipped the image-integrity assertion");
@@ -483,10 +489,55 @@ if (!storedSrc) {
     ok(false, `the uploaded photo could not be fetched back (${e.message})`);
   }
 }
-ok(shows(inv, "Crimson"), "with its sampled colour name");
-ok(shows(inv, "Deep Navy"), "and its palette colour name");
-ok(shows(inv, "not stocked yet"),
+// The colour/size breakdown now lives one click in, behind the card's
+// "Receive & transfer" button, so the check has to open it. The card itself
+// carries only the product-level summary -- which is the point of the card,
+// and is why the assertions below moved rather than being dropped.
+const opened = await page.evaluate((name) => {
+  const card = [...document.querySelectorAll(".pcard")]
+    .find((c) => c.innerText.includes(name));
+  const btn = [...(card?.querySelectorAll(".pcard-actions .btn") || [])]
+    .find((b) => /receive/i.test(b.textContent));
+  if (!btn) return false;
+  btn.click();
+  return true;
+}, PRODUCT);
+ok(opened, "the product's card offers the stock breakdown");
+await page.waitForTimeout(1200);
+const detailText = await page.evaluate(() =>
+  document.querySelector(".inv-detail")?.innerText || "");
+ok(shows(detailText, "Crimson"), "with its sampled colour name");
+ok(shows(detailText, "Deep Navy"), "and its palette colour name");
+ok(shows(detailText, "not stocked yet"),
   "and the cells left at zero are visible, badged 'Not stocked yet' — these are what used to be invisible");
+
+// Both doors, on the card, where Hadi asked for them: "give me a button to
+// essentially edit or a button to view or both."
+const cardBtns = await page.evaluate((name) => {
+  const card = [...document.querySelectorAll(".pcard")]
+    .find((c) => c.innerText.includes(name));
+  return [...(card?.querySelectorAll(".pcard-actions .btn") || [])].map((b) => b.textContent.trim());
+}, PRODUCT);
+ok(cardBtns.includes("View") && cardBtns.includes("Edit"),
+  `the card carries View and Edit (saw: ${cardBtns.join(", ") || "none"})`);
+
+// And View actually opens, against the real database -- getProductDetail()
+// joins v2_inventory_balances to v2_locations and reads v2_suppliers, none of
+// which the jsdom component check can exercise. If a column grant is wrong,
+// this is where it shows.
+await page.evaluate((name) => {
+  const card = [...document.querySelectorAll(".pcard")].find((c) => c.innerText.includes(name));
+  [...(card?.querySelectorAll(".pcard-actions .btn") || [])]
+    .find((b) => b.textContent.trim() === "View")?.click();
+}, PRODUCT);
+await page.waitForTimeout(2500);
+const viewText = await page.evaluate(() => document.querySelector(".pdet")?.innerText || "");
+ok(shows(viewText, PRODUCT), "the View panel opens on the real product");
+ok(/Barcodes/i.test(viewText) && viewText.includes(CODE_A),
+  `and shows the barcodes it was created with (looking for ${CODE_A})`);
+ok(await page.evaluate(() => document.querySelectorAll(".pdet input, .pdet textarea, .pdet select").length) === 0,
+  "and nothing in it can be typed into");
+await page.evaluate(() => document.querySelector(".pdet-close")?.click());
 
 await page.screenshot({ path: join(ROOT, "checks/screenshots/builder-inventory-mobile.png"), fullPage: true });
 ok(errs.length === 0, `no uncaught page errors (${errs.length}${errs.length ? ": " + errs[0].slice(0,90) : ""})`);
