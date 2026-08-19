@@ -63,6 +63,34 @@ Still to do:
 
 ---
 
-## 4. Known, logged, not fixed
+## 4. Billboard and highlights — SPECIFIED, NOT BUILT
+
+Agreed 19 Aug 2026, to be built once buyers can actually see catalogs.
+
+**Billboard.** A hero panel at the top of a catalog. Either an advertisement
+for one specific product, with a button that jumps to that item inside that
+catalog, or just a poster with no link. Toggleable on and off per catalog, so
+it either appears or it does not. The image is an **uploaded poster only** —
+not a product photo — because the point is a designed banner.
+
+**Highlights.** The wholesaler marks as many items as they like, and those
+items always sort to the top no matter what order anything else is in. One
+named group per catalog, with a name the wholesaler chooses: "New Arrivals",
+"Top Selling", "Favourites", whatever. It renders as a **header above the
+group**, not a ribbon on the corner of each card — he corrected that
+explicitly. Then the rest of the catalog below it.
+
+---
+
+## 5. Known, logged, not fixed
 
 - `v2_pricing_tiers` still has a permissive read policy.
+- **The tier gate is not a hard boundary yet.** `v2_products` and
+  `v2_product_variants` have carried an `auth.uid() is null` read policy since
+  well before this work, which means the `anon` role can read every product
+  row directly. So a buyer sees only the catalogs their tier allows *in the
+  app*, and the catalog they order through is validated server-side — but
+  somebody with developer tools could still query the product table. Closing
+  it means revoking anon on both tables and routing every buyer read through
+  SECURITY DEFINER functions, which touches the whole buyer app and deserves
+  its own batch rather than being smuggled into this one.
