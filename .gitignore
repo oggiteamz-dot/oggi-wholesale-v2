@@ -9,3 +9,4 @@ package-lock.json
 # checks/*.mjs document their own requirement in their header comments.
 package.json
 checks/screenshots/
+checks/cards_preview.html
