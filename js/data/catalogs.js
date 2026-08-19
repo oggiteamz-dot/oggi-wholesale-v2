@@ -290,3 +290,37 @@ export async function getDefaultCatalog(wid) {
   );
   return data || null;
 }
+
+
+// ---------------------------------------------------------------------
+// The buyer side (migration 055)
+// ---------------------------------------------------------------------
+// Both of these take ONLY the account id. There is no wid parameter and no
+// catalog-owner parameter, because the strongest question a buyer can ask is
+// "what may I see" -- and there is deliberately no argument through which to
+// ask a different one. The database reads the wholesaler and the tier off the
+// validated account row itself. Same shape as v2_buyer_price_overrides, and
+// for the same reason: buyers run as `anon`, so no row policy can scope them,
+// and a parameter you can change is a parameter someone will change.
+
+/** The catalogs this buyer's tier allows, most-default first. */
+export async function buyerCatalogs(accountId) {
+  if (!accountId) return [];
+  const { data } = await sbCall(supabase.rpc("v2_buyer_catalogs", { p_account_id: accountId }));
+  return (data || []).map((c) => ({
+    id: c.id, name: c.name, description: c.description,
+    isDefault: !!c.is_default, accessTier: Number(c.access_tier) || 1,
+  }));
+}
+
+/** The product ids in one catalog, in the wholesaler's order. Returns an empty
+ *  list -- not an error -- if this account may not see that catalog, so a
+ *  guessed id looks exactly like an empty catalog rather than confirming that
+ *  something is there. */
+export async function buyerCatalogProductIds(accountId, catalogId) {
+  if (!accountId || !catalogId) return [];
+  const { data } = await sbCall(
+    supabase.rpc("v2_buyer_catalog_products", { p_account_id: accountId, p_catalog_id: catalogId })
+  );
+  return (data || []).map((r) => r.product_id);
+}

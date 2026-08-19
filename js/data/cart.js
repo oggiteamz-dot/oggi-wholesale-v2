@@ -252,7 +252,7 @@ export const cart = {
    * order as any buyer_label" gap (see migrations/024's v2_submit_order
    * changes). Passing it is a strict improvement, never a behavior
    * change for a legitimate caller who already has a real session. */
-  async submit(wid, { buyerLabel, locationId, notes, clientId, accountId }, scopeSuffix) {
+  async submit(wid, { buyerLabel, locationId, notes, clientId, accountId, catalogId }, scopeSuffix) {
     const scope = scopeOf(wid, scopeSuffix);
     const lines = readCart(scope);
     if (!lines.length) return { ok: false, reason: "empty_cart" };
@@ -290,6 +290,12 @@ export const cart = {
         p_lines: payload,
         p_client_id: clientId || null,
         p_account_id: accountId || null,
+        // Migration 055. The catalog decides the discount, so the order has to
+        // say which one it came through -- and the RPC checks the claim
+        // against what this account is actually allowed to see, because
+        // otherwise naming the deepest-discounted catalog would be a way to
+        // pay its prices from anywhere.
+        p_catalog_id: catalogId || null,
       })
     );
 
