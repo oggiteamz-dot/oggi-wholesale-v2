@@ -1234,3 +1234,283 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 }
 .gallery-thumb.is-active { border-color: var(--accent-600); }
 .gallery-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ===========================================================================
+   ADMIN PRODUCT CARDS  (js/components/admin-product-tile.js)
+   ===========================================================================
+   Hadi: "instead of them being horizontal bars, make them vertical cards...
+   imagine five, six, seven playing cards next to each other, where the
+   thumbnail is the biggest piece."
+
+   The difference between a ledger and a catalogue. A text row with a 48px
+   thumbnail is optimised for reading down a column of numbers, which is right
+   for accounts and wrong for clothing: a wholesaler finds a garment by
+   recognising it, and recognition needs the picture to be the largest thing
+   on screen.
+   =========================================================================== */
+
+.pcard-grid {
+  display: grid;
+  /* 168px is chosen, not rounded: at 390px (the narrowest phone this targets)
+     with the page's own padding it yields exactly two columns, and two columns
+     is the point -- one column is the row layout again with a bigger picture,
+     and three makes the photo too small to recognise a garment from. On a
+     1280px laptop the same rule gives five or six, which is the wall Hadi
+     described, with no breakpoints to keep in sync. */
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.pcard {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.pcard-clickable { cursor: pointer; }
+.pcard-clickable:hover { border-color: var(--border-strong); }
+
+/* 3:4 because that is how garments are photographed. A square crops the hem
+   off a dress; 16:9 crops nearly everything. aspect-ratio rather than a fixed
+   height keeps every card in a row the same size regardless of what the photo
+   itself is, which is what stops the grid going ragged. */
+.pcard-media {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  background: var(--bg-sunken);
+  cursor: zoom-in;
+  overflow: hidden;
+}
+.pcard-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.pcard-media-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: default;
+  color: var(--text-tertiary);
+  font-size: 26px;
+}
+.pcard-nophoto { font-size: var(--text-xs); }
+
+.pcard-count {
+  position: absolute;
+  right: 6px; bottom: 6px;
+  background: rgba(0, 0, 0, 0.66);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.pcard-body {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Clamped to two lines so a long product name cannot make one card taller
+   than its neighbours and stagger the whole grid. The full name is on the
+   title attribute and in the View panel. */
+.pcard-name {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pcard-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.pcard-facts { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.pcard-facts > div { display: flex; justify-content: space-between; gap: var(--space-2); }
+.pcard-facts dt { font-size: var(--text-xs); color: var(--text-tertiary); margin: 0; }
+.pcard-facts dd { font-size: var(--text-xs); font-weight: 650; margin: 0; text-align: right; }
+.pcard-fact-danger dd  { color: var(--danger-700); }
+.pcard-fact-warning dd { color: var(--warning-700, #92400E); }
+
+/* Buttons go full width and stack, because at 168px two side-by-side buttons
+   are each ~76px and every label truncates to nonsense. */
+.pcard-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 var(--space-3) var(--space-3);
+}
+.pcard-actions .btn { width: 100%; }
+
+/* Above 560px there is room for two across, which keeps the card shorter and
+   fits more of them on screen. */
+@media (min-width: 560px) {
+  .pcard-actions { flex-direction: row; flex-wrap: wrap; }
+  .pcard-actions .btn { width: auto; flex: 1 1 auto; }
+}
+
+/* ===========================================================================
+   PRODUCT OVERLAY, VIEW PANEL AND STOCK BREAKDOWN            (Batch 19)
+   ---------------------------------------------------------------------------
+   Hadi: "I can't edit the product at all. Maybe there's a mistake. Maybe I
+   want to look at the data. So give me a button to essentially edit or a
+   button to view or both."
+
+   Both open in the same overlay. The overlay scrolls the PAGE BEHIND IT to a
+   stop (js sets body overflow) and scrolls internally instead, because the
+   product form is taller than any phone and a dialog that scrolls the document
+   under itself loses the person's place in the list they came from.
+
+   It is aligned to the top, not centred. A centred dialog that is taller than
+   the viewport is unreachable at both ends -- you cannot scroll up to the
+   title or down to the save button, because there is nowhere for the overflow
+   to go.
+   =========================================================================== */
+
+.prod-edit {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: var(--bg-overlay);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-4);
+  /* Below the notch and above the home indicator on iOS. Without this the
+     Close button sits under the indicator and cannot be tapped. */
+  padding-top: max(var(--space-4), env(safe-area-inset-top));
+  padding-bottom: max(var(--space-8), env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.prod-edit > * {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+/* ---- the read-only view ---- */
+
+.pdet { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+
+.pdet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.pdet-head h4 { margin: 0; font-size: var(--text-lg); }
+.pdet-head p  { margin: 2px 0 0; font-size: var(--text-xs); color: var(--text-secondary); }
+.pdet-head-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* A horizontal strip rather than a grid: the photos of one product are a
+   sequence to flick through, and a strip says that without spending the
+   vertical space a grid would. */
+.pdet-photos {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+  scroll-snap-type: x mandatory;
+}
+.pdet-photo {
+  flex: 0 0 auto;
+  width: 120px;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-sunken);
+  cursor: zoom-in;
+  scroll-snap-align: start;
+}
+.pdet-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.pdet-section { display: flex; flex-direction: column; gap: 4px; }
+.pdet-section h5 {
+  margin: 0 0 2px;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-tertiary);
+}
+.pdet-subhead {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.pdet-facts { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.pdet-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pdet-row dt { margin: 0; font-size: var(--text-xs); color: var(--text-tertiary); flex: 0 0 auto; }
+.pdet-row dd { margin: 0; font-size: var(--text-xs); text-align: right; min-width: 0; overflow-wrap: anywhere; }
+
+/* Monospace on purpose. A barcode is read a character at a time against a
+   label or a scanner beep, and a proportional 1/l/I or 0/O is exactly the
+   confusion that sends someone hunting for a product that scanned fine. */
+.pdet-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--bg-sunken);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+/* "not set" is stated, never left blank: an empty cell is ambiguous between
+   "there is no code" and "it failed to load", and those call for opposite
+   actions when you are standing at a scanner. */
+.pdet-none { font-size: var(--text-xs); color: var(--text-tertiary); font-style: italic; }
+
+.pdet-variant {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pdet-variant + .pdet-variant { margin-top: var(--space-2); }
+.pdet-variant-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-sm); }
+.pdet-swatch {
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(14, 34, 48, .18);
+  flex: 0 0 auto;
+}
+.pdet-sku { font-size: var(--text-xs); color: var(--text-tertiary); font-family: var(--font-mono); }
+.pdet-stock { margin: 0; padding-left: 18px; font-size: var(--text-xs); color: var(--text-secondary); }
+.pdet-stock li { margin: 1px 0; }
+
+/* ---- inventory's receive/transfer breakdown ---- */
+
+.inv-detail { margin-top: var(--space-4); padding: var(--space-4); }
+.inv-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.inv-detail-head h4 { margin: 0; font-size: var(--text-md); }
+.inv-detail-head p  { margin: 2px 0 0; font-size: var(--text-xs); color: var(--text-secondary); }
