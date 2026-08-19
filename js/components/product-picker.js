@@ -18,9 +18,17 @@
 //    lives outside the rendered list rather than being read off the checkboxes
 //    that a re-render destroys. Losing a selection to a keystroke is the kind
 //    of small betrayal that makes people stop trusting a screen.
+//
+// Rewritten as CARDS on 19 Aug. Hadi: "again, I don't want it to be a bar. I
+// want them to be large images. So the wholesaler can actually see what he's
+// picking." He is right, and it was the same mistake twice -- a list of rows
+// is a ledger, and you cannot recognise a garment from a 48px stamp. It uses
+// the same tile every other screen uses, so a product looks the same here as
+// it does in Inventory, with the same facts the wholesaler chose.
 
-import { esc, money } from "../lib/utils.js";
-import { productThumb } from "./image-gallery.js";
+import { esc } from "../lib/utils.js";
+import { renderProductTile, productGrid } from "./admin-product-tile.js";
+import { factsFor } from "../lib/card-facts.js";
 
 /**
  * @param {object} o
@@ -30,7 +38,11 @@ import { productThumb } from "./image-gallery.js";
  * @param {(ids: string[]) => Promise<any>} o.onAdd
  * @param {Function} o.onClose
  */
-export function renderProductPicker({ products = [], alreadyIn = new Set(), catalogName = "", onAdd, onClose }) {
+export function renderProductPicker({
+  products = [], alreadyIn = new Set(), catalogName = "",
+  cardFacts = ["price", "available", "onHand"], locations = [],
+  onAdd, onClose,
+}) {
   const chosen = new Set();
 
   const overlay = document.createElement("div");
@@ -113,45 +125,55 @@ export function renderProductPicker({ products = [], alreadyIn = new Set(), cata
       return;
     }
 
+    const grid = productGrid();
     shown.forEach((p) => {
       const inAlready = alreadyIn.has(p.id);
-      const row = document.createElement(inAlready ? "div" : "label");
-      row.className = `picker-row${inAlready ? " picker-row-in" : ""}`;
+      const badges = inAlready
+        ? [{ text: "Already in this catalog", kind: "badge-neutral" }]
+        : chosen.has(p.id) ? [{ text: "Picked", kind: "badge-success" }] : [];
 
-      if (!inAlready) {
-        const box = document.createElement("input");
-        box.type = "checkbox";
-        box.className = "picker-tick";
-        box.checked = chosen.has(p.id);
-        box.setAttribute("aria-label", `Add ${p.name}`);
-        box.addEventListener("change", () => {
-          if (box.checked) chosen.add(p.id); else chosen.delete(p.id);
+      const tile = renderProductTile({
+        id: p.id,
+        name: p.name,
+        images: p.images || [],
+        badges,
+        facts: factsFor(p, cardFacts, { locations }),
+        // No action buttons: the whole card is the target. A tick-box beside a
+        // big photo invites people to aim at the box, and the box is the
+        // smallest thing on the card.
+        onOpen: inAlready ? undefined : () => {
+          if (chosen.has(p.id)) chosen.delete(p.id); else chosen.add(p.id);
+          paintList();
           paintBar();
+        },
+      });
+      tile.classList.add("picker-card");
+      if (inAlready) tile.classList.add("picker-card-in");
+      if (chosen.has(p.id)) tile.classList.add("picker-card-on");
+
+      // A visible state, not just a border: on a wall of photographs a thin
+      // outline is invisible, and "which ones did I already tick" is the only
+      // question this screen exists to answer.
+      const mark = document.createElement("span");
+      mark.className = "picker-mark";
+      mark.setAttribute("aria-hidden", "true");
+      mark.textContent = inAlready ? "✓" : chosen.has(p.id) ? "✓" : "";
+      tile.appendChild(mark);
+
+      tile.setAttribute("role", inAlready ? "img" : "checkbox");
+      if (!inAlready) tile.setAttribute("aria-checked", String(chosen.has(p.id)));
+      tile.setAttribute("aria-label",
+        inAlready ? `${p.name} — already in this catalog` : `Add ${p.name}`);
+      if (!inAlready) {
+        tile.tabIndex = 0;
+        tile.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); tile.click(); }
         });
-        row.appendChild(box);
-      } else {
-        const mark = document.createElement("span");
-        mark.className = "picker-tick picker-tick-in";
-        mark.setAttribute("aria-hidden", "true");
-        mark.textContent = "✓";
-        row.appendChild(mark);
       }
 
-      row.appendChild(productThumb(p.images || [], p.name));
-
-      const main = document.createElement("div");
-      main.className = "picker-main";
-      const lo = p.priceRange?.[0], hi = p.priceRange?.[1];
-      const price = !hi ? "—" : lo === hi ? money(lo) : `${money(lo)}–${money(hi)}`;
-      main.innerHTML = `
-        <div class="picker-name">${esc(p.name)}</div>
-        <div class="picker-meta">${p.variantCount || 0} colour/size${(p.variantCount || 0) === 1 ? "" : "s"} · ${price}${
-          inAlready ? ' · <span class="picker-already">already in this catalog</span>' : ""
-        }</div>`;
-      row.appendChild(main);
-
-      list.appendChild(row);
+      grid.appendChild(tile);
     });
+    list.appendChild(grid);
   }
 
   search.addEventListener("input", paintList);
