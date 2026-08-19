@@ -29,7 +29,7 @@ export async function listCatalogs(wid) {
       // here deliberately. 045 revoked the blanket grant on this table so that
       // adding a column would have to be a decision to publish it; that only
       // holds if the read side is updated on purpose too.
-      .select("id, wid, name, description, is_default, active, created_at, access_tier, discount_pct, discount_mode")
+      .select("id, wid, name, description, is_default, active, created_at, access_tier, discount_pct, discount_mode, share_token, is_public")
       .eq("wid", wid)
       .order("is_default", { ascending: false })
       .order("name", { ascending: true })
@@ -43,6 +43,8 @@ export async function listCatalogs(wid) {
       accessTier: Number(c.access_tier) || 1,
       discountPct: Number(c.discount_pct) || 0,
       discountMode: c.discount_mode || "combine",
+      shareToken: c.share_token || null,
+      isPublic: !!c.is_public,
     })),
   };
 }
@@ -166,6 +168,43 @@ export function settingsProblem({ accessTier, discountPct, discountMode }) {
     return "Pick how this catalog's discount meets the customer's own.";
   }
   return null;
+}
+
+/** The link a wholesaler copies and sends. Built here rather than in the view
+ *  so every place that shows a link builds the same one -- two screens
+ *  disagreeing about a URL is a link that works from one of them. */
+export function catalogLink(shareToken) {
+  if (!shareToken) return "";
+  return `${location.origin}${location.pathname}#/c/${shareToken}`;
+}
+
+/** Whether a catalog needs no login at all. Hadi: "he can basically decide,
+ *  okay, this catalog is open for everyone, whether they have a username or
+ *  not." Separate call from the tier/discount save because it changes WHO can
+ *  see the catalog rather than what it costs, and the confirmation a person
+ *  needs before flipping it is a different sentence. */
+export async function setCatalogPublic(catalogId, isPublic) {
+  const { error } = await sbCall(
+    supabase.from("v2_catalogs")
+      .update({ is_public: !!isPublic, updated_at: new Date().toISOString() })
+      .eq("id", catalogId)
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** A new token, which kills every link already sent. The only way to take back
+ *  a link that reached the wrong person. */
+export async function rotateCatalogLink(catalogId) {
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(12)))
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+  const { error } = await sbCall(
+    supabase.from("v2_catalogs")
+      .update({ share_token: token, updated_at: new Date().toISOString() })
+      .eq("id", catalogId)
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, shareToken: token };
 }
 
 /** Tier, discount and mode. Separate from renameCatalog because renaming is a
@@ -321,6 +360,46 @@ export async function buyerCatalogProductIds(accountId, catalogId) {
   if (!accountId || !catalogId) return [];
   const { data } = await sbCall(
     supabase.rpc("v2_buyer_catalog_products", { p_account_id: accountId, p_catalog_id: catalogId })
+  );
+  return (data || []).map((r) => r.product_id);
+}
+
+
+/**
+ * Resolve a catalog link. Returns one of four honest answers rather than a
+ * list-or-nothing, because "log in", "you are not allowed", "this link is
+ * dead" and "here it is" are four different things to say to someone holding a
+ * URL, and an empty result can only say one of them.
+ *
+ *   ok              show it
+ *   login_required  a real link to a private catalog; nobody is signed in
+ *   denied          signed in, but wrong wholesaler or tier too low
+ *   not_found       no such link, or the catalog has been switched off --
+ *                   deliberately the same answer, so a dead link cannot
+ *                   confirm it was ever alive
+ */
+export async function catalogByToken(token, accountId = null) {
+  if (!token) return { status: "not_found" };
+  const { data } = await sbCall(
+    supabase.rpc("v2_catalog_by_token", { p_token: token, p_account_id: accountId || null })
+  );
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return { status: "not_found" };
+  return {
+    status: row.status,
+    id: row.id, name: row.name, description: row.description,
+    wid: row.wid, isPublic: !!row.is_public,
+    accessTier: Number(row.access_tier) || 1,
+    wholesalerName: row.wholesaler_name,
+  };
+}
+
+/** The product ids behind a link. Re-checks the gate itself, so calling this
+ *  without resolving first gains nothing. */
+export async function catalogProductIdsByToken(token, accountId = null) {
+  if (!token) return [];
+  const { data } = await sbCall(
+    supabase.rpc("v2_catalog_products_by_token", { p_token: token, p_account_id: accountId || null })
   );
   return (data || []).map((r) => r.product_id);
 }
