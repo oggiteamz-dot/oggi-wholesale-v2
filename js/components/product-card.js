@@ -26,13 +26,19 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   // design, so only the customer's share may appear as a struck-through
   // "before" price. Both default to 0, so a screen that has not been taught
   // about discounts prices exactly as it did before.
-  discountPct = 0, customerPct = 0 }) {
+  discountPct = 0, customerPct = 0,
+  // Pinned to the top of this catalog. The card SAYS SO rather than relying on
+  // the reader remembering that everything above a header is special -- by the
+  // time you have scrolled past six of them the header is off screen and the
+  // grouping has stopped meaning anything.
+  highlighted = false }) {
   const el = document.createElement("div");
   el.className = "card product-card";
   // The billboard's button scrolls to a specific product, so a card has to be
   // findable by id. Without this the button lands on nothing, which is the
   // failure a poster with a call to action can least afford.
   el.dataset.productId = product.id;
+  if (highlighted) el.classList.add("product-card-highlighted");
   el.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
 
   let selectedColor = product.colors[0]?.name || null;
