@@ -1593,3 +1593,14 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   text-align: center;
   cursor: help;
 }
+
+/* The struck-through "before" price on a buyer's line, shown ONLY when the
+   customer's own negotiated rate is doing something. A catalog's own discount
+   is silent by design — the adjusted number simply is the price — so it must
+   never appear here. See js/data/pricing.js effectivePrice() for which number
+   is allowed to be this one. */
+.pc-was {
+  color: var(--text-tertiary);
+  font-weight: 400;
+  margin-right: 2px;
+}
