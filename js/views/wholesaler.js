@@ -13,12 +13,14 @@ import { getReorderSuggestions, getInventoryIntelligenceReport, getCycleCountSch
 import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
-import { listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
+import { updateCatalogSettings, addProductsToCatalog, DISCOUNT_MODES,
+         listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
 import { createProduct, getProductForEdit, getProductDetail, updateProduct } from "../data/products-admin.js";
 import { renderProductForm } from "../components/product-form.js";
 import { renderProductTile, productGrid } from "../components/admin-product-tile.js";
 import { renderProductDetail } from "../components/product-detail.js";
+import { renderProductPicker } from "../components/product-picker.js";
 import { listSuppliers, createSupplier, updateSupplier, archiveSupplier, restoreSupplier, supplierProductCounts } from "../data/suppliers.js";
 import { listLocations, locationStockTotals, createLocation, renameLocation,
          setDefaultLocation, archiveLocation, transferStock } from "../data/locations.js";
@@ -1730,7 +1732,11 @@ async function catalogsView(outlet) {
       if (!name) return;
       const res = await createCatalog(wid, { name });
       if (!res.ok) { toast(res.error, { type: "danger" }); return; }
-      toast(`"${res.name}" created`, { type: "success" });
+      // A new catalog opens at tier 1 with no discount, which is deliberately
+      // the harmless setting -- visible to everyone, prices exactly as set.
+      // Saying where to change that is the difference between a catalog that
+      // gets configured and one that quietly stays at the default forever.
+      toast(`"${res.name}" created — set its tier and discount at the top of the page.`, { type: "success" });
       outlet.innerHTML = "";
       catalogsView(outlet);
     });
@@ -1750,15 +1756,56 @@ async function catalogsView(outlet) {
 
     panel.innerHTML = "";
 
+    // ---- who can see this catalog, and what it does to the price ----
+    // Above the products on purpose. These three decide what every product
+    // below is worth and who is allowed to look at it, so reading them after
+    // scrolling past forty garments is the wrong way round.
+    panel.appendChild(catalogSettingsCard(catalog));
+
     const bar = document.createElement("div");
     bar.className = "pf-actions";
     bar.style.marginTop = "0";
     const newBtn = document.createElement("button");
     newBtn.type = "button";
     newBtn.className = "btn btn-primary";
-    newBtn.textContent = "+ New product";
+    newBtn.textContent = "+ Create new product";
+    const pickBtn = document.createElement("button");
+    pickBtn.type = "button";
+    pickBtn.className = "btn btn-secondary";
+    pickBtn.textContent = "Pick from inventory";
     bar.appendChild(newBtn);
+    bar.appendChild(pickBtn);
     panel.appendChild(bar);
+
+    pickBtn.addEventListener("click", async () => {
+      pickBtn.disabled = true;
+      pickBtn.textContent = "Loading your products…";
+      const all = await listProductsForAdmin(wid);
+      const inHere = new Set((await getCatalogProducts(activeId)).rows.map((p) => p.id));
+      pickBtn.disabled = false;
+      pickBtn.textContent = "Pick from inventory";
+
+      const picker = renderProductPicker({
+        products: all.filter((p) => !p.archived),
+        alreadyIn: inHere,
+        catalogName: catalog.name,
+        onClose: () => picker.close(),
+        onAdd: async (ids) => {
+          const res = await addProductsToCatalog(activeId, ids);
+          if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+          picker.close();
+          toast(
+            res.added
+              ? `Added ${res.added} product${res.added === 1 ? "" : "s"} to ${catalog.name}.`
+              : "Those were already in this catalog.",
+            { type: res.added ? "success" : "warning" }
+          );
+          await paintList();
+        },
+      });
+      document.body.appendChild(picker.el);
+      picker.focus();
+    });
 
     const formHost = document.createElement("div");
     panel.appendChild(formHost);
@@ -1771,7 +1818,7 @@ async function catalogsView(outlet) {
     panel.appendChild(listHost);
 
     newBtn.addEventListener("click", () => {
-      if (formHost.firstChild) { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; return; }
+      if (formHost.firstChild) { formHost.innerHTML = ""; newBtn.textContent = "+ Create new product"; return; }
       newBtn.textContent = "Close the form";
       const form = renderProductForm({
         catalogName: catalog.name,
@@ -1780,7 +1827,7 @@ async function catalogsView(outlet) {
         locationName: location?.name || "",
         suppliers,
         onCreateSupplier: (draft) => createSupplier(wid, draft),
-        onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
+        onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ Create new product"; },
         onSubmit: async (draft) => {
           const res = await createProduct(wid, {
             ...draft,
@@ -1801,6 +1848,103 @@ async function catalogsView(outlet) {
     });
 
     await paintList(products);
+  }
+
+  /**
+   * Tier, discount and mode for the catalog on screen.
+   *
+   * The discount is stated in plain words underneath as it is typed --
+   * "customers pay 5% less than the price on each product" -- because a number
+   * in a box called "Discount %" is ambiguous in exactly the way that costs
+   * money: -10 could reasonably be read as "ten percent off" by someone in a
+   * hurry. Saying what it will DO removes the guess.
+   */
+  function catalogSettingsCard(catalog) {
+    const card = document.createElement("div");
+    card.className = "card cat-settings";
+
+    card.innerHTML = `
+      <div class="cat-settings-head">
+        <h4>${esc(catalog.name)}${catalog.isDefault ? ' <span class="badge badge-neutral">Default</span>' : ""}</h4>
+        <p>Who can see this catalog, and what it does to every price in it.</p>
+      </div>
+      <div class="cat-settings-grid">
+        <div>
+          <label for="cat-tier">Customer tier</label>
+          <select class="input" id="cat-tier">
+            ${[1, 2, 3, 4, 5].map((t) => `<option value="${t}"${t === catalog.accessTier ? " selected" : ""}>Tier ${t}</option>`).join("")}
+          </select>
+          <p class="cat-hint" id="cat-tier-hint"></p>
+        </div>
+        <div>
+          <label for="cat-discount">Discount %</label>
+          <input class="input" id="cat-discount" type="number" step="0.5" min="-100" max="100" value="${catalog.discountPct}">
+          <p class="cat-hint" id="cat-discount-hint"></p>
+        </div>
+        <div class="cat-settings-mode">
+          <label for="cat-mode">When the customer has their own discount</label>
+          <select class="input" id="cat-mode">
+            ${DISCOUNT_MODES.map((m) => `<option value="${m.value}"${m.value === catalog.discountMode ? " selected" : ""}>${esc(m.label)}</option>`).join("")}
+          </select>
+          <p class="cat-hint" id="cat-mode-hint"></p>
+        </div>
+      </div>
+      <p class="cat-hint cat-silent">Buyers never see this discount as a discount — the adjusted number is simply the price on the product. Only a customer's own rate is shown to them, struck through.</p>
+    `;
+
+    const tierSel = card.querySelector("#cat-tier");
+    const pctInput = card.querySelector("#cat-discount");
+    const modeSel = card.querySelector("#cat-mode");
+
+    function describe() {
+      const t = Number(tierSel.value);
+      card.querySelector("#cat-tier-hint").textContent =
+        t === 1 ? "Every customer can see this catalog." : `Only customers you have set to tier ${t} or above.`;
+
+      const pct = Number(pctInput.value);
+      const d = card.querySelector("#cat-discount-hint");
+      if (!Number.isFinite(pct) || pct === 0) d.textContent = "Prices are exactly as set on each product.";
+      else if (pct > 0) d.textContent = `Customers pay ${pct}% LESS than the price on each product.`;
+      else d.textContent = `Customers pay ${Math.abs(pct)}% MORE than the price on each product.`;
+
+      card.querySelector("#cat-mode-hint").textContent =
+        DISCOUNT_MODES.find((m) => m.value === modeSel.value)?.help || "";
+    }
+    [tierSel, pctInput, modeSel].forEach((el) => el.addEventListener("input", describe));
+    describe();
+
+    const actions = document.createElement("div");
+    actions.className = "pf-actions";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "btn btn-primary btn-sm";
+    save.id = "cat-save";
+    save.textContent = "Save catalog settings";
+    const status = document.createElement("span");
+    status.className = "cat-hint";
+    actions.appendChild(save);
+    actions.appendChild(status);
+    card.appendChild(actions);
+
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      const res = await updateCatalogSettings(activeId, {
+        accessTier: Number(tierSel.value),
+        discountPct: Number(pctInput.value),
+        discountMode: modeSel.value,
+      });
+      save.disabled = false;
+      if (!res.ok) { status.textContent = res.error; toast(res.error, { type: "danger" }); return; }
+      // Keep the in-memory catalog in step, or switching tabs and back would
+      // show the old numbers and look like the save had not worked.
+      catalog.accessTier = Number(tierSel.value);
+      catalog.discountPct = Number(pctInput.value);
+      catalog.discountMode = modeSel.value;
+      status.textContent = "Saved.";
+      toast(`${catalog.name} updated.`, { type: "success" });
+    });
+
+    return card;
   }
 
   /** Renders just the product list. Called on first paint and after a save. */
