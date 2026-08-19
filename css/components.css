@@ -1811,3 +1811,7 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 
 .picker-panel .picker-list { padding: var(--space-3); }
 .picker-panel .pcard-grid { margin-top: 0; }
+
+/* The buyer's catalog switcher. Only rendered when there is more than one to
+   choose from — a row of tabs with a single tab in it is furniture. */
+.buyer-catalog-tabs { margin-bottom: var(--space-3); }
