@@ -5,7 +5,7 @@ import { devAuth } from "../lib/dev-auth.js";
 import { getWholesaler } from "../data/catalog.js";
 import { getWholesalerOrders, advanceOrderStatus, nextStatus } from "../data/wholesaler-orders.js";
 import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate } from "../data/products-admin.js";
-import { getStockTable, getStockByProduct, receiveStock, adjustStock, getLocations } from "../data/inventory-admin.js";
+import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, adjustStock, getLocations } from "../data/inventory-admin.js";
 import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, setVariantRetailPrice, setVariantReorderSettings, setVariantBarcode, setVariantImages, getOrderMinimums, setOrderMinimums } from "../data/pricing-admin.js";
 import { listPacksForProduct, createPack, archivePack, suggestPackRatio } from "../data/prepacks.js";
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
@@ -21,6 +21,8 @@ import { renderProductForm } from "../components/product-form.js";
 import { renderProductTile, productGrid } from "../components/admin-product-tile.js";
 import { renderProductDetail } from "../components/product-detail.js";
 import { renderProductPicker } from "../components/product-picker.js";
+import { renderCardFactsPicker } from "../components/card-facts-picker.js";
+import { factsFor, normaliseFacts } from "../lib/card-facts.js";
 import { listSuppliers, createSupplier, updateSupplier, archiveSupplier, restoreSupplier, supplierProductCounts } from "../data/suppliers.js";
 import { listLocations, locationStockTotals, createLocation, renameLocation,
          setDefaultLocation, archiveLocation, transferStock } from "../data/locations.js";
@@ -321,7 +323,12 @@ async function productsView(outlet) {
   const wid = session.wid;
   outlet.appendChild(pageHeader("Products", "View or edit any product, set pricing and packs, archive, or apply a bulk price change."));
 
-  const products = await listProductsForAdmin(wid);
+  const [products, prodLocations, prodSettings] = await Promise.all([
+    listProductsForAdmin(wid), getLocations(wid), getWholesalerSettings(wid),
+  ]);
+  const prodFacts = normaliseFacts(prodSettings.card_facts, prodLocations);
+  const prodSales = prodFacts.some((k) => ["unitsSold", "orderCount", "lastSold"].includes(k))
+    ? await getSalesByProduct(wid) : new Map();
   if (!products.length) {
     outlet.appendChild(emptyState({ icon: "📦", title: "No products yet", body: "Products migrated from your existing catalog, or added later, will appear here." }));
     return;
@@ -367,21 +374,12 @@ async function productsView(outlet) {
     const badges = [];
     if (p.archived) badges.push({ text: "Archived", kind: "badge-neutral" });
 
-    // priceRange comes back [0, 0] for a product with no variants, and "$0.00"
-    // is a claim about the price rather than an absence of one.
-    const lo = p.priceRange?.[0], hi = p.priceRange?.[1];
-    const priceText = !hi ? "—" : lo === hi ? money(lo) : `${money(lo)}–${money(hi)}`;
-
     grid.appendChild(renderProductTile({
       id: p.id,
       name: p.name,
       images: p.images || [],
       badges,
-      facts: [
-        { label: "Price", value: priceText },
-        { label: "Colours & sizes", value: String(p.variantCount) },
-        { label: "On hand", value: String(p.totalOnHand), tone: p.totalOnHand <= 0 ? "danger" : "" },
-      ],
+      facts: factsFor({ ...p, ...(prodSales.get(p.id) || {}) }, prodFacts, { locations: prodLocations }),
       actions: [
         { label: "View", variant: "btn-primary", onClick: () => openProductView(p.id, reload) },
         { label: "Edit", onClick: () => openProductEditor(p.id, reload) },
@@ -773,9 +771,16 @@ async function inventoryView(outlet) {
   const wid = session.wid;
   outlet.appendChild(pageHeader("Inventory", "Live stock by variant and location — lowest available first."));
 
-  const [stock, locations, suppliers] = await Promise.all([
-    getStockTable(wid), getLocations(wid), listSuppliers(wid),
+  const [stock, locations, suppliers, settings] = await Promise.all([
+    getStockTable(wid), getLocations(wid), listSuppliers(wid), getWholesalerSettings(wid),
   ]);
+  const cardFacts = normaliseFacts(settings.card_facts, locations);
+  // Sales figures cost a sweep of every order line this wholesaler has ever
+  // had, so they are fetched ONLY when a sales fact is actually switched on.
+  // Paying for two numbers nobody asked to see would be the wrong trade on a
+  // screen people open forty times a day.
+  const wantsSales = cardFacts.some((k) => ["unitsSold", "orderCount", "lastSold"].includes(k));
+  const sales = wantsSales ? await getSalesByProduct(wid) : new Map();
   const location = locations[0] || null;
 
   // The SECOND entry point for product creation. Same component, same
@@ -842,6 +847,19 @@ async function inventoryView(outlet) {
   const grid = productGrid();
   const reload = () => { outlet.innerHTML = ""; inventoryView(outlet); };
 
+  const factsCard = renderCardFactsPicker({
+    selected: cardFacts,
+    locations,
+    onSave: async (keys) => {
+      const { error } = await updateWholesalerSettings(wid, { cardFacts: keys });
+      if (error) { toast("Could not save what the cards show.", { type: "danger" }); return { ok: false, error: error.message }; }
+      toast("Saved. Every product card now shows what you picked.", { type: "success" });
+      reload();
+      return { ok: true };
+    },
+  });
+  outlet.appendChild(factsCard.el);
+
   products.forEach((p) => {
     const badges = [];
     if (p.outCount) badges.push({ text: `${p.outCount} out`, kind: "badge-danger" });
@@ -853,11 +871,9 @@ async function inventoryView(outlet) {
       name: p.productName,
       images: p.images,
       badges,
-      facts: [
-        { label: "Available", value: String(p.available), tone: p.available <= 0 ? "danger" : p.available <= 15 ? "warning" : "" },
-        { label: "On hand", value: String(p.onHand) },
-        { label: "Colours & sizes", value: String(p.variantCount) },
-      ],
+      // Whatever the wholesaler chose, in their order. One definition of each
+      // fact, shared with Products, Catalogs and the picker.
+      facts: factsFor({ ...p, ...(sales.get(p.productId) || {}) }, cardFacts, { locations }),
       actions: [
         { label: "Receive & transfer", variant: "btn-primary", onClick: () => openProductDetail(p) },
         { label: "View", onClick: () => openProductView(p.productId, reload) },
@@ -1785,10 +1801,13 @@ async function catalogsView(outlet) {
       pickBtn.disabled = false;
       pickBtn.textContent = "Pick from inventory";
 
+      const pickerLocations = await getLocations(wid);
       const picker = renderProductPicker({
         products: all.filter((p) => !p.archived),
         alreadyIn: inHere,
         catalogName: catalog.name,
+        cardFacts: normaliseFacts((await getWholesalerSettings(wid)).card_facts, pickerLocations),
+        locations: pickerLocations,
         onClose: () => picker.close(),
         onAdd: async (ids) => {
           const res = await addProductsToCatalog(activeId, ids);
@@ -1967,6 +1986,7 @@ async function catalogsView(outlet) {
     // a buyer what they make -- so it would be the strangest place to keep a
     // list of text rows with a stamp-sized photo.
     const grid = productGrid();
+    const catFacts = normaliseFacts((await getWholesalerSettings(wid)).card_facts, []);
     products.forEach((p) => {
       const badges = [];
       if (p.archived) badges.push({ text: "Archived", kind: "badge-neutral" });
@@ -1977,12 +1997,7 @@ async function catalogsView(outlet) {
         name: p.name,
         images: p.images || [],
         badges,
-        facts: [
-          { label: "Price", value: p.priceRange[1] > 0
-              ? (p.priceRange[0] === p.priceRange[1] ? money(p.priceRange[0]) : `${money(p.priceRange[0])}–${money(p.priceRange[1])}`)
-              : "—" },
-          { label: "Colours & sizes", value: String(p.variantCount) },
-        ],
+        facts: factsFor(p, catFacts, {}),
         actions: [
           { label: "View", variant: "btn-primary", onClick: () => openProductView(p.id, () => paintList()) },
           { label: "Edit", onClick: () => openProductEditor(p.id, () => paintList()) },
