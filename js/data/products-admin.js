@@ -566,6 +566,46 @@ export async function updateProduct(productId, draft = {}) {
     if (!error) archived.push(`${v.extra_attrs?.color || "—"}/${v.extra_attrs?.size || "—"}`);
   }
 
+  // ---- photos ----------------------------------------------------------
+  // This was missing entirely, and it is the bug Hadi hit: the edit form let
+  // him add a photo, delete one and press "Make main", said "saved", and threw
+  // all of it away, because updateProduct only ever wrote the product row and
+  // its variants.
+  //
+  // draft.photoStrip is the strip exactly as it is on screen, in order --
+  // existing photos as { url }, newly picked ones as { file }. That shape is
+  // what makes deletion and reordering expressible at all: a list of new files
+  // cannot say "the second one is gone" or "these two swapped".
+  //
+  // Absent (an older caller, or the create path) means "photos not under
+  // discussion", which must not be confused with an empty strip meaning
+  // "remove every photo".
+  let photoProblem = null;
+  if (Array.isArray(draft.photoStrip)) {
+    const urls = [];
+    let failedPhotos = 0;
+    for (const item of draft.photoStrip) {
+      if (item?.url) { urls.push(item.url); continue; }
+      if (!item?.file) continue;
+      const up = await uploadProductImage({ file: item.file, wid: current.product.wid, productId });
+      if (up?.ok && up.url) urls.push(up.url);
+      else failedPhotos++;
+    }
+
+    // Every live variant carries the same gallery, the same way createProduct
+    // attaches it -- `images` is what a buyer swipes, `image_url` is the hero
+    // the cards and thumbnails read.
+    const { error: imgErr } = await sbCall(
+      supabase.from("v2_product_variants")
+        .update({ images: urls, image_url: urls[0] || null, updated_at: new Date().toISOString() })
+        .eq("product_id", productId).eq("archived", false)
+    );
+    if (imgErr) photoProblem = `Photos could not be attached: ${imgErr.message}`;
+    else if (failedPhotos) {
+      photoProblem = `${failedPhotos} photo${failedPhotos === 1 ? "" : "s"} did not upload — everything else saved.`;
+    }
+  }
+
   // ---- colour barcodes -------------------------------------------------
   // Replaced wholesale rather than diffed: there are at most a handful per
   // product, and a delete-then-insert cannot leave a stale colour behind when
@@ -599,6 +639,7 @@ export async function updateProduct(productId, draft = {}) {
       added.length ? `${added.length} new variant${added.length === 1 ? "" : "s"}.` : "",
       archived.length ? `${archived.length} removed (${archived.join(", ")}) — archived, not deleted.` : "",
       failed.length ? `${failed.length} variant${failed.length === 1 ? "" : "s"} failed: ${failed[0].error}` : "",
+      photoProblem || "",
       barcodeProblem || "",
     ].filter(Boolean).join(" "),
   };
