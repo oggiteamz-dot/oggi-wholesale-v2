@@ -111,8 +111,13 @@ function tok(s, n = 3) {
 export function renderProductForm({
   catalogName = "your catalog", locations = [], hasLocation = true, locationName = "",
   suppliers = [], onCreateSupplier = null,
+  // Batch 19: the same form reopened on an existing product. One component
+  // for create and edit, because two forms for one object drift -- the edit
+  // one always ends up missing the field the create one grew last week.
+  initial = null,
   onSubmit = async () => ({ ok: true }), onCancel = () => {},
 } = {}) {
+  const isEdit = !!initial;
   // Back-compat: older callers passed hasLocation/locationName rather than the
   // list. Synthesising a single entry keeps them working unchanged.
   if (!locations.length && hasLocation) locations = [{ id: null, name: locationName || "your warehouse", is_default: true }];
@@ -139,8 +144,10 @@ export function renderProductForm({
 
   el.innerHTML = `
     <header class="detail-card-head">
-      <h3>New product</h3>
-      <p>Photos, then colours, then sizes. It goes into <strong>${esc(catalogName)}</strong> and appears in Inventory straight away.</p>
+      <h3>${isEdit ? "Edit product" : "New product"}</h3>
+      <p>${isEdit
+        ? "Change anything here and save. Removing a colour or size that already holds stock or sits on a past order is refused — that would rewrite what your orders say they contained."
+        : `Photos, then colours, then sizes. It goes into <strong>${esc(catalogName)}</strong> and appears in Inventory straight away.`}</p>
     </header>
     <div class="detail-card-body">
       <div class="pf-grid">
@@ -222,7 +229,7 @@ export function renderProductForm({
 
       <p class="pf-status" role="status" hidden></p>
       <div class="pf-actions">
-        <button type="button" class="btn btn-primary" id="pb-save">Create product</button>
+        <button type="button" class="btn btn-primary" id="pb-save">${isEdit ? "Save changes" : "Create product"}</button>
         <button type="button" class="btn btn-secondary" id="pb-cancel">Cancel</button>
       </div>
     </div>
@@ -1324,7 +1331,10 @@ export function renderProductForm({
       sellingModel: v(ids.model),
       moqQty: Number(v(ids.moq)) || 1,
       locationId: v(ids.loc) || null,
-      photos: photos.map((p) => p.file),
+      // Only NEWLY picked files. In edit mode the strip also holds photos that
+      // are already in storage; they have a url and no File, and handing a
+      // null to the uploader would fail a save for a photo that is fine.
+      photos: photos.filter((p) => p.file).map((p) => p.file),
       supplierId: selectedSupplierId || null,
       barcode: v(ids.barcode).trim(),
       colourBarcodes: colours
@@ -1429,6 +1439,64 @@ export function renderProductForm({
     scanBarRef?.refocus();
     scanHost.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
+
+  // ---- edit mode: fill the form from the product it was opened on --------
+  if (isEdit) {
+    const set = (idKey, value) => {
+      const node = el.querySelector(`#${ids[idKey]}`);
+      if (node != null && value != null) node.value = value;
+    };
+    set("name", initial.name);
+    set("desc", initial.description || "");
+    set("cat", initial.category || "");
+    set("moq", initial.moqQty || 1);
+    set("model", initial.sellingModel || "open");
+    set("barcode", initial.barcode || "");
+    // Product-level price/cost/retail are shown from the FIRST variant,
+    // because that is where the create form puts them -- they are a
+    // convenience spread across variants, not a column on the product.
+    const first = (initial.variants || [])[0] || {};
+    set("price", first.price ?? "");
+    set("cost", first.cost ?? "");
+    set("retail", first.retailPrice ?? "");
+
+    selectedSupplierId = initial.supplierId || "";
+
+    // Existing photos are shown as already-uploaded, distinct from newly
+    // picked files: they have a url but no File, so the save path must not
+    // try to re-upload them.
+    (initial.images || []).forEach((url) => {
+      photos.push({ file: null, url, id: nid(), existing: true });
+    });
+
+    // Rebuild colours and the grid from the variants.
+    const byColour = new Map();
+    (initial.variants || []).forEach((v) => {
+      const cname = (v.color || "").trim();
+      if (!cname) return;
+      let c = byColour.get(cname.toLowerCase());
+      if (!c) {
+        c = {
+          id: nid(), name: cname, hex: v.colorHex || "#111827",
+          photoId: null, sizes: [], cells: {},
+          nameTyped: true,     // a name that already shipped is not a guess
+          custom: true,        // its sizes are its own, not the shared run
+          barcode: (initial.colourBarcodes || {})[cname.toLowerCase()] || "",
+        };
+        byColour.set(cname.toLowerCase(), c);
+        colours.push(c);
+      }
+      const size = (v.size || "").trim();
+      if (!size) return;
+      if (!c.sizes.includes(size)) c.sizes.push(size);
+      c.cells[size] = {
+        qty: Number(v.onHand) || 0,
+        sku: v.sku || "",
+        barcode: v.barcode || "",
+        variantId: v.id,
+      };
+    });
+  }
 
   paintPhotos();
   paintColours();
