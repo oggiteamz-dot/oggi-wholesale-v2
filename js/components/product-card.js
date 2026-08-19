@@ -29,6 +29,10 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   discountPct = 0, customerPct = 0 }) {
   const el = document.createElement("div");
   el.className = "card product-card";
+  // The billboard's button scrolls to a specific product, so a card has to be
+  // findable by id. Without this the button lands on nothing, which is the
+  // failure a poster with a call to action can least afford.
+  el.dataset.productId = product.id;
   el.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
 
   let selectedColor = product.colors[0]?.name || null;
