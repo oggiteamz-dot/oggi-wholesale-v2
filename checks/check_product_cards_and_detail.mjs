@@ -187,13 +187,31 @@ ok(editable.length === 0,
 // screens, so it asserts only that each one reaches for the card component and
 // offers both doors. It would not catch a runtime failure inside those views.
 const wsrc = readFileSync("js/views/wholesaler.js", "utf8");
+
+/** Everything from a view function's declaration to the next top-level one.
+ *
+ *  This used to be `slice(start, start + 12000)`, and the catalog settings card
+ *  pushed catalogsView's card grid past character 12000 -- so three assertions
+ *  went red on code that had not changed at all. A fixed window is a guess
+ *  about the size of a function, and functions grow. Worse than the false
+ *  alarm is the opposite failure it invites: a view that grows a little more
+ *  would push its cards out of the window and the check would go quiet about
+ *  a screen it had stopped reading. */
+function viewBody(src, marker) {
+  const start = src.indexOf(marker);
+  if (start === -1) return "";
+  const rest = src.slice(start + marker.length);
+  const next = rest.search(/\n(?:async )?function [A-Za-z_$]/);
+  return next === -1 ? src.slice(start) : src.slice(start, start + marker.length + next);
+}
+
 for (const [view, marker] of [
   ["Inventory", "async function inventoryView"],
   ["Products", "async function productsView"],
   ["Catalogs", "async function catalogsView"],
 ]) {
   const start = wsrc.indexOf(marker);
-  const body = wsrc.slice(start, start + 12000);
+  const body = viewBody(wsrc, marker);
   ok(start > -1 && /renderProductTile\(/.test(body), `${view} builds cards with the shared tile`);
   ok(/label: "View"/.test(body), `${view} offers a View button`);
   ok(/label: "Edit"/.test(body), `${view} offers an Edit button`);
