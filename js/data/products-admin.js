@@ -32,14 +32,41 @@ export async function listProductsForAdmin(wid) {
     variantsByProduct.set(v.product_id, list);
   });
 
+  // Batch 21: the card can now show supplier, cost and margin, so the list has
+  // to carry them. One extra query for the supplier names rather than a join,
+  // because v2_suppliers is under a column-level grant where select("*") is
+  // refused outright -- see js/data/suppliers.js for the full reasoning.
+  const supplierIds = [...new Set(products.map((p) => p.supplier_id).filter(Boolean))];
+  const supplierName = new Map();
+  if (supplierIds.length) {
+    const { data: sups } = await sbCall(
+      supabase.from("v2_suppliers").select("id, name").in("id", supplierIds)
+    );
+    (sups || []).forEach((s) => supplierName.set(s.id, s.name));
+  }
+
   return products.map((p) => {
     const vs = variantsByProduct.get(p.id) || [];
+    const costs = vs.map((v) => (v.cost == null ? null : Number(v.cost))).filter((c) => c != null);
+    const prices = vs.map((v) => Number(v.price) || 0);
+    // Margin from the AVERAGE of each, not the first variant: a product whose
+    // sizes cost different amounts has one margin, and picking a variant at
+    // random to represent it would make the number move when the sort changed.
+    const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+    const avgPrice = avg(prices), avgCost = avg(costs);
     return {
       ...p,
       variants: vs,
       totalOnHand: vs.reduce((s, v) => s + v.onHand, 0),
+      available: vs.reduce((s, v) => s + (v.available || 0), 0),
+      onHand: vs.reduce((s, v) => s + v.onHand, 0),
       variantCount: vs.length,
-      priceRange: vs.length ? [Math.min(...vs.map((v) => Number(v.price) || 0)), Math.max(...vs.map((v) => Number(v.price) || 0))] : [0, 0],
+      supplierName: supplierName.get(p.supplier_id) || null,
+      costRange: costs.length ? [Math.min(...costs), Math.max(...costs)] : [null, null],
+      marginPct: avgPrice && avgCost != null && avgPrice > 0
+        ? ((avgPrice - avgCost) / avgPrice) * 100
+        : null,
+      priceRange: vs.length ? [Math.min(...prices), Math.max(...prices)] : [0, 0],
       // Batch 18: the distinct photos across this product's variants, so the
       // Products list can show the garment instead of only naming it.
       images: imagesForVariants(vs),

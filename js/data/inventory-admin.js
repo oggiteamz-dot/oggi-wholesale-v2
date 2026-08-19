@@ -240,8 +240,24 @@ export async function getStockByProduct(wid) {
       else byVariant.set(v.variantId, { available: v.available, neverStocked: v.neverStocked });
     });
     const list = [...byVariant.values()];
+
+    // Per-warehouse totals, for the "stock in each warehouse" and "stock at
+    // <name>" card facts. Summed across variants, because the question the
+    // card answers is "how much of this product is in that building", not
+    // "how much of this size".
+    const byLoc = new Map();
+    p.variants.forEach((v) => {
+      if (!v.locationId) return;
+      const cur = byLoc.get(v.locationId)
+        || { locationId: v.locationId, locationName: v.locationName, available: 0, onHand: 0 };
+      cur.available += v.available;
+      cur.onHand += v.onHand;
+      byLoc.set(v.locationId, cur);
+    });
+
     return {
       ...p,
+      byLocation: [...byLoc.values()].sort((a, b) => a.locationName.localeCompare(b.locationName)),
       variantCount: list.length,
       outCount: list.filter((v) => !v.neverStocked && v.available <= 0).length,
       lowCount: list.filter((v) => !v.neverStocked && v.available > 0 && v.available <= 15).length,
@@ -254,4 +270,57 @@ export async function getStockByProduct(wid) {
     const rank = (x) => (x.outCount ? 0 : x.lowCount ? 1 : 2);
     return rank(a) - rank(b) || a.productName.localeCompare(b.productName);
   });
+}
+
+/**
+ * How each product has actually sold: units, how many orders it appeared on,
+ * and when it last moved.
+ *
+ * Batch 21, for the configurable card facts. Separate from getStockByProduct
+ * because most screens never ask for it -- it reads every order line this
+ * wholesaler has ever had, and making Inventory pay that cost to show two
+ * numbers nobody switched on would be the wrong trade.
+ *
+ * Returns a Map of productId -> { unitsSold, orderCount, lastSold }. A product
+ * with no history is present with zeroes and a null date, NOT absent: "never
+ * sold" is an answer, and the card needs to be able to say it rather than
+ * showing an em dash that means "I don't know".
+ */
+export async function getSalesByProduct(wid) {
+  const { data: products } = await sbCall(
+    supabase.from("v2_products").select("id").eq("wid", wid)
+  );
+  const out = new Map((products || []).map((p) => [p.id, { unitsSold: 0, orderCount: 0, lastSold: null }]));
+  if (!out.size) return out;
+
+  const { data: variants } = await sbCall(
+    supabase.from("v2_product_variants").select("id, product_id").in("product_id", [...out.keys()])
+  );
+  const productOf = new Map((variants || []).map((v) => [v.id, v.product_id]));
+  if (!productOf.size) return out;
+
+  const { data: lines } = await sbCall(
+    supabase.from("v2_order_items")
+      .select("order_id, variant_id, qty, v2_orders!inner(wid, created_at)")
+      .in("variant_id", [...productOf.keys()])
+  );
+
+  // Orders counted DISTINCTLY per product: an order holding four sizes of one
+  // hoodie is one order for that hoodie, not four. Counting rows here would
+  // quietly reward products with more sizes, which is the opposite of what
+  // "how many orders has this been on" is asked for.
+  const ordersSeen = new Map();
+  (lines || []).forEach((l) => {
+    const pid = productOf.get(l.variant_id);
+    const row = out.get(pid);
+    if (!row) return;
+    row.unitsSold += Number(l.qty) || 0;
+    const created = l.v2_orders?.created_at;
+    if (created && (!row.lastSold || created > row.lastSold)) row.lastSold = created;
+    if (!ordersSeen.has(pid)) ordersSeen.set(pid, new Set());
+    ordersSeen.get(pid).add(l.order_id);
+  });
+  ordersSeen.forEach((set, pid) => { const r = out.get(pid); if (r) r.orderCount = set.size; });
+
+  return out;
 }
