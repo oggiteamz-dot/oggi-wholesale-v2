@@ -1721,3 +1721,93 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   flex-wrap: wrap;
 }
 .picker-count { font-size: var(--text-xs); color: var(--text-secondary); }
+
+/* ===========================================================================
+   CONFIGURABLE CARD FACTS, AND THE PICKER AS A WALL OF PHOTOGRAPHS  (Batch 21)
+   ---------------------------------------------------------------------------
+   Hadi, on the picker: "again, I don't want it to be a bar. I want them to be
+   large images. So the wholesaler can actually see what he's picking." Same
+   mistake as the inventory list, twice — you cannot recognise a garment from a
+   48px stamp, and recognising it is the entire task.
+   =========================================================================== */
+
+.facts-picker { padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3); }
+.facts-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.facts-head h4 { margin: 0; font-size: var(--text-sm); }
+.facts-head p  { margin: 2px 0 0; font-size: var(--text-xs); color: var(--text-secondary); }
+/* The closed state names what is currently on, so the setting is legible
+   without opening it — a collapsed control that says only "Settings" makes
+   people open it just to remember what they chose. */
+.facts-toggle { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.facts-body { margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3); }
+.facts-group h5 {
+  margin: 0 0 6px;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-tertiary);
+}
+.facts-options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.facts-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  min-height: 44px;
+}
+.facts-option:has(input:checked) {
+  border-color: var(--brand-emerald);
+  background: var(--accent-50);
+}
+/* Full: the rest go unavailable rather than letting someone tick a fourth and
+   then explaining why it disappeared. */
+.facts-option-off { opacity: 0.45; cursor: not-allowed; }
+.facts-option input { accent-color: var(--brand-emerald); width: 18px; height: 18px; }
+
+.facts-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+}
+
+/* ---- the picker, now cards ---- */
+
+.picker-card { position: relative; cursor: pointer; }
+.picker-card:hover { border-color: var(--border-strong); }
+.picker-card-on { border-color: var(--brand-emerald); box-shadow: 0 0 0 2px var(--brand-emerald) inset; }
+.picker-card-in { opacity: 0.55; cursor: default; }
+.picker-card-in:hover { border-color: var(--border-subtle); }
+
+/* A filled tick over the photo, not a hairline border. On a wall of
+   photographs a thin outline is invisible, and "which ones did I already
+   pick" is the only question this screen exists to answer. */
+.picker-mark {
+  position: absolute;
+  top: 8px; left: 8px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--bg-surface);
+  color: transparent;
+  box-shadow: 0 0 0 1px rgba(14, 34, 48, .22), var(--shadow-sm);
+}
+.picker-card-on .picker-mark { background: var(--brand-emerald); color: #fff; box-shadow: var(--shadow-sm); }
+.picker-card-in .picker-mark { background: var(--success-50); color: var(--success-700); }
+
+.picker-panel .picker-list { padding: var(--space-3); }
+.picker-panel .pcard-grid { margin-top: 0; }
