@@ -105,13 +105,22 @@ async function dashboard(outlet) {
     session.clientId || resolveClientId(wid, label),
     getBuyerOrderedProductIds(session.accountId),
   ]);
-  const [{ tiersByProduct, overridesByVariant }, packsByProduct] = await Promise.all([
+  const [{ tiersByProduct, overridesByVariant, discountPct }, packsByProduct] = await Promise.all([
     // Batch 16: pricing takes the ACCOUNT id now, not a client id -- the
     // database resolves which client that account belongs to. clientId above
     // is still needed, but only for order submission below.
-    getPricingContext(catalog.map((p) => p.id), session.accountId),
+    //
+    // Migration 053: the client id also decides the discount percentage, which
+    // v2_submit_order applies to every line whether this screen shows it or
+    // not. Passing it here is what keeps the cart and the invoice agreeing.
+    getPricingContext(catalog.map((p) => p.id), session.accountId, { clientId }),
     listPacksForProducts(catalog.map((p) => p.id)),
   ]);
+
+  // The customer's own share of that percentage, kept separately because it is
+  // the only part the buyer is allowed to SEE. The catalog's share is silent
+  // by design, so it must never appear as a struck-through "before" price.
+  const customerPct = Number(session.discountPct) || 0;
 
   // Batch 8: trust badge strip (generic-only, compact) shown once above the
   // toolbar -- the full card with wholesaler-specific payment/return terms
@@ -136,6 +145,7 @@ async function dashboard(outlet) {
         product, wid, locationId: location.id, currency: wholesaler.currency || "$",
         tiers: tiersByProduct.get(product.id) || [],
         overridesByVariant,
+        discountPct, customerPct,
         isReorder: orderedProductIds.has(product.id),
         packs: packsByProduct.get(product.id) || [],
         onCartChange: () => document.dispatchEvent(new CustomEvent("v2:cart-changed")),
@@ -213,9 +223,9 @@ async function cartView(outlet) {
   // can span multiple sizes of one product but is sold as a flat unit) so
   // they're excluded, matching Batch 7's pack-lines-are-exempt precedent.
   const cartProductIds = [...new Set(lines.filter((l) => !l.isPack && l.productId).map((l) => l.productId))];
-  const { tiersByProduct } = cartProductIds.length
-    ? await getPricingContext(cartProductIds, session.accountId)
-    : { tiersByProduct: new Map() };
+  const { tiersByProduct, discountPct: cartDiscountPct } = cartProductIds.length
+    ? await getPricingContext(cartProductIds, session.accountId, { clientId: session.clientId || null })
+    : { tiersByProduct: new Map(), discountPct: 0 };
 
   const list = document.createElement("div");
   list.className = "card";
