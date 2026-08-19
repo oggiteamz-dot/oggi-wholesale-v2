@@ -14,6 +14,7 @@ import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
 import { updateCatalogSettings, addProductsToCatalog, DISCOUNT_MODES,
+         catalogLink, setCatalogPublic, rotateCatalogLink,
          listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
 import { createProduct, getProductForEdit, getProductDetail, updateProduct } from "../data/products-admin.js";
@@ -1917,8 +1918,10 @@ async function catalogsView(outlet) {
 
     function describe() {
       const t = Number(tierSel.value);
-      card.querySelector("#cat-tier-hint").textContent =
-        t === 1 ? "Every customer can see this catalog." : `Only customers you have set to tier ${t} or above.`;
+      card.querySelector("#cat-tier-hint").textContent = catalog.isPublic
+        ? "Ignored while this catalog is open to anyone with the link."
+        : t === 1 ? "Any of your customers with the link can open this catalog."
+                  : `Only your customers set to tier ${t} or above.`;
 
       const pct = Number(pctInput.value);
       const d = card.querySelector("#cat-discount-hint");
@@ -1931,6 +1934,95 @@ async function catalogsView(outlet) {
     }
     [tierSel, pctInput, modeSel].forEach((el) => el.addEventListener("input", describe));
     describe();
+
+    // ---- the link ----
+    // This is how a catalog reaches anyone. Hadi: "he then gets the ability to
+    // copy the link of that catalog and send it to his customers... There is no
+    // website for the actual buyer. That's never going to happen."
+    const linkBox = document.createElement("div");
+    linkBox.className = "cat-link";
+    linkBox.innerHTML = `
+      <h5>The link you send</h5>
+      <p class="cat-hint">Copy this and send it to your customers. It stops working the moment you switch this catalog off.</p>
+    `;
+    const row = document.createElement("div");
+    row.className = "cat-link-row";
+    const linkInput = document.createElement("input");
+    linkInput.className = "input cat-link-input";
+    linkInput.readOnly = true;
+    linkInput.value = catalogLink(catalog.shareToken);
+    linkInput.setAttribute("aria-label", `Link for ${catalog.name}`);
+    linkInput.addEventListener("focus", () => linkInput.select());
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "btn btn-secondary btn-sm cat-link-copy";
+    copy.textContent = "Copy link";
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(linkInput.value);
+        copy.textContent = "Copied";
+        setTimeout(() => { copy.textContent = "Copy link"; }, 1600);
+      } catch {
+        // Clipboard access is refused in plenty of ordinary situations -- an
+        // insecure origin, a browser that wants a fresher gesture. Selecting
+        // the text means the person can still copy it themselves, which is a
+        // far better answer than a button that silently does nothing.
+        linkInput.focus();
+        linkInput.select();
+        copy.textContent = "Press Ctrl+C";
+        setTimeout(() => { copy.textContent = "Copy link"; }, 2600);
+      }
+    });
+    row.appendChild(linkInput);
+    row.appendChild(copy);
+    linkBox.appendChild(row);
+
+    const pubLabel = document.createElement("label");
+    pubLabel.className = "cat-public";
+    const pub = document.createElement("input");
+    pub.type = "checkbox";
+    pub.id = "cat-public";
+    pub.checked = !!catalog.isPublic;
+    const pubText = document.createElement("span");
+    const describePublic = () => {
+      pubText.innerHTML = pub.checked
+        ? "<strong>Open to anyone with the link.</strong> No login. They give a name and phone number when they order."
+        : "<strong>Login required.</strong> Only your own customers, at tier " +
+          `${catalog.accessTier} or above. A stranger with the link sees nothing.`;
+    };
+    pub.addEventListener("change", async () => {
+      pub.disabled = true;
+      const res = await setCatalogPublic(activeId, pub.checked);
+      pub.disabled = false;
+      if (!res.ok) { pub.checked = !pub.checked; toast(res.error, { type: "danger" }); return; }
+      catalog.isPublic = pub.checked;
+      describePublic();
+      toast(pub.checked ? "Anyone with the link can now open this catalog." : "This catalog now needs a login.",
+            { type: "success" });
+    });
+    describePublic();
+    pubLabel.appendChild(pub);
+    pubLabel.appendChild(pubText);
+    linkBox.appendChild(pubLabel);
+
+    const rotate = document.createElement("button");
+    rotate.type = "button";
+    rotate.className = "btn btn-ghost btn-sm cat-link-rotate";
+    rotate.textContent = "Get a new link";
+    rotate.title = "Use this if the link reached someone it should not have. Every link you have already sent stops working.";
+    rotate.addEventListener("click", async () => {
+      // Irreversible for everyone already holding the old link, so it asks.
+      if (!confirm(`Get a new link for "${catalog.name}"?\n\nEvery link you have already sent will stop working, and you will need to send the new one.`)) return;
+      rotate.disabled = true;
+      const res = await rotateCatalogLink(activeId);
+      rotate.disabled = false;
+      if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+      catalog.shareToken = res.shareToken;
+      linkInput.value = catalogLink(res.shareToken);
+      toast("New link ready. The old one no longer works.", { type: "success" });
+    });
+    linkBox.appendChild(rotate);
+    card.appendChild(linkBox);
 
     const actions = document.createElement("div");
     actions.className = "pf-actions";

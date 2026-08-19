@@ -5,7 +5,7 @@ import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { getCatalog, getWholesaler, listWholesalers } from "../data/catalog.js";
-import { buyerCatalogs, buyerCatalogProductIds } from "../data/catalogs.js";
+import { buyerCatalogs, buyerCatalogProductIds, catalogByToken, catalogProductIdsByToken } from "../data/catalogs.js";
 import { cart } from "../data/cart.js";
 import { getBuyerOrders, orderedTimesCount, getBuyerOrderedProductIds } from "../data/orders.js";
 import { getPricingContext, resolveClientId, tierForQty, nextTier, effectivePrice, productMoqStatus, marginPct } from "../data/pricing.js";
@@ -162,34 +162,16 @@ async function dashboard(outlet) {
   // lives at the cart, where it actually matters for the buyer's decision.
   outlet.appendChild(renderTrustBadges(wholesaler, { compact: true }));
 
-  // Only shown when there is a choice to make. One catalog is not a decision,
-  // and a row of tabs with a single tab in it is furniture.
-  if (visibleCatalogs.length > 1) {
-    const tabs = document.createElement("div");
-    tabs.className = "date-range-row buyer-catalog-tabs";
-    tabs.setAttribute("role", "group");
-    tabs.setAttribute("aria-label", "Catalogs available to you");
-    visibleCatalogs.forEach((c) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "btn btn-sm " + (c.id === activeCatalog?.id ? "btn-primary" : "btn-secondary");
-      b.textContent = c.name;
-      b.setAttribute("aria-pressed", String(c.id === activeCatalog?.id));
-      b.addEventListener("click", async () => {
-        if (c.id === activeCatalog?.id) return;
-        activeCatalog = c;
-        activeCatalogId = c.id;
-        shownCatalog = await narrowTo(c);
-        // The whole screen, because the catalog changes the PRICES as well as
-        // the products -- repainting only the grid would leave a cart summary
-        // priced against the catalog they just left.
-        outlet.innerHTML = "";
-        dashboard(outlet);
-      });
-      tabs.appendChild(b);
-    });
-    outlet.appendChild(tabs);
-  }
+  // NO CATALOG SWITCHER. There is deliberately no "browse my catalogs" here.
+  // Hadi: "There is no website for the actual buyer. That's never going to
+  // happen... There is no 'show me catalog'. There is no 'get catalog'. There
+  // is just a custom link for each catalog."
+  //
+  // A catalog is reached by opening the link the wholesaler sent (#/c/<token>,
+  // migration 056), which resolves it, asks for a login if the catalog is not
+  // public, and checks the tier. The switcher that used to live here listed
+  // every catalog a buyer was entitled to, which is exactly the storefront
+  // that is not being built. It was removed rather than hidden.
 
   const gridWrap = document.createElement("div");
   outlet.appendChild(gridWrap);
@@ -587,7 +569,118 @@ async function favouritesView(outlet) {
   outlet.appendChild(grid);
 }
 
+/**
+ * A catalog link. This is the ONLY way into a catalog.
+ *
+ * Hadi: "There is no website for the actual buyer. That's never going to
+ * happen. Instead, what they get is a link that they only get access to when
+ * the catalog is active and the wholesaler sends them the link."
+ *
+ * Four outcomes, and each says only what the person is entitled to know:
+ *
+ *   not_found       the link is dead, or never existed. Same message for both,
+ *                   because a dead link must not confirm it was ever alive.
+ *   login_required  a real link to a private catalog. Names the WHOLESALER so
+ *                   they know whose login to use, and does not name the
+ *                   catalog -- a forwarded link should not tell a stranger
+ *                   what this wholesaler sells.
+ *   denied          signed in and still not allowed. Says so plainly rather
+ *                   than pretending the link is broken, because the person is
+ *                   a real customer and will otherwise ask why it is broken.
+ *   ok              the catalog, priced through that catalog.
+ *
+ * The customer experience beyond this -- guest checkout on a public catalog,
+ * what a returning customer lands on -- is deliberately still open. This page
+ * exists so the link a wholesaler copies is not a link to nowhere.
+ */
+async function catalogLinkView(outlet, params) {
+  const token = params?.token || "";
+  const session = devAuth.getSession() || {};
+
+  const resolved = await catalogByToken(token, session.accountId || null);
+
+  if (resolved.status === "not_found") {
+    outlet.appendChild(emptyState({
+      icon: "🔗", title: "This link is not available",
+      body: "It may have been switched off, or replaced with a newer one. Ask whoever sent it for the current link.",
+    }));
+    return;
+  }
+
+  if (resolved.status === "login_required") {
+    outlet.appendChild(emptyState({
+      icon: "🔒",
+      title: `${resolved.wholesalerName || "This wholesaler"} shared a catalog with you`,
+      body: "Sign in with the username and password they gave you to open it.",
+    }));
+    const go = document.createElement("button");
+    go.className = "btn btn-primary";
+    go.textContent = "Sign in";
+    // Come back here afterwards rather than dumping them on a dashboard --
+    // they clicked a link to see a catalog, not to arrive somewhere.
+    go.addEventListener("click", () => {
+      try { sessionStorage.setItem("v2:after-login", `/c/${token}`); } catch { /* private mode */ }
+      location.hash = "#/login";
+    });
+    const wrap = document.createElement("div");
+    wrap.className = "pf-actions";
+    wrap.appendChild(go);
+    outlet.appendChild(wrap);
+    return;
+  }
+
+  if (resolved.status === "denied") {
+    outlet.appendChild(emptyState({
+      icon: "🔒", title: "This catalog is not open to your account",
+      body: `You are signed in, but ${resolved.wholesalerName || "this wholesaler"} has not given your account access to this one. Ask them if you think that is wrong.`,
+    }));
+    return;
+  }
+
+  // ---- ok ----
+  activeCatalogId = resolved.id;
+  const wid = resolved.wid;
+  outlet.appendChild(pageHeader(resolved.name, resolved.description || `From ${resolved.wholesalerName || "your supplier"}`));
+
+  const ids = new Set(await catalogProductIdsByToken(token, session.accountId || null));
+  const everything = await getCatalog(wid);
+  const products = everything.filter((p) => ids.has(p.id));
+
+  if (!products.length) {
+    outlet.appendChild(emptyState({
+      icon: "🗂", title: "Nothing in this catalog yet",
+      body: "The products are on their way. Check the link again shortly.",
+    }));
+    return;
+  }
+
+  const { tiersByProduct, overridesByVariant, discountPct } =
+    await getPricingContext(products.map((p) => p.id), session.accountId, {
+      clientId: session.clientId || null, catalogId: resolved.id,
+    });
+  const customerPct = Number(session.discountPct) || 0;
+  const location = await defaultLocation(wid);
+
+  const grid = document.createElement("div");
+  // Same grid the buyer dashboard builds. Written inline there rather than as a
+  // class, so it is matched here rather than inventing a second one that would
+  // drift.
+  grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;";
+  products.forEach((product) => {
+    grid.appendChild(renderProductCard({
+      product, wid, locationId: location?.id, currency: "$",
+      tiers: tiersByProduct.get(product.id) || [],
+      overridesByVariant, discountPct, customerPct,
+      packs: [],
+    }));
+  });
+  outlet.appendChild(grid);
+}
+
 export function registerBuyerRoutes(router) {
+  // The catalog link. Registered OUTSIDE /buyer on purpose: it is the entry
+  // point for someone who may not have an account at all.
+  router.register("/c/:token", (outlet, params) => catalogLinkView(outlet, params));
   router.register("/buyer", (outlet) => dashboard(outlet));
   router.register("/buyer/cart", (outlet) => cartView(outlet));
   router.register("/buyer/orders", (outlet) => ordersView(outlet));
