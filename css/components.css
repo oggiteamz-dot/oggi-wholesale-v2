@@ -1963,3 +1963,64 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 /* A label styled as a button, wrapping a hidden file input — clicking the file
    input directly opens a picker that cannot be styled at all. */
 .cat-bb-upload { cursor: pointer; display: inline-flex; align-items: center; }
+
+/* ===========================================================================
+   A HIGHLIGHTED PRODUCT                                        (Batch 22b)
+   ---------------------------------------------------------------------------
+   Hadi: "I want the highlighted arrivals to be the actual product with a
+   highlight on them. Like a glowing border."
+   ---------------------------------------------------------------------------
+   The header above the group names it; this marks the individual cards. Both
+   are needed, because by the time you have scrolled past six of them the
+   header is off screen and the grouping has stopped meaning anything.
+
+   Deliberately NOT animated by default. A glow that pulses is easy to build
+   and unbearable at scale: twenty highlighted products all breathing at once
+   is a page nobody can read, and the highlighted group is exactly where a
+   wholesaler puts their best sellers, so it is the group most likely to be
+   large. The glow is bright enough to find at a glance and still enough to
+   read next to.
+   =========================================================================== */
+
+.product-card-highlighted,
+.pcard.pcard-highlighted {
+  position: relative;
+  border-color: var(--brand-emerald);
+  /* Three layers, all box-shadow. An ::after halo was tried first and was
+     invisible: a card with overflow:hidden clips its own pseudo-element, and
+     these cards clip theirs to keep the photo inside the rounded corner.
+     box-shadow draws outside the border box and survives that.
+
+       ring   a solid 2px edge, so it reads as a border at any size
+       halo   a soft wide band, which is what makes it look like light
+       throw  the actual glow onto the page behind it
+  */
+  box-shadow:
+    0 0 0 2px var(--brand-emerald),
+    0 0 0 7px rgba(10, 125, 90, .16),
+    0 0 24px 2px rgba(10, 125, 90, .42);
+}
+
+/* The grid needs room, or the glow of one card is cut off by the next. */
+.pcard-grid:has(.pcard-highlighted) { padding: 6px; }
+
+/* Motion is opt-in, and deliberately NOT the default. A glow that pulses is
+   easy to build and unbearable at scale: the highlighted group is exactly
+   where a wholesaler puts their best sellers, so it is the group most likely
+   to be large, and twenty cards all breathing at once is a page nobody can
+   read. Add .is-pulsing to a card if that is genuinely wanted. */
+@media (prefers-reduced-motion: no-preference) {
+  .product-card-highlighted.is-pulsing,
+  .pcard.pcard-highlighted.is-pulsing { animation: oggi-glow 2.8s ease-in-out infinite; }
+}
+@keyframes oggi-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--brand-emerald), 0 0 0 7px rgba(10, 125, 90, .12),
+                0 0 18px 0 rgba(10, 125, 90, .34);
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--brand-emerald), 0 0 0 9px rgba(10, 125, 90, .22),
+                0 0 30px 4px rgba(10, 125, 90, .58);
+  }
+}
+}
