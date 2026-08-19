@@ -51,6 +51,14 @@ const pass = [], fail = [];
 const ok = (c, m) => (c ? pass : fail).push(m);
 
 const PRODUCT = `Builder Check ${STAMP}`;
+// Barcodes are globally unique (migration 016 for variants, 051 for the other
+// two tiers), so fixed literals make this check pass exactly once and then
+// fail forever after -- the second run collides with the first run's rows and
+// two variants silently fail to insert. Derived from the stamp for the same
+// reason the locations check derives its shop name: a check that pollutes the
+// database is a check that breaks itself.
+const CODE_A = `20${String(Date.now()).slice(-9)}1`.slice(0, 12);
+const CODE_B = `21${String(Date.now()).slice(-9)}2`.slice(0, 12);
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 390, height: 900 }, hasTouch: true });
 const errs = [];
@@ -59,8 +67,15 @@ page.on("pageerror", (e) => errs.push(e.message));
 await page.route("**://*.supabase.co/**", async (route) => {
   const r = route.request();
   try {
+    // postDataBuffer(), NOT postData(). postData() returns a STRING, so a
+    // binary body -- every image upload -- is decoded as UTF-8 and re-encoded,
+    // and every byte >= 0x80 becomes U+FFFD. The photos this check uploaded
+    // were arriving in storage as corrupt WebP: 80 replacement characters in
+    // an 801-byte file, unreadable by any browser. The assertion said "1 photo
+    // attached" and was telling the truth about the message while the file
+    // itself was destroyed in the harness. Nothing about the app was wrong.
     const res = await fetch(r.url(), { method: r.method(), headers: r.headers(),
-      body: ["GET","HEAD"].includes(r.method()) ? undefined : r.postData() });
+      body: ["GET","HEAD"].includes(r.method()) ? undefined : r.postDataBuffer() });
     const body = Buffer.from(await res.arrayBuffer());
     const h = Object.fromEntries(res.headers.entries());
     delete h["content-encoding"]; delete h["content-length"];
@@ -111,7 +126,14 @@ ok(rowsBeforeTyping === 1,
   `a colour gets its grid row on being added, before a single keystroke (${rowsBeforeTyping} row(s))`);
 await page.evaluate(() => {
   const c = document.querySelector(".pb-colour");
-  c?.querySelector(".btn-ghost")?.click();     // Remove, back to a clean slate
+  // .pb-colour-del, NOT .btn-ghost. This check clicked Remove by its STYLING
+  // class, so restyling the button from btn-ghost to btn-danger-quiet made the
+  // teardown silently do nothing -- the colour stayed, every later count was
+  // off by one, and fourteen assertions failed for a reason that had nothing
+  // to do with what they were testing. A test that reaches for a styling hook
+  // is coupled to how something looks, which is the thing most likely to
+  // change. .pb-colour-del exists to be selected.
+  c?.querySelector(".pb-colour-del")?.click();
 });
 await page.waitForTimeout(300);
 
@@ -172,7 +194,7 @@ ok(await page.evaluate(() => !document.querySelector(".pb-picker")), "Done close
 // which also proves an auto-name can be overwritten.
 await page.evaluate(() => {
   const rows = document.querySelectorAll(".pb-colour");
-  rows[rows.length - 1]?.querySelector(".btn-ghost")?.click();
+  rows[rows.length - 1]?.querySelector(".pb-colour-del")?.click();
 });
 await page.waitForTimeout(300);
 await page.fill(".pb-colour-name", "Crimson");
@@ -255,13 +277,13 @@ const aimedAt = await page.evaluate(() => document.querySelector("[data-scan-aim
 ok(/·\s*M\b/.test(aimedAt), `the form says which cell a scan will fill (saw: "${aimedAt}")`);
 
 const scanInput = ".pb-scan input";
-await page.fill(scanInput, "5012345678900");
+await page.fill(scanInput, CODE_A);
 await page.press(scanInput, "Enter");
 await page.waitForTimeout(300);
 
 const barcodeValues = await page.evaluate(() =>
   [...document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell-barcode")].map((i) => i.value));
-ok(barcodeValues[1] === "5012345678900",
+ok(barcodeValues[1] === CODE_A,
   `a scan fills the aimed cell (cell 2 holds "${barcodeValues[1]}")`);
 ok(barcodeValues[0] === "" && barcodeValues[2] === "",
   `and fills ONLY that cell (neighbours: "${barcodeValues[0]}" / "${barcodeValues[2]}")`);
@@ -274,7 +296,7 @@ ok(advanced !== aimedAt, `the aim moves on after a scan (was "${aimedAt}", now "
 // A barcode identifies exactly one variant, so the same code twice must be
 // refused AT THE SCAN -- not at save, by which time the operator has put the
 // label gun down and no longer knows which two cells collided.
-await page.fill(scanInput, "5012345678900");
+await page.fill(scanInput, CODE_A);
 await page.press(scanInput, "Enter");
 await page.waitForTimeout(300);
 const scanStatus = await page.evaluate(() => document.querySelector("[data-scan-status]")?.textContent || "");
@@ -301,12 +323,12 @@ await page.waitForTimeout(300);
 const aimedByButton = await page.evaluate(() => document.querySelector("[data-scan-aim]")?.textContent || "");
 ok(/·\s*L\b/.test(aimedByButton), `a cell's Scan button aims at that cell (saw: "${aimedByButton}")`);
 
-await page.fill(".pb-scan input", "5099999999999");
+await page.fill(".pb-scan input", CODE_B);
 await page.press(".pb-scan input", "Enter");
 await page.waitForTimeout(400);
 const perCell = await page.evaluate(() =>
   [...document.querySelectorAll(".pb-grid-row")[0].querySelectorAll(".pb-cell-barcode")].map((i) => i.value));
-ok(perCell[2] === "5099999999999", `and the scan lands in that cell (cell 3 holds "${perCell[2]}")`);
+ok(perCell[2] === CODE_B, `and the scan lands in that cell (cell 3 holds "${perCell[2]}")`);
 
 // Each size carries its OWN barcode -- that is the shape Hadi settled on.
 const filled = perCell.filter(Boolean).length;
@@ -342,16 +364,29 @@ ok(await page.evaluate(() => !!document.querySelector("#pb-supplier")),
 const SUPPLIER = `Probe Mills ${STAMP}`;
 await page.click('#pb-supplier button:has-text("+ New supplier")');
 await page.waitForTimeout(400);
+// Hadi made four fields mandatory: name, contact person, phone, location.
+// Prove the rule fires BEFORE proving the happy path -- a required-field rule
+// that is never seen to refuse anything is indistinguishable from no rule.
 await page.evaluate((n) => {
-  const set = (sel, v) => {
-    const i = document.querySelector(sel);
-    if (i) { i.value = v; i.dispatchEvent(new Event("input", { bubbles: true })); }
-  };
   const f = document.querySelectorAll("#pb-supplier .pb-supplier-new input");
-  f[0].value = n;              f[0].dispatchEvent(new Event("input", { bubbles: true }));
-  f[1].value = "Wei Zhang";    f[1].dispatchEvent(new Event("input", { bubbles: true }));
-  f[2].value = "+86 555 0100"; f[2].dispatchEvent(new Event("input", { bubbles: true }));
+  f[0].value = n; f[0].dispatchEvent(new Event("input", { bubbles: true }));
 }, SUPPLIER);
+await page.click('#pb-supplier button:has-text("Save supplier")');
+await page.waitForTimeout(800);
+const supErr = await page.evaluate(() => {
+  const e = document.querySelector('#pb-supplier .pf-error:not([hidden])');
+  return e ? e.textContent.trim() : "";
+});
+ok(/contact person/i.test(supErr) && /phone/i.test(supErr) && /location/i.test(supErr),
+  `a supplier without contact, phone or location is refused, naming all three at once (saw: "${supErr}")`);
+
+await page.evaluate(() => {
+  const f = document.querySelectorAll("#pb-supplier .pb-supplier-new input");
+  const set = (i, v) => { f[i].value = v; f[i].dispatchEvent(new Event("input", { bubbles: true })); };
+  set(1, "Wei Zhang");          // contact person
+  set(2, "+86 555 0100");       // phone
+  set(5, "Hangzhou, Zhejiang"); // address — the location requirement
+});
 await page.click('#pb-supplier button:has-text("Save supplier")');
 await page.waitForTimeout(3000);
 
@@ -394,11 +429,60 @@ ok(/created with 7 variants/i.test(statusText),
   `4 sizes + 3 sizes = 7 variants, and it says so (saw: "${statusText}")`);
 ok(/photo/i.test(statusText), `the photo is attached and reported (saw: "${statusText}")`);
 
+
+
 // ---- inventory ----
 await page.goto(`http://127.0.0.1:${PORT}/index.html#/wholesaler/inventory`, { waitUntil: "load" });
 await page.waitForTimeout(5000);
 const inv = await page.evaluate(() => document.body.innerText);
 ok(shows(inv, PRODUCT), "the product reached Inventory");
+
+// "The message says a photo was attached" and "the photo is a readable image"
+// are different claims, and only the first was ever checked. The stored object
+// is fetched and its container validated HERE IN NODE rather than in the page,
+// because this browser runs sandboxed with no outbound network -- asserting
+// through it would be testing the harness, not the upload.
+//
+// This assertion exists because the harness was silently destroying every
+// image it uploaded: Playwright's route.request().postData() returns a STRING,
+// so the binary body was decoded as UTF-8 and re-encoded, turning every byte
+// >= 0x80 into U+FFFD. The stored WebP had 80 replacement characters in 801
+// bytes and no browser could open it, while "1 photo attached" passed happily.
+// The thumbnail of THIS product, not whichever row happens to be first. The
+// inventory list is sorted lowest-available-first and contains every product
+// this probe wholesaler has ever had, so a bare querySelector was testing an
+// arbitrary older upload -- including ones written before the harness bug
+// above was fixed, which is how this assertion failed on a run that had just
+// stored a perfectly good file.
+const storedSrc = await page.evaluate((name) => {
+  const row = [...document.querySelectorAll(".inv-row")]
+    .find((r) => r.innerText.includes(name));
+  return row?.querySelector(".prod-thumb img")?.src || "";
+}, PRODUCT);
+if (!storedSrc) {
+  console.log("  NOTE  no thumbnail on screen — skipped the image-integrity assertion");
+} else {
+  let verdict = "could not fetch";
+  try {
+    const res = await fetch(storedSrc);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const replacements = buf.filter((b, i) =>
+      b === 0xef && buf[i + 1] === 0xbf && buf[i + 2] === 0xbd).length;
+    const isWebp = buf.slice(0, 4).toString() === "RIFF" && buf.slice(8, 12).toString() === "WEBP";
+    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
+    const isPng = buf.slice(1, 4).toString() === "PNG";
+    // The declared RIFF length must match the file, which is exactly what the
+    // corruption broke: the header claimed 642 bytes for an 801-byte file.
+    const riffOk = !isWebp || (8 + buf.readUInt32LE(4)) === buf.length;
+    const good = (isWebp || isJpeg || isPng) && riffOk && replacements === 0;
+    verdict = good
+      ? `valid ${isWebp ? "WebP" : isJpeg ? "JPEG" : "PNG"}, ${buf.length} bytes`
+      : `${buf.length} bytes, webp=${isWebp} riffLengthOk=${riffOk} utf8Replacements=${replacements}`;
+    ok(good, `the uploaded photo is a readable image file (${verdict})`);
+  } catch (e) {
+    ok(false, `the uploaded photo could not be fetched back (${e.message})`);
+  }
+}
 ok(shows(inv, "Crimson"), "with its sampled colour name");
 ok(shows(inv, "Deep Navy"), "and its palette colour name");
 ok(shows(inv, "not stocked yet"),
