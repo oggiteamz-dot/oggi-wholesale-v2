@@ -15,6 +15,7 @@ import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
 import { updateCatalogSettings, addProductsToCatalog, DISCOUNT_MODES,
          catalogLink, setCatalogPublic, rotateCatalogLink,
+         setBillboard, setHighlightLabel, setProductHighlighted,
          listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
 import { createProduct, getProductForEdit, getProductDetail, updateProduct } from "../data/products-admin.js";
@@ -22,6 +23,8 @@ import { renderProductForm } from "../components/product-form.js";
 import { renderProductTile, productGrid } from "../components/admin-product-tile.js";
 import { renderProductDetail } from "../components/product-detail.js";
 import { renderProductPicker } from "../components/product-picker.js";
+import { renderBillboard } from "../components/billboard.js";
+import { uploadCatalogBillboard } from "../data/uploads.js";
 import { renderCardFactsPicker } from "../components/card-facts-picker.js";
 import { factsFor, normaliseFacts } from "../lib/card-facts.js";
 import { listSuppliers, createSupplier, updateSupplier, archiveSupplier, restoreSupplier, supplierProductCounts } from "../data/suppliers.js";
@@ -1777,7 +1780,7 @@ async function catalogsView(outlet) {
     // Above the products on purpose. These three decide what every product
     // below is worth and who is allowed to look at it, so reading them after
     // scrolling past forty garments is the wrong way round.
-    panel.appendChild(catalogSettingsCard(catalog));
+    panel.appendChild(catalogSettingsCard(catalog, products));
 
     const bar = document.createElement("div");
     bar.className = "pf-actions";
@@ -1879,7 +1882,7 @@ async function catalogsView(outlet) {
    * money: -10 could reasonably be read as "ten percent off" by someone in a
    * hurry. Saying what it will DO removes the guess.
    */
-  function catalogSettingsCard(catalog) {
+  function catalogSettingsCard(catalog, products = []) {
     const card = document.createElement("div");
     card.className = "card cat-settings";
 
@@ -2024,6 +2027,175 @@ async function catalogsView(outlet) {
     linkBox.appendChild(rotate);
     card.appendChild(linkBox);
 
+    // ---- the billboard ----
+    const bbBox = document.createElement("div");
+    bbBox.className = "cat-billboard";
+    bbBox.innerHTML = `
+      <h5>Billboard</h5>
+      <p class="cat-hint">A poster, GIF or short clip at the top of this catalog. Point it at one product with a button, or leave it as a plain poster.</p>
+    `;
+
+    const bbOnLabel = document.createElement("label");
+    bbOnLabel.className = "cat-public";
+    const bbOn = document.createElement("input");
+    bbOn.type = "checkbox";
+    bbOn.id = "cat-bb-on";
+    bbOn.checked = !!catalog.billboardEnabled;
+    const bbOnText = document.createElement("span");
+    bbOnText.textContent = "Show the billboard on this catalog";
+    bbOnLabel.appendChild(bbOn);
+    bbOnLabel.appendChild(bbOnText);
+    bbBox.appendChild(bbOnLabel);
+
+    const bbBody = document.createElement("div");
+    bbBody.className = "cat-billboard-body";
+    bbBox.appendChild(bbBody);
+
+    function paintBillboard() {
+      bbBody.innerHTML = "";
+      bbBody.hidden = !bbOn.checked;
+      if (!bbOn.checked) return;
+
+      if (catalog.billboardUrl) {
+        const preview = renderBillboard({
+          url: catalog.billboardUrl,
+          mediaType: catalog.billboardMediaType,
+          cta: catalog.billboardCta,
+          label: catalog.name,
+          onGo: catalog.billboardProductId ? () => {} : null,
+        });
+        preview.classList.add("cat-billboard-preview");
+        bbBody.appendChild(preview);
+      } else {
+        const none = document.createElement("p");
+        none.className = "pdet-none";
+        none.textContent = "No artwork yet — upload a poster, GIF or clip below.";
+        bbBody.appendChild(none);
+      }
+
+      const pick = document.createElement("label");
+      pick.className = "btn btn-secondary btn-sm cat-bb-upload";
+      pick.innerHTML = `<span>${catalog.billboardUrl ? "Replace artwork" : "Upload artwork"}</span>`;
+      const file = document.createElement("input");
+      file.type = "file";
+      file.accept = "image/jpeg,image/png,image/webp,image/avif,image/gif,video/mp4,video/webm";
+      file.hidden = true;
+      const status = document.createElement("span");
+      status.className = "cat-hint";
+      file.addEventListener("change", async () => {
+        const f = file.files?.[0];
+        if (!f) return;
+        status.textContent = "Uploading…";
+        const up = await uploadCatalogBillboard({
+          file: f, wid, catalogId: activeId,
+          onProgress: (m) => { status.textContent = m; },
+        });
+        file.value = "";
+        if (!up.ok) { status.textContent = up.error; toast(up.error, { type: "danger" }); return; }
+        const saved = await setBillboard(activeId, { url: up.url, mediaType: up.mediaType, enabled: true });
+        if (!saved.ok) { status.textContent = saved.error; return; }
+        catalog.billboardUrl = up.url;
+        catalog.billboardMediaType = up.mediaType;
+        catalog.billboardEnabled = true;
+        bbOn.checked = true;
+        status.textContent = up.mediaType === "video" ? "Clip uploaded." : "Artwork uploaded.";
+        toast("Billboard updated.", { type: "success" });
+        paintBillboard();
+      });
+      pick.appendChild(file);
+
+      const row = document.createElement("div");
+      row.className = "cat-link-row";
+      row.appendChild(pick);
+      row.appendChild(status);
+      bbBody.appendChild(row);
+
+      // Which product the button goes to. Only products already in this
+      // catalog are offered -- pointing a billboard at something the buyer
+      // cannot reach from here is a button to nowhere.
+      const target = document.createElement("div");
+      target.className = "cat-bb-target";
+      const sel = document.createElement("select");
+      sel.className = "input";
+      sel.id = "cat-bb-product";
+      sel.innerHTML = `<option value="">Just a poster — no button</option>` +
+        products.map((p) => `<option value="${esc(p.id)}"${p.id === catalog.billboardProductId ? " selected" : ""}>${esc(p.name)}</option>`).join("");
+      const ctaInput = document.createElement("input");
+      ctaInput.className = "input";
+      ctaInput.id = "cat-bb-cta";
+      ctaInput.placeholder = "See this product";
+      ctaInput.value = catalog.billboardCta || "";
+      ctaInput.setAttribute("aria-label", "Button label");
+
+      const syncCta = () => { ctaInput.hidden = !sel.value; };
+      sel.addEventListener("change", syncCta);
+      syncCta();
+
+      const bbSave = document.createElement("button");
+      bbSave.type = "button";
+      bbSave.className = "btn btn-secondary btn-sm";
+      bbSave.textContent = "Save billboard";
+      bbSave.addEventListener("click", async () => {
+        bbSave.disabled = true;
+        const res = await setBillboard(activeId, {
+          productId: sel.value || null,
+          cta: ctaInput.value,
+          enabled: bbOn.checked,
+        });
+        bbSave.disabled = false;
+        if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+        catalog.billboardProductId = sel.value || null;
+        catalog.billboardCta = ctaInput.value.trim();
+        toast("Billboard saved.", { type: "success" });
+        paintBillboard();
+      });
+
+      target.appendChild(sel);
+      target.appendChild(ctaInput);
+      target.appendChild(bbSave);
+      bbBody.appendChild(target);
+    }
+
+    bbOn.addEventListener("change", async () => {
+      const res = await setBillboard(activeId, { enabled: bbOn.checked });
+      if (!res.ok) { bbOn.checked = !bbOn.checked; toast(res.error, { type: "danger" }); return; }
+      catalog.billboardEnabled = bbOn.checked;
+      paintBillboard();
+    });
+    paintBillboard();
+    card.appendChild(bbBox);
+
+    // ---- what the pinned group is called ----
+    const hlBox = document.createElement("div");
+    hlBox.className = "cat-billboard";
+    hlBox.innerHTML = `<h5>Highlighted group</h5>
+      <p class="cat-hint">Products you highlight always sit at the top of this catalog, under this heading. Highlight them with the star on each card below.</p>`;
+    const hlRow = document.createElement("div");
+    hlRow.className = "cat-link-row";
+    const hlInput = document.createElement("input");
+    hlInput.className = "input";
+    hlInput.id = "cat-highlight-label";
+    hlInput.value = catalog.highlightLabel || "Featured";
+    hlInput.placeholder = "New Arrivals";
+    hlInput.setAttribute("aria-label", "What to call the highlighted group");
+    const hlSave = document.createElement("button");
+    hlSave.type = "button";
+    hlSave.className = "btn btn-secondary btn-sm";
+    hlSave.textContent = "Save name";
+    hlSave.addEventListener("click", async () => {
+      hlSave.disabled = true;
+      const res = await setHighlightLabel(activeId, hlInput.value);
+      hlSave.disabled = false;
+      if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+      catalog.highlightLabel = res.label;
+      hlInput.value = res.label;
+      toast(`Highlighted products will show under "${res.label}".`, { type: "success" });
+    });
+    hlRow.appendChild(hlInput);
+    hlRow.appendChild(hlSave);
+    hlBox.appendChild(hlRow);
+    card.appendChild(hlBox);
+
     const actions = document.createElement("div");
     actions.className = "pf-actions";
     const save = document.createElement("button");
@@ -2082,6 +2254,7 @@ async function catalogsView(outlet) {
     products.forEach((p) => {
       const badges = [];
       if (p.archived) badges.push({ text: "Archived", kind: "badge-neutral" });
+      if (p.highlighted) badges.push({ text: catalog.highlightLabel || "Featured", kind: "badge-success" });
       p.colors.slice(0, 6).forEach((c) => badges.push({ text: c.name, kind: "badge-neutral" }));
 
       grid.appendChild(renderProductTile({
@@ -2093,6 +2266,21 @@ async function catalogsView(outlet) {
         actions: [
           { label: "View", variant: "btn-primary", onClick: () => openProductView(p.id, () => paintList()) },
           { label: "Edit", onClick: () => openProductEditor(p.id, () => paintList()) },
+          // Hadi: "I want them to be able to highlight as many items as they
+          // want... no matter what order they put them in, always the
+          // highlighted items will be on the top." The label says which way
+          // the click goes, rather than naming a state you have to work out.
+          { label: p.highlighted ? "★ Remove highlight" : "☆ Highlight",
+            title: `Highlighted products sit at the top of this catalog under "${catalog.highlightLabel || "Featured"}"`,
+            onClick: async () => {
+              const res = await setProductHighlighted(activeId, p.id, !p.highlighted);
+              if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+              toast(p.highlighted
+                ? `"${p.name}" is no longer highlighted.`
+                : `"${p.name}" now sits at the top under "${catalog.highlightLabel || "Featured"}".`,
+                { type: "success" });
+              await paintList();
+            } },
           // Wording matters: this unfiles, it does not delete. "Remove" alone
           // reads as destructive and would stop people using catalogs at all.
           { label: "Remove from catalog", onClick: async () => {

@@ -5,7 +5,8 @@ import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { getCatalog, getWholesaler, listWholesalers } from "../data/catalog.js";
-import { buyerCatalogs, buyerCatalogProductIds, catalogByToken, catalogProductIdsByToken } from "../data/catalogs.js";
+import { buyerCatalogs, buyerCatalogProductIds, catalogByToken, catalogProductsByToken } from "../data/catalogs.js";
+import { renderBillboard, sectionHeader } from "../components/billboard.js";
 import { cart } from "../data/cart.js";
 import { getBuyerOrders, orderedTimesCount, getBuyerOrderedProductIds } from "../data/orders.js";
 import { getPricingContext, resolveClientId, tierForQty, nextTier, effectivePrice, productMoqStatus, marginPct } from "../data/pricing.js";
@@ -642,9 +643,16 @@ async function catalogLinkView(outlet, params) {
   const wid = resolved.wid;
   outlet.appendChild(pageHeader(resolved.name, resolved.description || `From ${resolved.wholesalerName || "your supplier"}`));
 
-  const ids = new Set(await catalogProductIdsByToken(token, session.accountId || null));
+  const rows = await catalogProductsByToken(token, session.accountId || null);
+  const order = new Map(rows.map((r, i) => [r.id, i]));
+  const pinned = new Set(rows.filter((r) => r.highlighted).map((r) => r.id));
   const everything = await getCatalog(wid);
-  const products = everything.filter((p) => ids.has(p.id));
+  // The database decided the order; this only preserves it. getCatalog returns
+  // its own ordering, so without this the highlighted-first rule would survive
+  // the query and die in the filter.
+  const products = everything
+    .filter((p) => order.has(p.id))
+    .sort((a, b) => order.get(a.id) - order.get(b.id));
 
   if (!products.length) {
     outlet.appendChild(emptyState({
@@ -661,20 +669,60 @@ async function catalogLinkView(outlet, params) {
   const customerPct = Number(session.discountPct) || 0;
   const location = await defaultLocation(wid);
 
-  const grid = document.createElement("div");
+  const cardFor = (product) => renderProductCard({
+    product, wid, locationId: location?.id, currency: "$",
+    tiers: tiersByProduct.get(product.id) || [],
+    overridesByVariant, discountPct, customerPct,
+    packs: [],
+  });
   // Same grid the buyer dashboard builds. Written inline there rather than as a
   // class, so it is matched here rather than inventing a second one that would
   // drift.
-  grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;";
-  products.forEach((product) => {
-    grid.appendChild(renderProductCard({
-      product, wid, locationId: location?.id, currency: "$",
-      tiers: tiersByProduct.get(product.id) || [],
-      overridesByVariant, discountPct, customerPct,
-      packs: [],
-    }));
-  });
-  outlet.appendChild(grid);
+  const newGrid = () => {
+    const g = document.createElement("div");
+    g.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;";
+    return g;
+  };
+
+  // ---- the billboard ----
+  if (resolved.billboardEnabled && resolved.billboardUrl) {
+    const target = resolved.billboardProductId;
+    // A billboard advertising a product that has since left the catalog
+    // becomes a plain poster rather than a button that scrolls to nothing.
+    const targetPresent = target && products.some((p) => p.id === target);
+    const bb = renderBillboard({
+      url: resolved.billboardUrl,
+      mediaType: resolved.billboardMediaType,
+      cta: resolved.billboardCta,
+      label: resolved.name,
+      onGo: targetPresent ? () => {
+        const card = outlet.querySelector(`[data-product-id="${CSS.escape(target)}"]`);
+        if (!card) return;
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+        card.classList.add("card-pointed-at");
+        setTimeout(() => card.classList.remove("card-pointed-at"), 2400);
+      } : null,
+    });
+    if (bb) outlet.appendChild(bb);
+  }
+
+  // ---- highlighted first, under the name the wholesaler chose ----
+  const highlighted = products.filter((p) => pinned.has(p.id));
+  const rest = products.filter((p) => !pinned.has(p.id));
+
+  if (highlighted.length) {
+    outlet.appendChild(sectionHeader(resolved.highlightLabel || "Featured", highlighted.length));
+    const g = newGrid();
+    highlighted.forEach((p) => g.appendChild(cardFor(p)));
+    outlet.appendChild(g);
+    // Only worth naming the remainder when there IS a pinned group above it.
+    // "Everything else" over the whole catalog is a heading that says nothing.
+    if (rest.length) outlet.appendChild(sectionHeader("Everything else", rest.length));
+  }
+
+  const g = newGrid();
+  rest.forEach((p) => g.appendChild(cardFor(p)));
+  outlet.appendChild(g);
 }
 
 export function registerBuyerRoutes(router) {
