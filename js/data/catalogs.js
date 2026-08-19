@@ -19,6 +19,7 @@
 // =============================================================================
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { imagesForVariants } from "../components/image-gallery.js";
 
 /** Every catalog for a wholesaler, default first, then alphabetical. */
 export async function listCatalogs(wid) {
@@ -63,7 +64,10 @@ export async function getCatalogProducts(catalogId) {
       .select("id, name, description, category, archived, selling_model, created_at")
       .in("id", ids)),
     sbCall(supabase.from("v2_product_variants")
-      .select("id, product_id, sku, price, archived, extra_attrs")
+      // image_url/images come along so the list can show what the product
+      // LOOKS like. A clothing catalogue that is only text makes a wholesaler
+      // read forty rows that all say "jacket".
+      .select("id, product_id, sku, price, archived, extra_attrs, image_url, images")
       .in("product_id", ids)),
   ]);
 
@@ -92,6 +96,7 @@ export async function getCatalogProducts(catalogId) {
           .map((v) => [v.extra_attrs.color,
                        { name: v.extra_attrs.color, hex: v.extra_attrs.colorHex || "#999" }])).values()],
         priceRange: prices.length ? [Math.min(...prices), Math.max(...prices)] : [0, 0],
+        images: imagesForVariants(vs),
       };
     }).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)),
   };

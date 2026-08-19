@@ -14,7 +14,7 @@
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
 
-const COLS = "id, wid, name, contact_name, phone, email, address, country, ref_code, notes, archived, created_at";
+const COLS = "id, wid, name, contact_name, phone, email, address, country, ref_code, notes, sells, brands, moq, lead_time, payment_terms, currency, website, whatsapp, instagram, catalog_url, rating, status, last_contacted, archived, created_at";
 
 function shape(r) {
   return {
@@ -28,9 +28,56 @@ function shape(r) {
     country: r.country || "",
     refCode: r.ref_code || "",
     notes: r.notes || "",
+    sells: r.sells || [],
+    brands: r.brands || [],
+    moq: r.moq || "",
+    leadTime: r.lead_time || "",
+    paymentTerms: r.payment_terms || "",
+    currency: r.currency || "",
+    website: r.website || "",
+    whatsapp: r.whatsapp || "",
+    instagram: r.instagram || "",
+    catalogUrl: r.catalog_url || "",
+    rating: r.rating ?? null,
+    status: r.status || "active",
+    lastContacted: r.last_contacted || "",
     archived: !!r.archived,
     createdAt: r.created_at,
   };
+}
+
+/** Splits "denim, knitwear , denim" into ["denim","knitwear"]. Comma-separated
+ *  because that is how someone types a list into one box; deduplicated because
+ *  a supplier that "sells denim, denim" is a typo, not two facts. */
+function toList(value) {
+  if (Array.isArray(value)) value = value.join(",");
+  const seen = new Set();
+  return String(value || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => {
+      if (!x) return false;
+      const k = x.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+}
+
+/** The four fields Hadi made mandatory. Returned as a message naming ALL the
+ *  missing ones at once -- telling someone about one missing field, then
+ *  another after they fix it, is the slowest possible way to fill a form. */
+export function missingRequired(form) {
+  const missing = [];
+  if (!String(form?.name || "").trim()) missing.push("name");
+  if (!String(form?.contactName || "").trim()) missing.push("contact person");
+  if (!String(form?.phone || "").trim()) missing.push("phone");
+  if (!String(form?.address || "").trim() && !String(form?.country || "").trim()) missing.push("location");
+  if (!missing.length) return null;
+  const list = missing.length === 1
+    ? missing[0]
+    : `${missing.slice(0, -1).join(", ")} and ${missing[missing.length - 1]}`;
+  return `A supplier needs a ${list}.`;
 }
 
 /** Live suppliers for this wholesaler, alphabetically -- a sourcing list is
@@ -43,8 +90,9 @@ export async function listSuppliers(wid, { includeArchived = false } = {}) {
 }
 
 export async function createSupplier(wid, form) {
-  const name = String(form?.name || "").trim();
-  if (!name) return { ok: false, error: "Give the supplier a name." };
+  const problem = missingRequired(form);
+  if (problem) return { ok: false, error: problem };
+  const name = String(form.name).trim();
 
   const { data, error } = await sbCall(
     supabase.from("v2_suppliers").insert({
@@ -57,6 +105,19 @@ export async function createSupplier(wid, form) {
       country: form.country?.trim() || null,
       ref_code: form.refCode?.trim() || null,
       notes: form.notes?.trim() || null,
+      sells: toList(form.sells),
+      brands: toList(form.brands),
+      moq: form.moq?.trim() || null,
+      lead_time: form.leadTime?.trim() || null,
+      payment_terms: form.paymentTerms?.trim() || null,
+      currency: form.currency?.trim() || null,
+      website: form.website?.trim() || null,
+      whatsapp: form.whatsapp?.trim() || null,
+      instagram: form.instagram?.trim() || null,
+      catalog_url: form.catalogUrl?.trim() || null,
+      rating: form.rating ? Number(form.rating) : null,
+      status: form.status || "active",
+      last_contacted: form.lastContacted || null,
     }).select(COLS).single()
   );
 
@@ -82,10 +143,18 @@ export async function updateSupplier(id, form) {
   const map = {
     contactName: "contact_name", phone: "phone", email: "email",
     address: "address", country: "country", refCode: "ref_code", notes: "notes",
+    moq: "moq", leadTime: "lead_time", paymentTerms: "payment_terms",
+    currency: "currency", website: "website", whatsapp: "whatsapp",
+    instagram: "instagram", catalogUrl: "catalog_url",
   };
   for (const [k, col] of Object.entries(map)) {
     if (form[k] !== undefined) patch[col] = String(form[k] || "").trim() || null;
   }
+  if (form.sells !== undefined) patch.sells = toList(form.sells);
+  if (form.brands !== undefined) patch.brands = toList(form.brands);
+  if (form.rating !== undefined) patch.rating = form.rating ? Number(form.rating) : null;
+  if (form.status !== undefined) patch.status = form.status || "active";
+  if (form.lastContacted !== undefined) patch.last_contacted = form.lastContacted || null;
 
   const { data, error } = await sbCall(
     supabase.from("v2_suppliers").update(patch).eq("id", id).select(COLS).single()

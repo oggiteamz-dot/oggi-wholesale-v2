@@ -1,5 +1,6 @@
 // OGGI Wholesale v2 — wholesaler product management (Batch 3)
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { imagesForVariants } from "../components/image-gallery.js";
 import { getDefaultCatalog, addProductToCatalog } from "./catalogs.js";
 import { uploadProductImage } from "./uploads.js";
 
@@ -38,6 +39,9 @@ export async function listProductsForAdmin(wid) {
       totalOnHand: vs.reduce((s, v) => s + v.onHand, 0),
       variantCount: vs.length,
       priceRange: vs.length ? [Math.min(...vs.map((v) => Number(v.price) || 0)), Math.max(...vs.map((v) => Number(v.price) || 0))] : [0, 0],
+      // Batch 18: the distinct photos across this product's variants, so the
+      // Products list can show the garment instead of only naming it.
+      images: imagesForVariants(vs),
     };
   });
 }
@@ -233,10 +237,33 @@ export async function createProduct(wid, draft = {}) {
       // Batch 17. Null when the wholesaler did not pick one -- sourcing is
       // optional and a product must never be blocked on it.
       supplier_id: draft.supplierId || null,
+      // Batch 18, the coarsest barcode tier: one code for the whole style.
+      barcode: String(draft.barcode || "").trim() || null,
     }).select("id, name").single()
   );
   if (pErr || !product) {
     return { ok: false, error: pErr?.message || "Could not create the product." };
+  }
+
+  // Colour-tier barcodes. After the product row exists, because they hang off
+  // its id. Failures are collected rather than thrown: a barcode clash must
+  // not destroy a product the wholesaler has spent ten minutes building, and
+  // the message names which code so they can fix it and re-save.
+  const barcodeProblems = [];
+  const colourBarcodes = (draft.colourBarcodes || []).filter((cb) => cb.color && cb.barcode);
+  if (colourBarcodes.length) {
+    const { error: cbErr } = await sbCall(
+      supabase.from("v2_product_colour_barcodes").insert(
+        colourBarcodes.map((cb) => ({ product_id: product.id, color: cb.color, barcode: cb.barcode }))
+      )
+    );
+    if (cbErr) {
+      barcodeProblems.push(
+        cbErr.code === "23505"
+          ? "One of the colour barcodes is already used on another product. The product was created; add the colour barcodes again once the clash is fixed."
+          : `Colour barcodes could not be saved: ${cbErr.message}`
+      );
+    }
   }
 
   const created = [];
@@ -355,6 +382,7 @@ export async function createProduct(wid, draft = {}) {
     fileError,
     imageCount: imageUrls.length,
     photoErrors,
+    barcodeProblems,
     // Deliberately not "Success!". The operator needs to know whether all of
     // it worked, and a partial result has to say so in the same breath.
     message: [
@@ -365,6 +393,7 @@ export async function createProduct(wid, draft = {}) {
       photoErrors.length
         ? `${photoErrors.length} photo${photoErrors.length === 1 ? "" : "s"} did not upload — the product is fine, add them again from Products.`
         : "",
+      barcodeProblems.length ? barcodeProblems.join(" ") : "",
       fileError
         ? `It is in Inventory, but could not be added to the catalog (${fileError}) — add it from the catalog screen.`
         : "",

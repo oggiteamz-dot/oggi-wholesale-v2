@@ -105,6 +105,15 @@ export async function getStockTable(wid) {
       locationId: b.location_id,
       locationName: b.v2_locations?.name || "—",
       productName: productById.get(variant.product_id) || "—",
+      // Batch 18: the row shows what the garment looks like. Variants carry
+      // the photo (a colourway has its own), so it comes from here.
+      // Deduplicated: uploadProductImage writes the SAME url to image_url and
+      // into images[], so the naive concatenation counted one photo twice and
+      // the thumbnail badge cheerfully announced "2".
+      images: [...new Set(
+        [variant.image_url, ...(Array.isArray(variant.images) ? variant.images : [])]
+          .map((u) => String(u || "").trim()).filter(Boolean)
+      )],
       sku: variant.sku,
       color: variant.extra_attrs?.color,
       size: variant.extra_attrs?.size,
@@ -127,6 +136,15 @@ export async function getStockTable(wid) {
       locationId: defaultLocation?.id || null,
       locationName: defaultLocation?.name || "No location set",
       productName: productById.get(variant.product_id) || "—",
+      // Batch 18: the row shows what the garment looks like. Variants carry
+      // the photo (a colourway has its own), so it comes from here.
+      // Deduplicated: uploadProductImage writes the SAME url to image_url and
+      // into images[], so the naive concatenation counted one photo twice and
+      // the thumbnail badge cheerfully announced "2".
+      images: [...new Set(
+        [variant.image_url, ...(Array.isArray(variant.images) ? variant.images : [])]
+          .map((u) => String(u || "").trim()).filter(Boolean)
+      )],
       sku: variant.sku,
       color: variant.extra_attrs?.color,
       size: variant.extra_attrs?.size,
