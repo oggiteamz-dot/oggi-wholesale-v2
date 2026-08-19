@@ -53,7 +53,16 @@ function makeScope({ cacheSeed = {}, network }) {
     fetch: network,
     addEventListener: (type, fn) => { listeners[type] = fn; },
     skipWaiting: async () => {},
-    clients: { claim: async () => {} },
+    // matchAll, not just claim: the worker now posts an "app-updated"
+    // message to open pages when a revalidation finds the server has moved
+    // on. A mock without matchAll makes that path throw, and a throw inside
+    // the revalidation looks exactly like "the cache was never refreshed" --
+    // which is what this mock reported the first time it was run against it.
+    clients: {
+      claim: async () => {},
+      _posted: [],
+      matchAll: async () => [{ postMessage: (m) => scope.clients._posted.push(m) }],
+    },
     location: { origin: "https://app.test" },
     __listeners: listeners,
   };
@@ -63,18 +72,29 @@ function makeScope({ cacheSeed = {}, network }) {
   return scope;
 }
 
+// Responses carry headers, because the worker now decides whether a file
+// actually changed by comparing ETags. A headerless mock response would make
+// every deploy look identical to the one before it.
 const body = (text, opts = {}) => ({
   ok: opts.ok !== false, status: opts.status ?? 200, type: opts.type ?? "basic",
+  headers: { get: (k) => (opts.headers || {})[String(k).toLowerCase()] ?? null },
   _text: text, clone() { return { ...this, clone: this.clone }; },
 });
 
 async function dispatch(scope, request) {
   let responded;
+  // waitUntil is RECORDED, not swallowed. The previous version of this mock
+  // defined it as a no-op, and that is why this check could pass while the
+  // real worker was free to be terminated mid-revalidation: in Node an
+  // unheld promise still runs, so the mock was strictly more forgiving than
+  // the browser it was standing in for.
+  const held = [];
   const event = {
     request,
     respondWith: (p) => { responded = p; },
-    waitUntil: () => {},
+    waitUntil: (p) => held.push(p),
   };
+  scope.__held = held;
   scope.__listeners.fetch(event);
   return responded === undefined ? "PASSED_THROUGH" : await responded;
 }
@@ -85,17 +105,36 @@ console.log("Service worker behaviour checks\n");
 
 // 1. A cached asset is still served instantly (speed + offline preserved).
 {
-  const seed = { "https://app.test/js/views/buyer.js": body("OLD") };
-  const scope = makeScope({ cacheSeed: seed, network: async () => body("NEW") });
+  const seed = { "https://app.test/js/views/buyer.js": body("OLD", { headers: { etag: '"aaa"' } }) };
+  const scope = makeScope({ cacheSeed: seed, network: async () => body("NEW", { headers: { etag: '"bbb"' } }) });
   const res = await dispatch(scope, req("https://app.test/js/views/buyer.js"));
   ok("cached asset is served immediately (offline/speed preserved)", res._text === "OLD");
 
   // 2. ...but the cache is refreshed in the background, so the NEXT load is current.
-  await tick(); await tick(); await tick();
+  for (let i = 0; i < 12; i++) await tick();
   const after = scope.caches._store.get("https://app.test/js/views/buyer.js");
   ok("cache is revalidated in the background (next load gets the fix)",
      after && after._text === "NEW",
      after ? `cache still holds "${after._text}"` : "nothing in cache");
+
+  // The whole point of the 19 Aug change: refreshing the cache silently is
+  // what let someone run a build four commits old for days without knowing.
+  ok("and the open page is TOLD the app moved on",
+     scope.clients._posted.some((m) => m.type === "app-updated"),
+     `posted: ${JSON.stringify(scope.clients._posted)}`);
+}
+
+// 2b. An unchanged file must NOT cry wolf. A reload bar that appears on every
+// load is a reload bar people learn to ignore.
+{
+  const same = { headers: { etag: '"same"' } };
+  const seed = { "https://app.test/js/views/buyer.js": body("SAME", same) };
+  const scope = makeScope({ cacheSeed: seed, network: async () => body("SAME", same) });
+  await dispatch(scope, req("https://app.test/js/views/buyer.js"));
+  for (let i = 0; i < 12; i++) await tick();
+  ok("an unchanged file does not announce an update",
+     !scope.clients._posted.some((m) => m.type === "app-updated"),
+     `posted: ${JSON.stringify(scope.clients._posted)}`);
 }
 
 // 3. A first-visit asset (nothing cached) comes from the network.
@@ -148,6 +187,17 @@ console.log("Service worker behaviour checks\n");
   await tick(); await tick(); await tick();
   ok("an error response is not written into the cache",
      scope.caches._store.get("https://app.test/js/app.js")._text === "GOOD");
+}
+
+// 8b. The revalidation must be handed to waitUntil, or the browser may kill
+// the worker before the cache is written.
+{
+  const scope = makeScope({ cacheSeed: { "https://app.test/js/app.js": body("OLD", { headers: { etag: '"1"' } }) },
+                            network: async () => body("NEW", { headers: { etag: '"2"' } }) });
+  await dispatch(scope, req("https://app.test/js/app.js"));
+  ok("the background revalidation is held open with waitUntil",
+     (scope.__held || []).length > 0,
+     "nothing was passed to event.waitUntil — the write can be cancelled");
 }
 
 // 9. Non-GET requests pass straight through.
