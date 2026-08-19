@@ -5,7 +5,7 @@ import { devAuth } from "../lib/dev-auth.js";
 import { getWholesaler } from "../data/catalog.js";
 import { getWholesalerOrders, advanceOrderStatus, nextStatus } from "../data/wholesaler-orders.js";
 import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate } from "../data/products-admin.js";
-import { getStockTable, receiveStock, adjustStock, getLocations } from "../data/inventory-admin.js";
+import { getStockTable, getStockByProduct, receiveStock, adjustStock, getLocations } from "../data/inventory-admin.js";
 import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, setVariantRetailPrice, setVariantReorderSettings, setVariantBarcode, setVariantImages, getOrderMinimums, setOrderMinimums } from "../data/pricing-admin.js";
 import { listPacksForProduct, createPack, archivePack, suggestPackRatio } from "../data/prepacks.js";
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
@@ -15,9 +15,10 @@ import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
 import { listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
-import { createProduct } from "../data/products-admin.js";
+import { createProduct, getProductForEdit, getProductDetail, updateProduct } from "../data/products-admin.js";
 import { renderProductForm } from "../components/product-form.js";
-import { productThumb } from "../components/image-gallery.js";
+import { renderProductTile, productGrid } from "../components/admin-product-tile.js";
+import { renderProductDetail } from "../components/product-detail.js";
 import { listSuppliers, createSupplier, updateSupplier, archiveSupplier, restoreSupplier, supplierProductCounts } from "../data/suppliers.js";
 import { listLocations, locationStockTotals, createLocation, renameLocation,
          setDefaultLocation, archiveLocation, transferStock } from "../data/locations.js";
@@ -316,7 +317,7 @@ async function ordersView(outlet) {
 async function productsView(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
-  outlet.appendChild(pageHeader("Products", "Archive, duplicate as template, or apply a bulk price change."));
+  outlet.appendChild(pageHeader("Products", "View or edit any product, set pricing and packs, archive, or apply a bulk price change."));
 
   const products = await listProductsForAdmin(wid);
   if (!products.length) {
@@ -324,94 +325,84 @@ async function productsView(outlet) {
     return;
   }
 
-  const table = document.createElement("div");
-  table.className = "card";
-  table.style.padding = "8px";
+  // Cards, not rows -- the same component Inventory uses. Hadi on the old
+  // layout: "It's too tiny. The thumbnail is ultra tiny." A product list is a
+  // catalogue, and you find a garment in a catalogue by recognising it.
+  //
+  // Pricing and Packs stayed as panels that open UNDER the grid rather than
+  // living inside the card: a card with its panels inline would push every
+  // other card down the page, and the grid is the thing being scanned.
+  const reload = () => { outlet.innerHTML = ""; productsView(outlet); };
+  const grid = productGrid();
+  const panelHost = document.createElement("div");
 
-  function row(p) {
-    const r = document.createElement("div");
-    r.style.cssText = "display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-subtle);";
-    r.appendChild(productThumb(p.images || [], p.name));
-    const main = document.createElement("div");
-    main.style.cssText = "flex:1;min-width:0;";
-    main.innerHTML = `
-      <div style="font-weight:600;font-size:14px;">${esc(p.name)}${p.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
-      <div style="font-size:12px;color:var(--text-secondary);">${p.variantCount} variants · ${p.totalOnHand} units on hand · $${p.priceRange[0].toFixed(2)}–$${p.priceRange[1].toFixed(2)}</div>
-    `;
-    r.appendChild(main);
-    const actions = document.createElement("div");
-    actions.style.cssText = "display:flex;gap:6px;";
+  function openPanel(title, product, painter) {
+    panelHost.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "card pdet";
+    const head = document.createElement("div");
+    head.className = "pdet-head";
+    head.innerHTML = `<div><h4>${esc(product.name)}</h4><p>${esc(title)}</p></div>`;
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "btn btn-ghost btn-sm";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => { panelHost.innerHTML = ""; });
+    const headActions = document.createElement("div");
+    headActions.className = "pdet-head-actions";
+    headActions.appendChild(closeBtn);
+    head.appendChild(headActions);
+    card.appendChild(head);
 
-    const archiveBtn = document.createElement("button");
-    archiveBtn.className = "btn btn-secondary btn-sm";
-    archiveBtn.textContent = p.archived ? "Unarchive" : "Archive";
-    archiveBtn.addEventListener("click", async () => {
-      await toggleArchived(p.id, !p.archived);
-      toast(p.archived ? "Unarchived" : "Archived", { type: "success" });
-      outlet.innerHTML = "";
-      productsView(outlet);
-    });
-
-    const dupBtn = document.createElement("button");
-    dupBtn.className = "btn btn-secondary btn-sm";
-    dupBtn.textContent = "Duplicate as template";
-    dupBtn.addEventListener("click", async () => {
-      dupBtn.disabled = true;
-      const result = await duplicateAsTemplate(p.id);
-      dupBtn.disabled = false;
-      toast(result.ok ? "Template created (archived, zero stock — edit and publish when ready)" : "Duplicate failed", { type: result.ok ? "success" : "danger" });
-      if (result.ok) { outlet.innerHTML = ""; productsView(outlet); }
-    });
-
-    const pricingBtn = document.createElement("button");
-    pricingBtn.className = "btn btn-secondary btn-sm";
-    pricingBtn.textContent = "Pricing & MOQ";
-
-    const packsBtn = document.createElement("button");
-    packsBtn.className = "btn btn-secondary btn-sm";
-    packsBtn.textContent = "Packs";
-
-    actions.appendChild(packsBtn);
-    actions.appendChild(pricingBtn);
-    actions.appendChild(archiveBtn);
-    actions.appendChild(dupBtn);
-    r.appendChild(actions);
-
-    const wrap = document.createElement("div");
-    wrap.style.cssText = "display:flex;flex-direction:column;width:100%;";
-    wrap.appendChild(r);
-
-    const panel = document.createElement("div");
-    panel.style.cssText = "display:none;padding:14px 16px 16px 16px;background:var(--surface-sunken,#f7f7f5);border-bottom:1px solid var(--border-subtle);";
-    wrap.appendChild(panel);
-
-    let panelLoaded = false;
-    pricingBtn.addEventListener("click", async () => {
-      const isOpen = panel.style.display === "block";
-      panel.style.display = isOpen ? "none" : "block";
-      if (isOpen || panelLoaded) return;
-      panelLoaded = true;
-      panel.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);">Loading…</div>`;
-      await renderPricingPanel(panel, p);
-    });
-
-    const packsPanel = document.createElement("div");
-    packsPanel.style.cssText = "display:none;padding:14px 16px 16px 16px;background:var(--surface-sunken,#f7f7f5);border-bottom:1px solid var(--border-subtle);";
-    wrap.appendChild(packsPanel);
-
-    packsBtn.addEventListener("click", async () => {
-      const isOpen = packsPanel.style.display === "block";
-      packsPanel.style.display = isOpen ? "none" : "block";
-      if (isOpen) return;
-      packsPanel.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);">Loading…</div>`;
-      await renderPacksPanel(packsPanel, wid, p);
-    });
-
-    return wrap;
+    const body = document.createElement("div");
+    body.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);">Loading…</div>`;
+    card.appendChild(body);
+    panelHost.appendChild(card);
+    card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    painter(body);
   }
 
-  products.forEach((p) => table.appendChild(row(p)));
-  outlet.appendChild(table);
+  products.forEach((p) => {
+    const badges = [];
+    if (p.archived) badges.push({ text: "Archived", kind: "badge-neutral" });
+
+    // priceRange comes back [0, 0] for a product with no variants, and "$0.00"
+    // is a claim about the price rather than an absence of one.
+    const lo = p.priceRange?.[0], hi = p.priceRange?.[1];
+    const priceText = !hi ? "—" : lo === hi ? money(lo) : `${money(lo)}–${money(hi)}`;
+
+    grid.appendChild(renderProductTile({
+      id: p.id,
+      name: p.name,
+      images: p.images || [],
+      badges,
+      facts: [
+        { label: "Price", value: priceText },
+        { label: "Colours & sizes", value: String(p.variantCount) },
+        { label: "On hand", value: String(p.totalOnHand), tone: p.totalOnHand <= 0 ? "danger" : "" },
+      ],
+      actions: [
+        { label: "View", variant: "btn-primary", onClick: () => openProductView(p.id, reload) },
+        { label: "Edit", onClick: () => openProductEditor(p.id, reload) },
+        { label: "Pricing & MOQ", onClick: () => openPanel("Pricing, tiers and minimums", p, (body) => renderPricingPanel(body, p)) },
+        { label: "Packs", onClick: () => openPanel("Prepacks and ratios", p, (body) => renderPacksPanel(body, wid, p)) },
+        { label: p.archived ? "Unarchive" : "Archive", onClick: async () => {
+            await toggleArchived(p.id, !p.archived);
+            toast(p.archived ? "Unarchived" : "Archived", { type: "success" });
+            reload();
+          } },
+        { label: "Duplicate as template", title: "Creates an archived, zero-stock copy you can edit and publish", onClick: async () => {
+            const result = await duplicateAsTemplate(p.id);
+            toast(result.ok ? "Template created (archived, zero stock — edit and publish when ready)" : "Duplicate failed",
+                  { type: result.ok ? "success" : "danger" });
+            if (result.ok) reload();
+          } },
+      ],
+      onOpen: () => openProductView(p.id, reload),
+    }));
+  });
+
+  outlet.appendChild(grid);
+  outlet.appendChild(panelHost);
 
   // Bulk price update
   const bulkCard = document.createElement("div");
@@ -841,92 +832,138 @@ async function inventoryView(outlet) {
     return;
   }
 
-  const table = document.createElement("div");
-  table.className = "card";
-  table.style.padding = "8px";
+  // One card per PRODUCT, with the colour/size breakdown inside it. The old
+  // layout was a row per colour+size+location, so a seven-variant product
+  // filled seven near-identical text rows -- a ledger, when what a wholesaler
+  // needs to find a garment is a catalogue.
+  const products = await getStockByProduct(wid);
+  const grid = productGrid();
+  const reload = () => { outlet.innerHTML = ""; inventoryView(outlet); };
 
-  stock.forEach((row) => {
-    const r = document.createElement("div");
-    // A CLASS, not an inline style. The row now carries a badge, a quantity
-    // block and a button, and at 390px the inline `display:flex` squeezed the
-    // product name into a one-word-per-line column. Layout that has to change
-    // with the viewport cannot live in a style attribute -- there is no media
-    // query for an inline style. See css/mobile.css.
-    r.className = "inv-row";
-    // "Never stocked" and "Out" are different facts and must not share a
-    // badge. One needs reordering; the other has simply never been received
-    // into, which is the normal state of a product created five seconds ago.
-    // Before the getStockTable rewrite these rows did not appear at all.
-    const badge = row.neverStocked
-      ? '<span class="badge badge-neutral">Not stocked yet</span>'
-      : row.available <= 0 ? '<span class="badge badge-danger">Out</span>'
-      : row.available <= 15 ? '<span class="badge badge-warning">Low</span>' : "";
-    r.appendChild(productThumb(row.images || [], row.productName));
-    const invMain = document.createElement("div");
-    invMain.innerHTML = `
-      <div class="inv-row-main">
-        <div class="inv-row-name">${esc(row.productName)} <span class="inv-row-variant">${esc(row.color || "—")} / ${esc(row.size || "—")}</span></div>
-        <div class="inv-row-meta">${esc(row.locationName)} · SKU ${esc(row.sku)}</div>
-      </div>
-      <div class="inv-row-qty">
-        <div class="inv-row-avail">${row.available} avail.</div>
-        <div class="inv-row-meta">${row.onHand} on hand${row.reserved ? `, ${row.reserved} held` : ""}</div>
-      </div>
-      <div class="inv-row-badge">${badge}</div>
-    `;
-    while (invMain.firstChild) r.appendChild(invMain.firstChild);
-    const receiveBtn = document.createElement("button");
-    receiveBtn.className = "btn btn-secondary btn-sm";
-    receiveBtn.textContent = "Receive";
-    receiveBtn.addEventListener("click", async () => {
-      if (!row.locationId) {
-        toast("There is no stock location set up to receive into. Tell OGGI — every wholesaler should have one.", { type: "danger" });
-        return;
-      }
-      const qty = parseInt(prompt(`Receive how many units of ${row.productName} (${row.color}/${row.size})?`, "10"), 10);
-      if (!qty || qty <= 0) return;
-      const { error } = await receiveStock(row.variantId, row.locationId, qty);
-      if (error) { toast("Receive failed", { type: "danger" }); return; }
+  products.forEach((p) => {
+    const badges = [];
+    if (p.outCount) badges.push({ text: `${p.outCount} out`, kind: "badge-danger" });
+    if (p.lowCount) badges.push({ text: `${p.lowCount} low`, kind: "badge-warning" });
+    if (p.neverStockedCount) badges.push({ text: `${p.neverStockedCount} not stocked`, kind: "badge-neutral" });
 
-      // Batch 9: optional landed-cost detail for this receipt (freight/
-      // duty/other) -- entirely skippable (Cancel on the first prompt opts
-      // out of all three) since most receipts won't have extra cost detail
-      // worth recording, matching this view's existing prompt()-based flow
-      // rather than introducing a heavier modal for an optional add-on.
-      const freightRaw = prompt(`Optional: freight cost for this receipt of ${qty} units? (Cancel to skip landed-cost tracking)`, "0");
-      if (freightRaw !== null) {
-        const dutyRaw = prompt("Duty/customs cost for this receipt?", "0");
-        const otherRaw = prompt("Any other landed cost (handling, inspection, etc.)?", "0");
-        await recordReceiptCost({
-          variantId: row.variantId, locationId: row.locationId, qty,
-          baseCost: row.cost,
-          freightCost: parseFloat(freightRaw) || 0,
-          dutyCost: parseFloat(dutyRaw) || 0,
-          otherCost: parseFloat(otherRaw) || 0,
-        });
-      }
-      toast(`Received ${qty} units`, { type: "success" });
-      outlet.innerHTML = "";
-      inventoryView(outlet);
+    const tile = renderProductTile({
+      id: p.productId,
+      name: p.productName,
+      images: p.images,
+      badges,
+      facts: [
+        { label: "Available", value: String(p.available), tone: p.available <= 0 ? "danger" : p.available <= 15 ? "warning" : "" },
+        { label: "On hand", value: String(p.onHand) },
+        { label: "Colours & sizes", value: String(p.variantCount) },
+      ],
+      actions: [
+        { label: "Receive & transfer", variant: "btn-primary", onClick: () => openProductDetail(p) },
+        { label: "View", onClick: () => openProductView(p.productId, reload) },
+        { label: "Edit", onClick: () => openProductEditor(p.productId, reload) },
+      ],
+      onOpen: () => openProductDetail(p),
     });
-    r.appendChild(receiveBtn);
-
-    // Transfer only appears when there is somewhere to transfer TO and
-    // something to move. A button that can only ever fail is worse than no
-    // button -- it invites the click and then explains itself.
-    if (locations.length > 1 && row.available > 0) {
-      const moveBtn = document.createElement("button");
-      moveBtn.className = "btn btn-secondary btn-sm";
-      moveBtn.textContent = "Transfer";
-      moveBtn.addEventListener("click", () => {
-        openTransfer(row, locations, () => { outlet.innerHTML = ""; inventoryView(outlet); });
-      });
-      r.appendChild(moveBtn);
-    }
-
-    table.appendChild(r);
+    grid.appendChild(tile);
   });
-  outlet.appendChild(table);
+  outlet.appendChild(grid);
+
+  const detailHost = document.createElement("div");
+  outlet.appendChild(detailHost);
+
+  /** The colour/size breakdown, opened under the grid. Inline rather than a
+   *  modal for the same reason the transfer panel is: on a phone a centred
+   *  dialog covers the very figures the operator is deciding against. */
+  function openProductDetail(p) {
+    detailHost.innerHTML = "";
+    const panel = document.createElement("div");
+    panel.className = "card inv-detail";
+
+    const head = document.createElement("div");
+    head.className = "inv-detail-head";
+    head.innerHTML = `<h4>${esc(p.productName)}</h4>
+      <p>${p.variantCount} colour/size combination${p.variantCount === 1 ? "" : "s"} · ${p.available} available of ${p.onHand} on hand</p>`;
+    const close = document.createElement("button");
+    close.className = "btn btn-ghost btn-sm";
+    close.textContent = "Close";
+    close.addEventListener("click", () => { detailHost.innerHTML = ""; });
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    p.variants.forEach((row) => {
+      const r = document.createElement("div");
+      r.className = "inv-row";
+      const badge = row.neverStocked
+        ? '<span class="badge badge-neutral">Not stocked yet</span>'
+        : row.available <= 0 ? '<span class="badge badge-danger">Out</span>'
+        : row.available <= 15 ? '<span class="badge badge-warning">Low</span>' : "";
+      const main = document.createElement("div");
+      main.innerHTML = `
+        <div class="inv-row-main">
+          <div class="inv-row-name">${esc(row.color || "—")} / ${esc(row.size || "—")}</div>
+          <div class="inv-row-meta">${esc(row.locationName)} · SKU ${esc(row.sku)}${row.barcode ? ` · ${esc(row.barcode)}` : ""}</div>
+        </div>
+        <div class="inv-row-qty">
+          <div class="inv-row-avail">${row.available} avail.</div>
+          <div class="inv-row-meta">${row.onHand} on hand${row.reserved ? `, ${row.reserved} held` : ""}</div>
+        </div>
+        <div class="inv-row-badge">${badge}</div>
+      `;
+      while (main.firstChild) r.appendChild(main.firstChild);
+
+      const receiveBtn = document.createElement("button");
+      receiveBtn.className = "btn btn-secondary btn-sm";
+      receiveBtn.textContent = "Receive";
+      receiveBtn.addEventListener("click", async () => {
+        if (!row.locationId) {
+          toast("There is no stock location set up to receive into. Tell OGGI — every wholesaler should have one.", { type: "danger" });
+          return;
+        }
+        const qty = parseInt(prompt(`Receive how many units of ${row.productName} (${row.color}/${row.size})?`, "10"), 10);
+        if (!qty || qty <= 0) return;
+        const { error } = await receiveStock(row.variantId, row.locationId, qty);
+        if (error) { toast("Receive failed", { type: "danger" }); return; }
+
+        // Batch 9: optional landed-cost detail for this receipt (freight/
+        // duty/other) -- entirely skippable (Cancel on the first prompt opts
+        // out of all three) since most receipts won't have extra cost detail
+        // worth recording.
+        const freightRaw = prompt(`Optional: freight cost for this receipt of ${qty} units? (Cancel to skip landed-cost tracking)`, "0");
+        if (freightRaw !== null) {
+          const dutyRaw = prompt("Duty/customs cost for this receipt?", "0");
+          const otherRaw = prompt("Any other landed cost (handling, inspection, etc.)?", "0");
+          await recordReceiptCost({
+            variantId: row.variantId, locationId: row.locationId, qty,
+            baseCost: row.cost,
+            freightCost: parseFloat(freightRaw) || 0,
+            dutyCost: parseFloat(dutyRaw) || 0,
+            otherCost: parseFloat(otherRaw) || 0,
+          });
+        }
+        toast(`Received ${qty} units`, { type: "success" });
+        outlet.innerHTML = "";
+        inventoryView(outlet);
+      });
+      r.appendChild(receiveBtn);
+
+      // Transfer only appears when there is somewhere to transfer TO and
+      // something to move. A button that can only ever fail is worse than no
+      // button -- it invites the click and then explains itself.
+      if (locations.length > 1 && row.available > 0) {
+        const moveBtn = document.createElement("button");
+        moveBtn.className = "btn btn-secondary btn-sm";
+        moveBtn.textContent = "Transfer";
+        moveBtn.addEventListener("click", () => {
+          openTransfer(row, locations, () => { outlet.innerHTML = ""; inventoryView(outlet); });
+        });
+        r.appendChild(moveBtn);
+      }
+
+      panel.appendChild(r);
+    });
+
+    detailHost.appendChild(panel);
+    panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
 /**
@@ -1781,42 +1818,43 @@ async function catalogsView(outlet) {
       return;
     }
 
-    const list = document.createElement("div");
-    list.className = "card";
-    list.style.padding = "8px";
+    // Same card grid as Inventory and Products. A catalog is the most
+    // catalogue-like screen in the app -- it is literally a wholesaler showing
+    // a buyer what they make -- so it would be the strangest place to keep a
+    // list of text rows with a stamp-sized photo.
+    const grid = productGrid();
     products.forEach((p) => {
-      const r = document.createElement("div");
-      r.style.cssText = "display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;";
-      const swatches = p.colors.map((c) =>
-        `<span title="${esc(c.name)}" style="display:inline-block;width:14px;height:14px;border-radius:4px;background:${esc(c.hex)};box-shadow:inset 0 0 0 1px rgba(14,34,48,.18);"></span>`
-      ).join("");
-      r.appendChild(productThumb(p.images || [], p.name));
-      const cMain = document.createElement("div");
-      cMain.style.cssText = "flex:1;min-width:180px;";
-      cMain.innerHTML = `
-        <div style="font-weight:600;font-size:14px;">${esc(p.name)}${p.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
-        <div style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <span>${p.variantCount} variant${p.variantCount === 1 ? "" : "s"}</span>
-          ${p.priceRange[1] > 0 ? `<span>· ${money(p.priceRange[0])}–${money(p.priceRange[1])}</span>` : ""}
-          ${swatches ? `<span style="display:inline-flex;gap:4px;align-items:center;">${swatches}</span>` : ""}
-        </div>
-      `;
-      r.appendChild(cMain);
-      const rm = document.createElement("button");
-      rm.className = "btn btn-ghost btn-sm";
-      // Wording matters: this unfiles, it does not delete. "Remove" alone
-      // reads as destructive and would stop people using catalogs at all.
-      rm.textContent = "Remove from catalog";
-      rm.addEventListener("click", async () => {
-        const res = await removeProductFromCatalog(activeId, p.id);
-        if (!res.ok) { toast(res.error, { type: "danger" }); return; }
-        toast(`"${p.name}" removed from ${catalog.name}. The product itself is untouched.`, { type: "success" });
-        await paintList();
-      });
-      r.appendChild(rm);
-      list.appendChild(r);
+      const badges = [];
+      if (p.archived) badges.push({ text: "Archived", kind: "badge-neutral" });
+      p.colors.slice(0, 6).forEach((c) => badges.push({ text: c.name, kind: "badge-neutral" }));
+
+      grid.appendChild(renderProductTile({
+        id: p.id,
+        name: p.name,
+        images: p.images || [],
+        badges,
+        facts: [
+          { label: "Price", value: p.priceRange[1] > 0
+              ? (p.priceRange[0] === p.priceRange[1] ? money(p.priceRange[0]) : `${money(p.priceRange[0])}–${money(p.priceRange[1])}`)
+              : "—" },
+          { label: "Colours & sizes", value: String(p.variantCount) },
+        ],
+        actions: [
+          { label: "View", variant: "btn-primary", onClick: () => openProductView(p.id, () => paintList()) },
+          { label: "Edit", onClick: () => openProductEditor(p.id, () => paintList()) },
+          // Wording matters: this unfiles, it does not delete. "Remove" alone
+          // reads as destructive and would stop people using catalogs at all.
+          { label: "Remove from catalog", onClick: async () => {
+              const res = await removeProductFromCatalog(activeId, p.id);
+              if (!res.ok) { toast(res.error, { type: "danger" }); return; }
+              toast(`"${p.name}" removed from ${catalog.name}. The product itself is untouched.`, { type: "success" });
+              await paintList();
+            } },
+        ],
+        onOpen: () => openProductView(p.id, () => paintList()),
+      }));
     });
-    listHost.appendChild(list);
+    listHost.appendChild(grid);
   }
 
   paintTabs();
@@ -1991,6 +2029,145 @@ async function locationsView(outlet) {
 function placeholder(outlet, title, batchNote) {
   outlet.appendChild(pageHeader(title, `Not built yet — ${batchNote}`));
   outlet.appendChild(emptyState({ title: `${title} — coming soon`, body: "This route is wired and reachable; the view itself lands with its batch." }));
+}
+
+// ---------- Viewing a product (Batch 19) ----------
+// The other half of "a button to essentially edit or a button to view or
+// both". View comes FIRST in every action list on purpose: it is the safe
+// door. Someone who is not sure which product they are looking at should be
+// able to find out without landing in a form where a stray keystroke is an
+// edit they now have to notice and undo.
+//
+// It opens in the same overlay the editor uses, and carries an "Edit this
+// product" button, so the reading path leads into the writing path without
+// making the writing path the only path.
+function overlayHost(label) {
+  const overlay = document.createElement("div");
+  overlay.className = "prod-edit";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", label);
+
+  const prevOverflow = document.body.style.overflow;
+  const onKey = (ev) => { if (ev.key === "Escape") close(); };
+  function close() {
+    document.body.style.overflow = prevOverflow;
+    document.removeEventListener("keydown", onKey);
+    overlay.remove();
+  }
+  document.body.style.overflow = "hidden";
+  document.addEventListener("keydown", onKey);
+
+  // Clicking the backdrop closes; clicking the panel does not. The panel is
+  // the thing being read, and a mis-aimed click inside it should never throw
+  // the reader out of it.
+  overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
+
+  return { overlay, close };
+}
+
+async function openProductView(productId, onEdited) {
+  if (!productId) { toast("That product could not be identified.", { type: "danger" }); return; }
+  const detail = await getProductDetail(productId);
+  if (!detail.ok) { toast(detail.error, { type: "danger" }); return; }
+
+  const { overlay, close } = overlayHost(`Details for ${detail.product.name}`);
+  overlay.appendChild(renderProductDetail(detail, {
+    onClose: close,
+    onEdit: () => { close(); openProductEditor(productId, onEdited); },
+  }));
+  document.body.appendChild(overlay);
+  overlay.querySelector(".pdet-close, .pdet-edit")?.focus();
+}
+
+// ---------- Editing a product (Batch 19) ----------
+// Hadi: "I can't edit the product at all. Maybe there's a mistake. Maybe I
+// want to look at the data." He was right -- there was no edit path anywhere
+// in the app, only archive, duplicate and a bulk price tool.
+//
+// It reuses the builder rather than growing a second form. Two forms for one
+// object drift: the edit one always ends up missing the field the create one
+// gained last week, and then a wholesaler cannot fix the thing they just
+// created. Same component, same validation, same grid, filled in.
+async function openProductEditor(productId, onSaved) {
+  if (!productId) { toast("That product could not be identified.", { type: "danger" }); return; }
+  const session = devAuth.getSession();
+  const wid = session?.wid;
+
+  const [loaded, suppliers, locations] = await Promise.all([
+    getProductForEdit(productId), listSuppliers(wid), getLocations(wid),
+  ]);
+  if (!loaded.ok) { toast(loaded.error, { type: "danger" }); return; }
+
+  // Current stock per variant, so the grid opens showing what is actually on
+  // hand rather than zeroes -- editing a product should not look like the
+  // stock has vanished.
+  const stock = await getStockTable(wid);
+  const onHandByVariant = new Map();
+  stock.forEach((r) => {
+    onHandByVariant.set(r.variantId, (onHandByVariant.get(r.variantId) || 0) + r.onHand);
+  });
+
+  const colourBarcodes = {};
+  loaded.colourBarcodes.forEach((cb) => { colourBarcodes[String(cb.color).toLowerCase()] = cb.barcode; });
+
+  const images = [];
+  loaded.variants.forEach((v) => {
+    [v.image_url, ...(Array.isArray(v.images) ? v.images : [])].forEach((u) => {
+      const url = String(u || "").trim();
+      if (url && !images.includes(url)) images.push(url);
+    });
+  });
+
+  const initial = {
+    name: loaded.product.name,
+    description: loaded.product.description,
+    category: loaded.product.category,
+    moqQty: loaded.product.moq_qty,
+    sellingModel: loaded.product.selling_model,
+    barcode: loaded.product.barcode,
+    supplierId: loaded.product.supplier_id,
+    images,
+    colourBarcodes,
+    variants: loaded.variants
+      .filter((v) => !v.archived)
+      .map((v) => ({
+        id: v.id,
+        sku: v.sku,
+        price: v.price,
+        cost: v.cost,
+        retailPrice: v.retail_price,
+        moqQty: v.moq_qty,
+        barcode: v.barcode,
+        color: v.extra_attrs?.color,
+        size: v.extra_attrs?.size,
+        colorHex: v.extra_attrs?.colorHex,
+        onHand: onHandByVariant.get(v.id) || 0,
+      })),
+  };
+
+  const { overlay, close } = overlayHost(`Edit ${loaded.product.name}`);
+
+  const form = renderProductForm({
+    suppliers,
+    locations,
+    initial,
+    onCreateSupplier: (d) => createSupplier(wid, d),
+    onCancel: close,
+    onSubmit: async (draft) => {
+      const res = await updateProduct(productId, draft);
+      if (res.ok) {
+        toast(res.message, { type: res.failed?.length ? "warning" : "success" });
+        close();
+        onSaved?.();
+      }
+      return res;
+    },
+  });
+
+  overlay.appendChild(form.el);
+  document.body.appendChild(overlay);
+  form.focus();
 }
 
 // ---------- Suppliers (Batch 17) ----------
