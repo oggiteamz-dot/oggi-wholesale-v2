@@ -582,10 +582,20 @@ export function renderProductForm({
       });
       tools.appendChild(hex);
 
+      // btn-danger-quiet, not btn-ghost. Hadi looked straight at this row and
+      // reported "there is no remove button" -- and he was right about the
+      // thing that matters: a ghost button is text with no border and no fill,
+      // so next to a real bordered button it reads as a caption rather than
+      // something you can press. It was 77x30 and perfectly visible, which is
+      // exactly why "it renders" is not the same as "it is findable". The
+      // symbol makes it scannable without reading, and the wording stays
+      // explicit for screen readers.
       const del = document.createElement("button");
       del.type = "button";
-      del.className = "btn btn-ghost btn-sm";
-      del.textContent = "Remove";
+      del.className = "btn btn-danger-quiet btn-sm pb-colour-del";
+      del.innerHTML = `<span aria-hidden="true">🗑</span> Remove`;
+      del.setAttribute("aria-label", `Remove colour ${c.name || idx + 1}`);
+      del.title = "Remove this colour";
       del.addEventListener("click", () => {
         colours.splice(idx, 1);
         paintColours(); paintGrid();
