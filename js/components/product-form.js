@@ -1194,22 +1194,40 @@ export function renderProductForm({
         cell.className = "pb-cell";
         const inputId = nid();
         cell.innerHTML = `<span class="pb-cell-size">${esc(size)}</span>`;
-        const qty = document.createElement("input");
-        qty.className = "input";
-        qty.type = "number";
-        qty.min = "0";
-        qty.step = "1";
-        qty.inputMode = "numeric";
-        qty.id = inputId;
-        qty.value = String(c.cells[size]?.qty ?? 0);
-        qty.setAttribute("aria-label", `${c.name || "colour"} ${size} quantity`);
-        qty.addEventListener("input", () => {
-          c.cells[size] = c.cells[size] || { qty: 0, sku: "", barcode: "" };
-          c.cells[size].qty = Math.max(0, parseInt(qty.value, 10) || 0);
-          updateTotal(c);
-        });
-        qty.addEventListener("focus", () => aimScanner(c.id, size));
-        cell.appendChild(qty);
+        // On CREATE this is opening stock. On EDIT it is not editable, and
+        // saying so is the point.
+        //
+        // Stock only ever moves through receive/adjust/transfer RPCs -- the
+        // architecture rule is that nothing writes v2_inventory_balances
+        // directly, so a number typed here on an existing product had no path
+        // to the database and was silently dropped on save. A box that accepts
+        // a number and discards it is worse than no box: the operator watches
+        // themselves type 40, clicks Save, is told it saved, and finds 0.
+        if (isEdit) {
+          const held = document.createElement("span");
+          held.className = "pb-cell-onhand";
+          const n = c.cells[size]?.qty ?? 0;
+          held.textContent = `${n} on hand`;
+          held.title = "Stock moves through Receive & transfer, not here — so this cannot be edited from the product form.";
+          cell.appendChild(held);
+        } else {
+          const qty = document.createElement("input");
+          qty.className = "input";
+          qty.type = "number";
+          qty.min = "0";
+          qty.step = "1";
+          qty.inputMode = "numeric";
+          qty.id = inputId;
+          qty.value = String(c.cells[size]?.qty ?? 0);
+          qty.setAttribute("aria-label", `${c.name || "colour"} ${size} opening quantity`);
+          qty.addEventListener("input", () => {
+            c.cells[size] = c.cells[size] || { qty: 0, sku: "", barcode: "" };
+            c.cells[size].qty = Math.max(0, parseInt(qty.value, 10) || 0);
+            updateTotal(c);
+          });
+          qty.addEventListener("focus", () => aimScanner(c.id, size));
+          cell.appendChild(qty);
+        }
 
         // The barcode that will be printed on THIS colour+size. It is a
         // separate field from the code/SKU on purpose (migration 016): a SKU
@@ -1335,6 +1353,13 @@ export function renderProductForm({
       // are already in storage; they have a url and no File, and handing a
       // null to the uploader would fail a save for a photo that is fine.
       photos: photos.filter((p) => p.file).map((p) => p.file),
+      // The WHOLE strip, in the order it is on screen: existing photos keep
+      // their url, new ones carry the File. Creating a product only needs the
+      // new files above, but editing one needs the order and the deletions
+      // too -- "Make main" and the × button were doing nothing on save,
+      // because a list of new files cannot express "this one was removed" or
+      // "these two swapped places".
+      photoStrip: photos.map((p) => (p.file ? { file: p.file } : { url: p.url })),
       supplierId: selectedSupplierId || null,
       barcode: v(ids.barcode).trim(),
       colourBarcodes: colours
