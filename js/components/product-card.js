@@ -19,7 +19,14 @@ function cartQtyForProduct(wid, product) {
   return cart.get(wid).filter((l) => variantIds.has(l.variantId)).reduce((s, l) => s + l.qty, 0);
 }
 
-export function renderProductCard({ product, wid, locationId, currency, tiers = [], overridesByVariant = new Map(), isReorder = false, packs = [], onCartChange }) {
+export function renderProductCard({ product, wid, locationId, currency, tiers = [], overridesByVariant = new Map(), isReorder = false, packs = [], onCartChange,
+  // Migration 053. discountPct is the WHOLE percentage the server will apply
+  // (catalog + customer, per the catalog's mode). customerPct is the part of
+  // it the buyer is allowed to see: the catalog's own share is silent by
+  // design, so only the customer's share may appear as a struck-through
+  // "before" price. Both default to 0, so a screen that has not been taught
+  // about discounts prices exactly as it did before.
+  discountPct = 0, customerPct = 0 }) {
   const el = document.createElement("div");
   el.className = "card product-card";
   el.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
@@ -246,12 +253,19 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
 
       const lines = [];
       if (typedQty > 0) {
-        const { price, source } = effectivePrice({
+        const { price, listPrice, source } = effectivePrice({
           basePrice: variant.price, productId: product.id, variantId: variant.id,
           aggregateQty: aggQty, tiersByProduct: tiersByProductLocal, overridesByVariant,
+          discountPct, customerPct,
         });
         const label = source === "override" ? "your price" : source === "tier" ? "tier price" : "price";
-        lines.push(`<div>${money(price, currency)}/ea (${label})</div>`);
+        // The strikethrough appears only when the CUSTOMER's own discount is
+        // doing something. A catalog-only discount shows one price and no
+        // theatre, because the buyer was never meant to know it exists.
+        const shown = listPrice > price
+          ? `<s class="pc-was">${money(listPrice, currency)}</s> <strong>${money(price, currency)}</strong>`
+          : money(price, currency);
+        lines.push(`<div>${shown}/ea (${label})</div>`);
 
         const skuMoq = variantMoqStatus(variant, typedQty);
         if (!skuMoq.met) lines.push(`<div style="color:var(--warning-600,#a15c00);">Add ${skuMoq.short} more of this SKU (min ${skuMoq.required})</div>`);
@@ -273,6 +287,7 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
       const { price } = effectivePrice({
         basePrice: variant.price, productId: product.id, variantId: variant.id,
         aggregateQty: otherVariantsQty + qty, tiersByProduct: tiersByProductLocal, overridesByVariant,
+        discountPct, customerPct,
       });
       addBtn.disabled = true;
       const result = await cart.setLineQty(
