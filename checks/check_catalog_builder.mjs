@@ -161,6 +161,22 @@ ok(/cat-tier[\s\S]{0,2000}cat-discount[\s\S]{0,2000}cat-mode/.test(view),
 ok(/pay \$\{pct\}% LESS|% LESS than the price/.test(view),
   "the discount box says in words what the number will do — “-10” is read as “ten percent off” by someone in a hurry");
 
+// ---- the link is the only way in ------------------------------------------
+// Hadi: "There is no website for the actual buyer. That's never going to
+// happen... There is just a custom link for each catalog."
+ok(/catalogLink\(/.test(view), "the settings card builds the link the wholesaler sends");
+ok(/Copy link/.test(view), "with a Copy button");
+ok(/setCatalogPublic\(/.test(view), "the public toggle is wired");
+ok(/rotateCatalogLink\(/.test(view), "and a way to kill every link already sent");
+
+const buyerSrc = readFileSync("js/views/buyer.js", "utf8");
+ok(/router\.register\("\/c\/:token"/.test(buyerSrc), "the link resolves to a real route");
+[["dead link", /not_found/], ["asks for a login", /login_required/], ["refuses the wrong account", /denied/]]
+  .forEach(([what, re]) => ok(re.test(buyerSrc), `and handles ${what}`));
+// The switcher was the browsable storefront that is never being built.
+ok(!/buyer-catalog-tabs/.test(buyerSrc),
+  "the buyer catalog switcher is GONE — there is no browse-my-catalogs screen");
+
 console.log("=".repeat(64));
 console.log(" CHECK — THE CATALOG BUILDER");
 console.log("=".repeat(64));
