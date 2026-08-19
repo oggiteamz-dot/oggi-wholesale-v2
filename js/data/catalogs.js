@@ -25,7 +25,11 @@ import { imagesForVariants } from "../components/image-gallery.js";
 export async function listCatalogs(wid) {
   const { data, error } = await sbCall(
     supabase.from("v2_catalogs")
-      .select("id, wid, name, description, is_default, active, created_at")
+      // Explicit column list, and migration 053's three new columns are named
+      // here deliberately. 045 revoked the blanket grant on this table so that
+      // adding a column would have to be a decision to publish it; that only
+      // holds if the read side is updated on purpose too.
+      .select("id, wid, name, description, is_default, active, created_at, access_tier, discount_pct, discount_mode")
       .eq("wid", wid)
       .order("is_default", { ascending: false })
       .order("name", { ascending: true })
@@ -36,6 +40,9 @@ export async function listCatalogs(wid) {
     rows: (data || []).map((c) => ({
       id: c.id, wid: c.wid, name: c.name, description: c.description,
       isDefault: !!c.is_default, active: c.active !== false, createdAt: c.created_at,
+      accessTier: Number(c.access_tier) || 1,
+      discountPct: Number(c.discount_pct) || 0,
+      discountMode: c.discount_mode || "combine",
     })),
   };
 }
@@ -102,12 +109,21 @@ export async function getCatalogProducts(catalogId) {
   };
 }
 
-export async function createCatalog(wid, { name, description = null } = {}) {
+export async function createCatalog(wid, {
+  name, description = null, accessTier = 1, discountPct = 0, discountMode = "combine",
+} = {}) {
   const clean = String(name || "").trim();
   if (!clean) return { ok: false, error: "Give the catalog a name." };
+  const bad = settingsProblem({ accessTier, discountPct, discountMode });
+  if (bad) return { ok: false, error: bad };
   const { data, error } = await sbCall(
     supabase.from("v2_catalogs")
-      .insert({ wid, name: clean, description: description || null, is_default: false, active: true })
+      .insert({
+        wid, name: clean, description: description || null, is_default: false, active: true,
+        access_tier: Number(accessTier) || 1,
+        discount_pct: Number(discountPct) || 0,
+        discount_mode: discountMode,
+      })
       .select("id, name").single()
   );
   if (error) {
@@ -119,6 +135,83 @@ export async function createCatalog(wid, { name, description = null } = {}) {
     return { ok: false, error: error.message };
   }
   return { ok: true, id: data.id, name: data.name };
+}
+
+export const DISCOUNT_MODES = [
+  { value: "combine",
+    label: "Combine both",
+    help: "This catalog's discount plus the customer's own. 5% here and 20% on them is 25% off." },
+  { value: "catalog_only",
+    label: "Only this catalog's discount",
+    help: "The customer's own rate is ignored here. Everyone who can see this catalog pays the same." },
+  { value: "customer_only",
+    label: "Only the customer's discount",
+    help: "This catalog's own discount is skipped — except for a customer with no rate set, who gets it rather than paying full price." },
+];
+
+/** The same bounds the database checks, said in words a person can act on.
+ *  Checked here as well as there because a constraint violation arrives as
+ *  "violates check constraint v2_catalogs_discount_range", which tells the
+ *  wholesaler nothing about what to type instead. */
+export function settingsProblem({ accessTier, discountPct, discountMode }) {
+  const tier = Number(accessTier);
+  if (!Number.isInteger(tier) || tier < 1 || tier > 5) {
+    return "Customer tier has to be a whole number from 1 to 5.";
+  }
+  const pct = Number(discountPct);
+  if (!Number.isFinite(pct) || pct < -100 || pct > 100) {
+    return "Discount has to be between -100 and 100. A negative number raises the price.";
+  }
+  if (!DISCOUNT_MODES.some((m) => m.value === discountMode)) {
+    return "Pick how this catalog's discount meets the customer's own.";
+  }
+  return null;
+}
+
+/** Tier, discount and mode. Separate from renameCatalog because renaming is a
+ *  label change and these three move money -- worth being able to read the
+ *  call site and know which kind of change it is. */
+export async function updateCatalogSettings(catalogId, { accessTier, discountPct, discountMode }) {
+  const bad = settingsProblem({ accessTier, discountPct, discountMode });
+  if (bad) return { ok: false, error: bad };
+  const { error } = await sbCall(
+    supabase.from("v2_catalogs").update({
+      access_tier: Number(accessTier),
+      discount_pct: Number(discountPct),
+      discount_mode: discountMode,
+      updated_at: new Date().toISOString(),
+    }).eq("id", catalogId)
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/**
+ * Files several products into a catalog at once.
+ *
+ * Anything already in it is skipped rather than sent and allowed to fail: the
+ * primary key (catalog_id, product_id) would reject the row, and one rejected
+ * row in a multi-row insert takes the whole statement with it -- so picking
+ * six products where one is already filed would silently add none of them.
+ */
+export async function addProductsToCatalog(catalogId, productIds = []) {
+  const wanted = [...new Set(productIds.filter(Boolean))];
+  if (!wanted.length) return { ok: true, added: 0, skipped: 0 };
+
+  const { data: existing } = await sbCall(
+    supabase.from("v2_catalog_products").select("product_id")
+      .eq("catalog_id", catalogId).in("product_id", wanted)
+  );
+  const already = new Set((existing || []).map((r) => r.product_id));
+  const fresh = wanted.filter((id) => !already.has(id));
+  if (!fresh.length) return { ok: true, added: 0, skipped: already.size };
+
+  const { error } = await sbCall(
+    supabase.from("v2_catalog_products")
+      .insert(fresh.map((id, i) => ({ catalog_id: catalogId, product_id: id, sort_order: 100 + i })))
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, added: fresh.length, skipped: already.size };
 }
 
 export async function renameCatalog(catalogId, name) {
