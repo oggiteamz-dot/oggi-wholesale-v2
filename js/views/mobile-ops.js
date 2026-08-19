@@ -79,6 +79,32 @@ async function receiveScanView(outlet) {
     const match = await lookupByCode(wid, code);
     if (!match) { toast(`No SKU or barcode matches "${code}"`, { type: "danger" }); scanBar.refocus(); return; }
 
+    // Batch 18: a product-level or colour-level barcode covers several
+    // variants, so the scan cannot name one on its own. Asking is the whole
+    // point -- receiving stock against a guessed size would be a silent error
+    // that only surfaces when a customer gets the wrong garment.
+    if (match.ambiguous) {
+      matchCard.style.display = "block";
+      matchCard.innerHTML = `
+        <div style="font-weight:650;margin-bottom:4px;">${esc(match.productName)}</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
+          That code covers ${match.options.length} variants (${match.tier === "product" ? "it is the whole product's barcode" : "it is this colourway's barcode"}). Which one are you receiving?
+        </div>
+      `;
+      const choices = document.createElement("div");
+      choices.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;";
+      match.options.forEach((o) => {
+        const b = document.createElement("button");
+        b.className = "btn btn-secondary btn-sm";
+        b.textContent = `${o.color || "—"} / ${o.size || "—"}`;
+        b.addEventListener("click", () => handleScan(o.sku));   // resolve by SKU, which is exact
+        choices.appendChild(b);
+      });
+      matchCard.appendChild(choices);
+      scanBar.refocus();
+      return;
+    }
+
     matchCard.style.display = "block";
     matchCard.innerHTML = `
       <div style="font-weight:650;margin-bottom:4px;">${esc(match.productName)}</div>

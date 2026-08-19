@@ -17,6 +17,7 @@ import { listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
 import { createProduct } from "../data/products-admin.js";
 import { renderProductForm } from "../components/product-form.js";
+import { productThumb } from "../components/image-gallery.js";
 import { listSuppliers, createSupplier, updateSupplier, archiveSupplier, restoreSupplier, supplierProductCounts } from "../data/suppliers.js";
 import { listLocations, locationStockTotals, createLocation, renameLocation,
          setDefaultLocation, archiveLocation, transferStock } from "../data/locations.js";
@@ -330,12 +331,14 @@ async function productsView(outlet) {
   function row(p) {
     const r = document.createElement("div");
     r.style.cssText = "display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-subtle);";
-    r.innerHTML = `
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:600;font-size:14px;">${esc(p.name)}${p.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
-        <div style="font-size:12px;color:var(--text-secondary);">${p.variantCount} variants · ${p.totalOnHand} units on hand · $${p.priceRange[0].toFixed(2)}–$${p.priceRange[1].toFixed(2)}</div>
-      </div>
+    r.appendChild(productThumb(p.images || [], p.name));
+    const main = document.createElement("div");
+    main.style.cssText = "flex:1;min-width:0;";
+    main.innerHTML = `
+      <div style="font-weight:600;font-size:14px;">${esc(p.name)}${p.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
+      <div style="font-size:12px;color:var(--text-secondary);">${p.variantCount} variants · ${p.totalOnHand} units on hand · $${p.priceRange[0].toFixed(2)}–$${p.priceRange[1].toFixed(2)}</div>
     `;
+    r.appendChild(main);
     const actions = document.createElement("div");
     actions.style.cssText = "display:flex;gap:6px;";
 
@@ -858,7 +861,9 @@ async function inventoryView(outlet) {
       ? '<span class="badge badge-neutral">Not stocked yet</span>'
       : row.available <= 0 ? '<span class="badge badge-danger">Out</span>'
       : row.available <= 15 ? '<span class="badge badge-warning">Low</span>' : "";
-    r.innerHTML = `
+    r.appendChild(productThumb(row.images || [], row.productName));
+    const invMain = document.createElement("div");
+    invMain.innerHTML = `
       <div class="inv-row-main">
         <div class="inv-row-name">${esc(row.productName)} <span class="inv-row-variant">${esc(row.color || "—")} / ${esc(row.size || "—")}</span></div>
         <div class="inv-row-meta">${esc(row.locationName)} · SKU ${esc(row.sku)}</div>
@@ -869,6 +874,7 @@ async function inventoryView(outlet) {
       </div>
       <div class="inv-row-badge">${badge}</div>
     `;
+    while (invMain.firstChild) r.appendChild(invMain.firstChild);
     const receiveBtn = document.createElement("button");
     receiveBtn.className = "btn btn-secondary btn-sm";
     receiveBtn.textContent = "Receive";
@@ -1784,16 +1790,18 @@ async function catalogsView(outlet) {
       const swatches = p.colors.map((c) =>
         `<span title="${esc(c.name)}" style="display:inline-block;width:14px;height:14px;border-radius:4px;background:${esc(c.hex)};box-shadow:inset 0 0 0 1px rgba(14,34,48,.18);"></span>`
       ).join("");
-      r.innerHTML = `
-        <div style="flex:1;min-width:180px;">
-          <div style="font-weight:600;font-size:14px;">${esc(p.name)}${p.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
-          <div style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            <span>${p.variantCount} variant${p.variantCount === 1 ? "" : "s"}</span>
-            ${p.priceRange[1] > 0 ? `<span>· ${money(p.priceRange[0])}–${money(p.priceRange[1])}</span>` : ""}
-            ${swatches ? `<span style="display:inline-flex;gap:4px;align-items:center;">${swatches}</span>` : ""}
-          </div>
+      r.appendChild(productThumb(p.images || [], p.name));
+      const cMain = document.createElement("div");
+      cMain.style.cssText = "flex:1;min-width:180px;";
+      cMain.innerHTML = `
+        <div style="font-weight:600;font-size:14px;">${esc(p.name)}${p.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
+        <div style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span>${p.variantCount} variant${p.variantCount === 1 ? "" : "s"}</span>
+          ${p.priceRange[1] > 0 ? `<span>· ${money(p.priceRange[0])}–${money(p.priceRange[1])}</span>` : ""}
+          ${swatches ? `<span style="display:inline-flex;gap:4px;align-items:center;">${swatches}</span>` : ""}
         </div>
       `;
+      r.appendChild(cMain);
       const rm = document.createElement("button");
       rm.className = "btn btn-ghost btn-sm";
       // Wording matters: this unfiles, it does not delete. "Remove" alone
@@ -2022,19 +2030,72 @@ async function suppliersView(outlet) {
     card.className = "card sup-form";
     card.style.padding = "14px";
     const sp = supplier || {};
+    // Four required fields, the rest optional -- Hadi: "make everything
+    // optional to add except the name and location and phone number and person
+    // of contact". Grouped under headings rather than presented as one wall of
+    // twenty inputs, because the answer to "what does this supplier sell" and
+    // the answer to "what are their payment terms" get filled in at completely
+    // different moments.
     card.innerHTML = `
       <div class="pf-grid">
         <div class="pf-field pf-span-2">
-          <label class="pf-label">Supplier name</label>
+          <label class="pf-label">Supplier name <span class="pf-required">required</span></label>
           <input class="input" data-f="name" value="${esc(sp.name || "")}" autocomplete="off" placeholder="e.g. Zhejiang Textiles">
         </div>
-        ${field("Contact person", "contactName", sp.contactName)}
-        ${field("Phone", "phone", sp.phone, "tel")}
-        ${field("Email", "email", sp.email, "email")}
-        ${field("Country", "country", sp.country)}
+        <div class="pf-field">
+          <label class="pf-label">Contact person <span class="pf-required">required</span></label>
+          <input class="input" data-f="contactName" value="${esc(sp.contactName || "")}" autocomplete="off">
+        </div>
+        <div class="pf-field">
+          <label class="pf-label">Phone <span class="pf-required">required</span></label>
+          <input class="input" data-f="phone" type="tel" value="${esc(sp.phone || "")}" autocomplete="off">
+        </div>
         <div class="pf-field pf-span-2">
-          <label class="pf-label">Address</label>
-          <input class="input" data-f="address" value="${esc(sp.address || "")}" autocomplete="off">
+          <label class="pf-label">Address <span class="pf-required">required</span></label>
+          <input class="input" data-f="address" value="${esc(sp.address || "")}" autocomplete="off" placeholder="Street, city — or just the city">
+        </div>
+        ${field("Country", "country", sp.country)}
+        ${field("Email", "email", sp.email, "email")}
+
+        <div class="pf-field pf-span-2 sup-group">What they sell</div>
+        <div class="pf-field pf-span-2">
+          <label class="pf-label">Categories / product types</label>
+          <input class="input" data-f="sells" value="${esc((sp.sells || []).join(", "))}" autocomplete="off" placeholder="Denim, knitwear, outerwear — separate with commas">
+        </div>
+        <div class="pf-field pf-span-2">
+          <label class="pf-label">Brands they carry</label>
+          <input class="input" data-f="brands" value="${esc((sp.brands || []).join(", "))}" autocomplete="off" placeholder="Separate with commas">
+        </div>
+
+        <div class="pf-field pf-span-2 sup-group">Trade terms</div>
+        ${field("Minimum order", "moq", sp.moq)}
+        ${field("Lead time", "leadTime", sp.leadTime)}
+        ${field("Payment terms", "paymentTerms", sp.paymentTerms)}
+        ${field("Currency", "currency", sp.currency)}
+
+        <div class="pf-field pf-span-2 sup-group">Where to find them</div>
+        ${field("Website", "website", sp.website)}
+        ${field("WhatsApp", "whatsapp", sp.whatsapp, "tel")}
+        ${field("Instagram", "instagram", sp.instagram)}
+        ${field("Catalogue link", "catalogUrl", sp.catalogUrl)}
+
+        <div class="pf-field pf-span-2 sup-group">Your own notes</div>
+        <div class="pf-field">
+          <label class="pf-label">Rating</label>
+          <select class="input" data-f="rating">
+            <option value="">Not rated</option>
+            ${[1,2,3,4,5].map((n) => `<option value="${n}"${Number(sp.rating) === n ? " selected" : ""}>${"★".repeat(n)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="pf-field">
+          <label class="pf-label">Status</label>
+          <select class="input" data-f="status">
+            ${["active","trialling","dropped"].map((v) => `<option value="${v}"${(sp.status || "active") === v ? " selected" : ""}>${v[0].toUpperCase() + v.slice(1)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="pf-field">
+          <label class="pf-label">Last contacted</label>
+          <input class="input" data-f="lastContacted" type="date" value="${esc(sp.lastContacted || "")}">
         </div>
         ${field("Your reference", "refCode", sp.refCode)}
         <div class="pf-field pf-span-2">
@@ -2056,6 +2117,12 @@ async function suppliersView(outlet) {
         name: read("name"), contactName: read("contactName"), phone: read("phone"),
         email: read("email"), address: read("address"), country: read("country"),
         refCode: read("refCode"), notes: read("notes"),
+        sells: read("sells"), brands: read("brands"),
+        moq: read("moq"), leadTime: read("leadTime"),
+        paymentTerms: read("paymentTerms"), currency: read("currency"),
+        website: read("website"), whatsapp: read("whatsapp"),
+        instagram: read("instagram"), catalogUrl: read("catalogUrl"),
+        rating: read("rating"), status: read("status"), lastContacted: read("lastContacted"),
       };
       save.disabled = true;
       const res = supplier ? await updateSupplier(supplier.id, draft) : await createSupplier(wid, draft);
@@ -2126,10 +2193,20 @@ async function suppliersView(outlet) {
         [sp.address, sp.country].filter(Boolean).join(", "),
         sp.refCode && `Ref ${sp.refCode}`,
       ].filter(Boolean);
+      const trade = [
+        (sp.sells || []).length && `Sells: ${sp.sells.join(", ")}`,
+        (sp.brands || []).length && `Brands: ${sp.brands.join(", ")}`,
+        sp.moq && `MOQ ${sp.moq}`,
+        sp.leadTime && `Lead ${sp.leadTime}`,
+        sp.paymentTerms,
+        sp.rating && "★".repeat(Number(sp.rating)),
+        sp.status && sp.status !== "active" && sp.status,
+      ].filter(Boolean);
       card.innerHTML = `
         <div class="sup-row-main">
           <div class="sup-row-name">${esc(sp.name)}${sp.archived ? ' <span class="badge badge-neutral">Archived</span>' : ""}</div>
           <div class="sup-row-meta">${bits.length ? bits.map(esc).join(" · ") : "No contact details yet"}</div>
+          ${trade.length ? `<div class="sup-row-trade">${trade.map(esc).join(" · ")}</div>` : ""}
           ${sp.notes ? `<div class="sup-row-notes">${esc(sp.notes)}</div>` : ""}
           <div class="sup-row-count">${used} product${used === 1 ? "" : "s"}</div>
         </div>
