@@ -5,6 +5,7 @@ import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { getCatalog, getWholesaler, listWholesalers } from "../data/catalog.js";
+import { buyerCatalogs, buyerCatalogProductIds } from "../data/catalogs.js";
 import { cart } from "../data/cart.js";
 import { getBuyerOrders, orderedTimesCount, getBuyerOrderedProductIds } from "../data/orders.js";
 import { getPricingContext, resolveClientId, tierForQty, nextTier, effectivePrice, productMoqStatus, marginPct } from "../data/pricing.js";
@@ -30,6 +31,13 @@ async function defaultLocation(wid) {
   const { data } = await sbCall(supabase.rpc("v2_public_default_location", { p_wid: wid }));
   return (Array.isArray(data) ? data[0] : data) || null;
 }
+
+/** Which catalog the buyer is currently shopping. Module-level because the
+ *  cart is a separate screen from the catalog, and the order has to record the
+ *  catalog it was priced against -- a value that lived inside dashboard()
+ *  would be gone by the time Submit is pressed. Null means "no catalog
+ *  narrowing applied", which prices at list. */
+let activeCatalogId = null;
 
 function buyerLabel() {
   const s = devAuth.getSession();
@@ -105,6 +113,33 @@ async function dashboard(outlet) {
     session.clientId || resolveClientId(wid, label),
     getBuyerOrderedProductIds(session.accountId),
   ]);
+  // Migration 055: which catalogs this buyer's tier allows, and which products
+  // are in the one they are looking at. Until now every buyer saw every
+  // product this wholesaler owned -- catalogs were wholesaler-side filing and
+  // nothing more.
+  //
+  // A wholesaler who has never built a second catalog still has the Main
+  // Catalog that migration 045 back-filled, so this narrows to it rather than
+  // to nothing. If NO catalog is visible -- no account id, an older session --
+  // the buyer keeps seeing the whole range, because showing someone an empty
+  // shop because a lookup failed is far worse than showing them too much.
+  //
+  // Stated plainly: once a catalog IS resolved, an empty product list is shown
+  // as empty. A failed products call and a genuinely empty catalog look the
+  // same from here, and inventing products to cover the difference would be
+  // worse than the honest blank.
+  const visibleCatalogs = await buyerCatalogs(session.accountId);
+  let activeCatalog = visibleCatalogs.find((c) => c.id === activeCatalogId) || visibleCatalogs[0] || null;
+  activeCatalogId = activeCatalog?.id || null;
+
+  async function narrowTo(cat) {
+    if (!cat) return catalog;
+    const ids = new Set(await buyerCatalogProductIds(session.accountId, cat.id));
+    if (!ids.size) return [];
+    return catalog.filter((p) => ids.has(p.id));
+  }
+  let shownCatalog = await narrowTo(activeCatalog);
+
   const [{ tiersByProduct, overridesByVariant, discountPct }, packsByProduct] = await Promise.all([
     // Batch 16: pricing takes the ACCOUNT id now, not a client id -- the
     // database resolves which client that account belongs to. clientId above
@@ -113,7 +148,7 @@ async function dashboard(outlet) {
     // Migration 053: the client id also decides the discount percentage, which
     // v2_submit_order applies to every line whether this screen shows it or
     // not. Passing it here is what keeps the cart and the invoice agreeing.
-    getPricingContext(catalog.map((p) => p.id), session.accountId, { clientId }),
+    getPricingContext(catalog.map((p) => p.id), session.accountId, { clientId, catalogId: activeCatalog?.id || null }),
     listPacksForProducts(catalog.map((p) => p.id)),
   ]);
 
@@ -127,11 +162,40 @@ async function dashboard(outlet) {
   // lives at the cart, where it actually matters for the buyer's decision.
   outlet.appendChild(renderTrustBadges(wholesaler, { compact: true }));
 
+  // Only shown when there is a choice to make. One catalog is not a decision,
+  // and a row of tabs with a single tab in it is furniture.
+  if (visibleCatalogs.length > 1) {
+    const tabs = document.createElement("div");
+    tabs.className = "date-range-row buyer-catalog-tabs";
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Catalogs available to you");
+    visibleCatalogs.forEach((c) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn btn-sm " + (c.id === activeCatalog?.id ? "btn-primary" : "btn-secondary");
+      b.textContent = c.name;
+      b.setAttribute("aria-pressed", String(c.id === activeCatalog?.id));
+      b.addEventListener("click", async () => {
+        if (c.id === activeCatalog?.id) return;
+        activeCatalog = c;
+        activeCatalogId = c.id;
+        shownCatalog = await narrowTo(c);
+        // The whole screen, because the catalog changes the PRICES as well as
+        // the products -- repainting only the grid would leave a cart summary
+        // priced against the catalog they just left.
+        outlet.innerHTML = "";
+        dashboard(outlet);
+      });
+      tabs.appendChild(b);
+    });
+    outlet.appendChild(tabs);
+  }
+
   const gridWrap = document.createElement("div");
   outlet.appendChild(gridWrap);
 
   function renderGrid(filters) {
-    const filtered = filterAndSortCatalog(catalog, filters, { lowMoqThreshold: wholesaler.low_moq_threshold ?? 12 });
+    const filtered = filterAndSortCatalog(shownCatalog, filters, { lowMoqThreshold: wholesaler.low_moq_threshold ?? 12 });
     toolbar.setResultCount(filtered.length, catalog.length);
     gridWrap.innerHTML = "";
     if (!filtered.length) {
@@ -224,7 +288,13 @@ async function cartView(outlet) {
   // they're excluded, matching Batch 7's pack-lines-are-exempt precedent.
   const cartProductIds = [...new Set(lines.filter((l) => !l.isPack && l.productId).map((l) => l.productId))];
   const { tiersByProduct, discountPct: cartDiscountPct } = cartProductIds.length
-    ? await getPricingContext(cartProductIds, session.accountId, { clientId: session.clientId || null })
+    ? await getPricingContext(cartProductIds, session.accountId, {
+        clientId: session.clientId || null,
+        // Same catalog the buyer was shopping, so the cart shows what the
+        // invoice will say. Without it the cart prices at list and the order
+        // arrives discounted, which looks like a pricing bug to everyone.
+        catalogId: activeCatalogId,
+      })
     : { tiersByProduct: new Map(), discountPct: 0 };
 
   const list = document.createElement("div");
@@ -367,7 +437,13 @@ async function cartView(outlet) {
       submitBtn.textContent = "Submitting…";
       const label = buyerLabel();
       const clientId = session.clientId || (await resolveClientId(wid, label));
-      const result = await cart.submit(wid, { buyerLabel: label, locationId: location.id, clientId, accountId: session.accountId });
+      const result = await cart.submit(wid, {
+        buyerLabel: label, locationId: location.id, clientId,
+        accountId: session.accountId,
+        // The catalog priced this order; the server re-checks that this
+        // account may actually see it before honouring the discount.
+        catalogId: activeCatalogId,
+      });
       if (!result.ok) {
         // Batch 6: MOQ/order-minimum violations come back as a real
         // Postgres exception message from the server (the actual
