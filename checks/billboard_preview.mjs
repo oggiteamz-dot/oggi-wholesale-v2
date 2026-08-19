@@ -29,22 +29,33 @@ const poster = "data:image/svg+xml;utf8," + encodeURIComponent(
   '<text x="70" y="372" font-family="Helvetica,sans-serif" font-size="34" fill="#9BE8C8">The linen drop is here</text>' +
   '</svg>');
 const host = document.getElementById("host");
-function label(t){ const h=document.createElement("p"); h.style.cssText="font-size:12px;color:#666;margin:24px 0 6px"; h.textContent=t; host.appendChild(h); }
 
-label("1 — an advertisement for a product: poster plus a button");
+// ONE billboard, because a catalog has one. An earlier version of this file
+// rendered the component twice to show both shapes on one page, and it read as
+// "the app puts two billboards on a catalog" -- which is exactly the sort of
+// thing a preview exists to prevent, not cause.
 host.appendChild(renderBillboard({url:poster, mediaType:"image", cta:"Shop the linen drop", onGo:()=>{}, label:"Summer 26"}));
 
-label("2 — just a poster, no button");
-host.appendChild(renderBillboard({url:poster, mediaType:"image", label:"Summer 26"}));
+// Real product cards, not grey placeholders. Same reason.
+const swatch=(c)=>"data:image/svg+xml;utf8,"+encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="'+c+'"/></svg>');
+function fakeCard(name, colour, highlighted){
+  const el=document.createElement("div");
+  el.className="card product-card" + (highlighted ? " product-card-highlighted" : "");
+  el.style.cssText="padding:0;overflow:hidden;display:flex;flex-direction:column";
+  el.innerHTML='<img src="'+swatch(colour)+'" style="width:100%;aspect-ratio:3/4;object-fit:cover;display:block">'
+    +'<div style="padding:12px"><div style="font-weight:650;font-size:14px">'+name+'</div>'
+    +'<div style="font-size:12px;color:#667">6 colours &middot; $18.00&ndash;$22.00</div></div>';
+  return el;
+}
+const grid=(items)=>{const g=document.createElement("div");
+  g.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
+  items.forEach(([n,c,h])=>g.appendChild(fakeCard(n,c,h))); return g;};
 
-label("3 — the pinned group header, then the rest");
-host.appendChild(sectionHeader("New Arrivals", 4));
-const g=document.createElement("div");
-g.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px";
-["Linen Camp Shirt","Wide-Leg Trouser","Cropped Bomber","Ribbed Tank"].forEach(n=>{
-  const c=document.createElement("div"); c.className="card"; c.style.cssText="padding:12px;font-size:13px"; c.textContent=n; g.appendChild(c);});
-host.appendChild(g);
-host.appendChild(sectionHeader("Everything else", 12));
+host.appendChild(sectionHeader("New Arrivals", 3));
+host.appendChild(grid([["Linen Camp Shirt","#C9B79C",true],["Wide-Leg Trouser","#2F4A6B",true],["Cropped Bomber","#3A3A3A",true]]));
+host.appendChild(sectionHeader("Everything else", 3));
+host.appendChild(grid([["Ribbed Tank","#7C6A46",false],["Merino Crew","#8FA6BF",false],["Wool Scarf","#B91C1C",false]]));
 <\/script></body></html>`;
 await writeFile(join(ROOT, "checks/billboard_preview.html"), html);
 

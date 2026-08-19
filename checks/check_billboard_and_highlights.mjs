@@ -143,6 +143,42 @@ const card = readFileSync("js/components/product-card.js", "utf8");
 ok(/dataset\.productId/.test(card),
   "product cards carry their id, or the billboard button has nothing to scroll to");
 
+// ---- the glow ---------------------------------------------------------------
+// Hadi: "I want the highlighted arrivals to be the actual product with a
+// highlight on them. Like a glowing border."
+//
+// The header names the group; this marks the individual cards. Both are needed
+// — scroll past six of them and the header is off screen, at which point the
+// grouping has stopped meaning anything.
+ok(/highlighted = false \}\)/.test(card) || /highlighted = false/.test(card),
+  "a product card can be told it is highlighted");
+ok(/product-card-highlighted/.test(card),
+  "and marks itself when it is");
+ok(/highlighted: pinned\.has\(product\.id\)/.test(buyer),
+  "the link page passes it through for every pinned product");
+
+const wsrc2 = readFileSync("js/views/wholesaler.js", "utf8");
+ok(/pcard-highlighted/.test(wsrc2),
+  "and the wholesaler's own catalog grid glows the same products — arranging a catalog and reading it should look like the same catalog");
+
+const css = readFileSync("css/components.css", "utf8");
+ok(/\.product-card-highlighted/.test(css) && /\.pcard\.pcard-highlighted/.test(css),
+  "both grids have the style defined");
+// An ::after halo was tried first and was invisible: these cards use
+// overflow:hidden to keep the photo inside the rounded corner, and an element
+// clips its own pseudo-elements. box-shadow draws outside the border box and
+// survives that, which is why the glow is three shadow layers and not a ring
+// element.
+const glow = css.slice(css.indexOf(".product-card-highlighted"), css.indexOf(".product-card-highlighted") + 900);
+ok((glow.match(/rgba\(10, 125, 90/g) || []).length >= 2,
+  "the glow is layered rather than a single flat border — one ring cannot look like light");
+ok(!/\.product-card-highlighted::after/.test(css),
+  "and is NOT a pseudo-element, which a card with overflow:hidden clips away to nothing");
+ok(/prefers-reduced-motion: no-preference/.test(css),
+  "any pulsing is behind a reduced-motion guard");
+ok(!/\.product-card-highlighted \{[^}]*animation:/.test(css),
+  "and pulsing is opt-in, not the default — twenty best sellers all breathing at once is a page nobody can read");
+
 const sql = readFileSync("supabase/migrations/057_v2_catalog_billboard_and_highlights.sql", "utf8");
 ok(/order by cp\.highlighted desc/.test(sql),
   "and the database is the one that decides highlighted-first");
