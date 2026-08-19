@@ -1815,3 +1815,46 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 /* The buyer's catalog switcher. Only rendered when there is more than one to
    choose from — a row of tabs with a single tab in it is furniture. */
 .buyer-catalog-tabs { margin-bottom: var(--space-3); }
+
+/* ---- the catalog link a wholesaler copies and sends ---- */
+
+.cat-link {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.cat-link h5 {
+  margin: 0;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-tertiary);
+}
+.cat-link-row { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+/* The link itself is the widest thing here and the one people need to see in
+   full before trusting it enough to send. */
+.cat-link-input {
+  flex: 1 1 280px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.cat-link-copy { flex: 0 0 auto; }
+
+.cat-public {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  cursor: pointer;
+  padding: var(--space-2) 0;
+  min-height: 44px;
+}
+.cat-public input { accent-color: var(--brand-emerald); width: 18px; height: 18px; margin-top: 1px; flex: 0 0 auto; }
+
+/* Quiet, because it invalidates every link already sent and should not be the
+   thing the eye lands on. */
+.cat-link-rotate { align-self: flex-start; }
