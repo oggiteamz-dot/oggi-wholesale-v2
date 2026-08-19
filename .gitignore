@@ -11,3 +11,4 @@ package.json
 checks/screenshots/
 checks/cards_preview.html
 checks/catalog_builder_preview.html
+checks/billboard_preview.html
