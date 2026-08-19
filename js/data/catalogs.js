@@ -29,7 +29,7 @@ export async function listCatalogs(wid) {
       // here deliberately. 045 revoked the blanket grant on this table so that
       // adding a column would have to be a decision to publish it; that only
       // holds if the read side is updated on purpose too.
-      .select("id, wid, name, description, is_default, active, created_at, access_tier, discount_pct, discount_mode, share_token, is_public")
+      .select("id, wid, name, description, is_default, active, created_at, access_tier, discount_pct, discount_mode, share_token, is_public, billboard_enabled, billboard_image_url, billboard_media_type, billboard_product_id, billboard_cta, highlight_label")
       .eq("wid", wid)
       .order("is_default", { ascending: false })
       .order("name", { ascending: true })
@@ -45,6 +45,12 @@ export async function listCatalogs(wid) {
       discountMode: c.discount_mode || "combine",
       shareToken: c.share_token || null,
       isPublic: !!c.is_public,
+      billboardEnabled: !!c.billboard_enabled,
+      billboardUrl: c.billboard_image_url || "",
+      billboardMediaType: c.billboard_media_type || "image",
+      billboardProductId: c.billboard_product_id || null,
+      billboardCta: c.billboard_cta || "",
+      highlightLabel: c.highlight_label || "Featured",
     })),
   };
 }
@@ -60,8 +66,12 @@ export async function listCatalogs(wid) {
 export async function getCatalogProducts(catalogId) {
   const { data: links, error } = await sbCall(
     supabase.from("v2_catalog_products")
-      .select("product_id, sort_order, added_at")
+      .select("product_id, sort_order, added_at, highlighted")
       .eq("catalog_id", catalogId)
+      // Highlighted first, exactly as the buyer sees it. The wholesaler
+      // arranging a catalog and the customer reading it must be looking at the
+      // same order, or "always on top" is a promise only one of them can see.
+      .order("highlighted", { ascending: false })
       .order("sort_order", { ascending: true })
   );
   if (error) return { ok: false, error: error.message, rows: [] };
@@ -87,6 +97,7 @@ export async function getCatalogProducts(catalogId) {
   });
 
   const order = new Map((links || []).map((l, i) => [l.product_id, i]));
+  const highlightedBy = new Map((links || []).map((l) => [l.product_id, !!l.highlighted]));
   return {
     ok: true,
     rows: (products || []).map((p) => {
@@ -95,6 +106,7 @@ export async function getCatalogProducts(catalogId) {
       return {
         id: p.id, name: p.name, description: p.description, category: p.category,
         archived: !!p.archived, sellingModel: p.selling_model, createdAt: p.created_at,
+        highlighted: !!highlightedBy.get(p.id),
         variantCount: vs.length,
         // Distinct colours, for the swatch row. "#999" matches the fallback
         // js/data/catalog.js already uses, so a variant with no colorHex looks
@@ -205,6 +217,51 @@ export async function rotateCatalogLink(catalogId) {
   );
   if (error) return { ok: false, error: error.message };
   return { ok: true, shareToken: token };
+}
+
+/** The billboard: what it shows, whether it shows, and where its button goes.
+ *  billboardProductId null means "just a poster" -- that is the difference
+ *  between the two shapes Hadi described, and it is a null rather than a
+ *  separate mode flag because one of them is literally the absence of the
+ *  other. */
+export async function setBillboard(catalogId, {
+  enabled, url, mediaType, productId, cta,
+} = {}) {
+  const patch = { updated_at: new Date().toISOString() };
+  if (enabled !== undefined) patch.billboard_enabled = !!enabled;
+  if (url !== undefined) patch.billboard_image_url = url || null;
+  if (mediaType !== undefined) patch.billboard_media_type = mediaType === "video" ? "video" : "image";
+  if (productId !== undefined) patch.billboard_product_id = productId || null;
+  if (cta !== undefined) patch.billboard_cta = (cta || "").trim() || null;
+
+  const { error } = await sbCall(supabase.from("v2_catalogs").update(patch).eq("id", catalogId));
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** What the wholesaler calls their pinned group. Blank falls back rather than
+ *  rendering a header with no words in it. */
+export async function setHighlightLabel(catalogId, label) {
+  const clean = String(label || "").trim() || "Featured";
+  const { error } = await sbCall(
+    supabase.from("v2_catalogs")
+      .update({ highlight_label: clean, updated_at: new Date().toISOString() })
+      .eq("id", catalogId)
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, label: clean };
+}
+
+/** Pin or unpin one product in one catalog. Any number may be pinned -- Hadi:
+ *  "I want them to be able to highlight as many items as they want". */
+export async function setProductHighlighted(catalogId, productId, highlighted) {
+  const { error } = await sbCall(
+    supabase.from("v2_catalog_products")
+      .update({ highlighted: !!highlighted })
+      .eq("catalog_id", catalogId).eq("product_id", productId)
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }
 
 /** Tier, discount and mode. Separate from renameCatalog because renaming is a
@@ -361,7 +418,7 @@ export async function buyerCatalogProductIds(accountId, catalogId) {
   const { data } = await sbCall(
     supabase.rpc("v2_buyer_catalog_products", { p_account_id: accountId, p_catalog_id: catalogId })
   );
-  return (data || []).map((r) => r.product_id);
+  return (data || []).map((r) => ({ id: r.product_id, highlighted: !!r.highlighted }));
 }
 
 
@@ -391,15 +448,26 @@ export async function catalogByToken(token, accountId = null) {
     wid: row.wid, isPublic: !!row.is_public,
     accessTier: Number(row.access_tier) || 1,
     wholesalerName: row.wholesaler_name,
+    billboardEnabled: !!row.billboard_enabled,
+    billboardUrl: row.billboard_image_url || "",
+    billboardMediaType: row.billboard_media_type || "image",
+    billboardProductId: row.billboard_product_id || null,
+    billboardCta: row.billboard_cta || "",
+    highlightLabel: row.highlight_label || "Featured",
   };
 }
 
-/** The product ids behind a link. Re-checks the gate itself, so calling this
- *  without resolving first gains nothing. */
-export async function catalogProductIdsByToken(token, accountId = null) {
+/** The products behind a link, HIGHLIGHTED FIRST, each flagged so the page can
+ *  put a header above the pinned group. The ordering is the database's, not
+ *  this function's: "no matter what order they put them in, always the
+ *  highlighted items will be on the top" is a property of the catalog, and a
+ *  second sort here would be a second place for it to be wrong.
+ *  Re-checks the gate itself, so calling this without resolving first gains
+ *  nothing. */
+export async function catalogProductsByToken(token, accountId = null) {
   if (!token) return [];
   const { data } = await sbCall(
     supabase.rpc("v2_catalog_products_by_token", { p_token: token, p_account_id: accountId || null })
   );
-  return (data || []).map((r) => r.product_id);
+  return (data || []).map((r) => ({ id: r.product_id, highlighted: !!r.highlighted }));
 }

@@ -212,3 +212,107 @@ export function pathFromPublicUrl(url) {
   const m = String(url || "").match(new RegExp(`/${BUCKET}/(.+)$`));
   return m ? decodeURIComponent(m[1].split("?")[0]) : null;
 }
+
+// ---------------------------------------------------------------------
+// The catalog billboard (Batch 22)
+// ---------------------------------------------------------------------
+// Hadi: "they might choose to put in a video or a GIF for the billboard."
+//
+// Which is why this is NOT uploadProductImage with a different folder. That
+// function runs every file through downscaleImage(), which draws it onto a
+// canvas -- and a canvas has exactly one frame. An animated GIF would arrive
+// as a still of its first frame, silently, with the upload reporting success.
+// A video would not survive at all.
+//
+// So: photographs are downscaled as before, because a 12 MP phone photo has no
+// business being a billboard at full size. GIFs and videos are uploaded
+// UNTOUCHED, because the whole point of them is the part a canvas throws away.
+// The trade is stated rather than hidden -- an untouched 20 MB clip is 20 MB
+// on someone's phone data, and the size limit below is what keeps that honest.
+
+const BILLBOARD_BUCKET = "v2-catalog-billboard";
+const BILLBOARD_MAX_BYTES = 25 * 1024 * 1024;   // mirrors the bucket's server-side cap
+const BILLBOARD_STILL = ["image/jpeg", "image/png", "image/webp", "image/avif"];
+const BILLBOARD_ASIS  = ["image/gif", "video/mp4", "video/webm"];
+
+/**
+ * Uploads a billboard poster, animation or clip.
+ *
+ * @returns {{ok:true, url:string, path:string, mediaType:"image"|"video", bytes:number}}
+ *        | {ok:false, error:string}
+ */
+export async function uploadCatalogBillboard({ file, wid, catalogId, onProgress = () => {} }) {
+  if (!file) return { ok: false, error: "No file was chosen." };
+  if (!wid) return { ok: false, error: "No wholesaler — sign out and back in." };
+  if (!catalogId) return { ok: false, error: "Save the catalog before adding a billboard." };
+
+  const type = file.type || "";
+  const isStill = BILLBOARD_STILL.includes(type);
+  const isAsIs = BILLBOARD_ASIS.includes(type);
+
+  if (!isStill && !isAsIs) {
+    return {
+      ok: false,
+      error: `That is a ${type || "unknown"} file. Use a JPEG, PNG, WebP, GIF, MP4 or WebM.`,
+    };
+  }
+
+  let blob = file;
+  let contentType = type;
+
+  if (isStill) {
+    try {
+      onProgress("Preparing the image…");
+      const out = await downscaleImage(file);
+      blob = out.blob;
+      contentType = out.type;
+    } catch (e) {
+      return { ok: false, error: `That image could not be read (${e.message || "unknown reason"}).` };
+    }
+  } else {
+    onProgress(type.startsWith("video/") ? "Uploading the video…" : "Uploading…");
+  }
+
+  if (blob.size > BILLBOARD_MAX_BYTES) {
+    const mb = (blob.size / 1024 / 1024).toFixed(1);
+    return {
+      ok: false,
+      error: `That file is ${mb} MB and the limit is 25 MB. A shorter clip, or a smaller export, will work.`,
+    };
+  }
+
+  const ext = contentType.split("/")[1]?.replace("quicktime", "mp4") || "bin";
+  const path = `${wid}/billboard-${catalogId}/${crypto.randomUUID()}.${ext}`;
+
+  onProgress("Uploading…");
+  const { error } = await sbCall(
+    supabase.storage.from(BILLBOARD_BUCKET).upload(path, blob, {
+      contentType,
+      upsert: false,
+      cacheControl: "31536000",
+    })
+  );
+
+  if (error) {
+    const msg = String(error.message || "");
+    if (/row-level security|violates|not authorized|Unauthorized/i.test(msg)) {
+      return { ok: false, error: "You do not have permission to upload for this wholesaler." };
+    }
+    if (/mime|not supported|invalid_mime/i.test(msg)) {
+      return { ok: false, error: `The server refused a ${contentType} file. Use a JPEG, PNG, WebP, GIF, MP4 or WebM.` };
+    }
+    if (/exceeded the maximum|too large|Payload/i.test(msg)) {
+      return { ok: false, error: "That file is too large for the server (25 MB limit)." };
+    }
+    return { ok: false, error: msg || "The upload failed. Check your connection and try again." };
+  }
+
+  const { data } = supabase.storage.from(BILLBOARD_BUCKET).getPublicUrl(path);
+  return {
+    ok: true,
+    url: data?.publicUrl || "",
+    path,
+    mediaType: contentType.startsWith("video/") ? "video" : "image",
+    bytes: blob.size,
+  };
+}
