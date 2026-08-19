@@ -1577,3 +1577,19 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   color: var(--text-inverse);
   border: 1px solid rgba(255, 255, 255, 0.35);
 }
+
+/* The on-hand figure that replaces the quantity box when editing an existing
+   product. Stock only moves through the receive/adjust/transfer RPCs, so a
+   number typed into the product form had nowhere to go and was dropped on
+   save. Shown as a figure, not a disabled input: a greyed-out box still reads
+   as "a field you cannot use yet", when the truth is that this is not where
+   stock is changed at all. */
+.pb-cell-onhand {
+  display: block;
+  padding: 8px 0;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  color: var(--text-secondary);
+  text-align: center;
+  cursor: help;
+}
