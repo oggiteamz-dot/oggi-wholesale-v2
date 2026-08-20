@@ -92,7 +92,12 @@ export async function getStockTable(wid) {
   if (!variantIds.length) return [];
 
   const [{ data: balances }, locations] = await Promise.all([
-    sbCall(supabase.from("v2_inventory_balances").select("*, v2_locations(name)").in("variant_id", variantIds)),
+    // v2_inventory_balances_live, NOT the table. The table's qty_reserved is a
+    // counter that is never filtered by expires_at, so reading it made every
+    // abandoned cart suppress real stock forever -- see migration 064. The
+    // view has the identical column names plus qty_available, so this is a
+    // one-identifier change with no downstream effect except accuracy.
+    sbCall(supabase.from("v2_inventory_balances_live").select("*, v2_locations(name)").in("variant_id", variantIds)),
     getLocations(wid),
   ]);
 
@@ -134,7 +139,9 @@ export async function getStockTable(wid) {
       cost: variant.cost != null ? Number(variant.cost) : 0,
       onHand: Number(b.qty_on_hand),
       reserved: Number(b.qty_reserved),
-      available: Number(b.qty_on_hand) - Number(b.qty_reserved),
+      // Taken from the view, not re-derived here. Every place that does this
+      // subtraction by hand is a place the 064 reservation leak can come back.
+      available: Number(b.qty_available),
       neverStocked: false,
     });
   });

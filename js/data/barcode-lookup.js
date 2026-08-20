@@ -78,8 +78,10 @@ async function withStock(variantId, productName, info) {
       .eq("id", variantId).maybeSingle()
   );
   const { data: balances } = await sbCall(
-    supabase.from("v2_inventory_balances")
-      .select("location_id, qty_on_hand, qty_reserved").eq("variant_id", variantId)
+    // Live view, not the table (064): a scanner that reports stock as reserved
+    // when the cart holding it died nine days ago is worse than no scanner.
+    supabase.from("v2_inventory_balances_live")
+      .select("location_id, qty_on_hand, qty_reserved, qty_available").eq("variant_id", variantId)
   );
   const totalOnHand = (balances || []).reduce((s, b) => s + Number(b.qty_on_hand), 0);
   return {
