@@ -14,6 +14,7 @@ import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
 import { banClient, unbanClient, BAN_REASONS, banReasonLabel, getLiveBansByClient } from "../data/client-bans.js";
+import { renderClientForm } from "../components/client-form.js";
 import { updateCatalogSettings, addProductsToCatalog, DISCOUNT_MODES,
          catalogLink, setCatalogPublic, rotateCatalogLink,
          setBillboard, setHighlightLabel, setProductHighlighted,
@@ -1437,41 +1438,18 @@ async function clientsView(outlet) {
   const wid = session.wid;
   outlet.appendChild(pageHeader("Clients", "Your buyer directory, sorted by most recent order first."));
 
-  const formCard = document.createElement("div");
-  formCard.className = "card";
-  formCard.style.cssText = "padding:16px;margin-bottom:16px;";
-  formCard.innerHTML = `
-    <div style="font-weight:650;margin-bottom:10px;">Add a client</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-      <div><label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Shop name</label>
-        <input class="input" id="cl-name" style="width:200px;" /></div>
-      <div><label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Phone</label>
-        <input class="input" id="cl-phone" style="width:160px;" /></div>
-      <div><label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Note</label>
-        <input class="input" id="cl-note" style="width:200px;" /></div>
-      <div><label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Discount %</label>
-        <input class="input" id="cl-discount" type="number" min="0" max="100" value="0" style="width:90px;" /></div>
-      <button class="btn btn-primary" id="cl-add">Add client</button>
-    </div>
-  `;
-  outlet.appendChild(formCard);
-  formCard.querySelector("#cl-add").addEventListener("click", async () => {
-    const shopName = formCard.querySelector("#cl-name").value.trim();
-    if (!shopName) { toast("Shop name is required", { type: "danger" }); return; }
-    const btn = formCard.querySelector("#cl-add");
-    btn.disabled = true;
-    const { error } = await addClient(wid, {
-      shopName,
-      phone: formCard.querySelector("#cl-phone").value.trim(),
-      note: formCard.querySelector("#cl-note").value.trim(),
-      discountPct: Number(formCard.querySelector("#cl-discount").value) || 0,
-    });
-    btn.disabled = false;
-    if (error) { toast("Could not add client", { type: "danger" }); return; }
-    toast("Client added", { type: "success" });
-    outlet.innerHTML = "";
-    clientsView(outlet);
-  });
+  // REPLACED 20 Aug 2026 (migration 060). The old form here asked for four
+  // things -- shop name, phone, note, discount -- and created a CRM row with
+  // NO LOGIN. A client who cannot sign in is not a client; that is the same
+  // shape of gap that left SQUARE authenticating into nowhere on 17 Aug.
+  //
+  // The new form asks Hadi's six required fields and creates the record and
+  // the login in ONE transaction, then shows the password exactly once.
+  // Everything optional is folded away behind "Add more details" so the
+  // common case stays six fields wide.
+  outlet.appendChild(renderClientForm({
+    onCreated: () => { outlet.innerHTML = ""; clientsView(outlet); },
+  }));
 
   const loading = document.createElement("div");
   loading.className = "card";
