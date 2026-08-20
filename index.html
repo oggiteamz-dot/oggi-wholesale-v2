@@ -58,6 +58,15 @@
      header comment for why. Must load before app.js since app.js's module
      graph reads window.supabase at import time. -->
 <script src="js/lib/vendor/supabase-js.umd.js"></script>
+<!-- Boot guard: if the app root is still empty a few seconds from now,
+     throw away the service worker + caches and reload ONCE. Turns a
+     half-deployed or cache-poisoned build from a white screen lasting
+     until a human notices into a few seconds. Must load BEFORE app.js so
+     it is already listening when the module graph fails, and must stay
+     an external file -- our own CSP is script-src 'self' with no
+     'unsafe-inline', so an inline version would be silently blocked.
+     See js/boot-guard.js for the incident that caused it. -->
+<script src="js/boot-guard.js"></script>
 <script type="module" src="js/app.js"></script>
 <script src="js/register-sw.js"></script>
 </body>
