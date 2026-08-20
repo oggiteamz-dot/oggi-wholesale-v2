@@ -91,10 +91,61 @@ export async function getClientsByRecency(wid) {
   });
 }
 
+/** SUPERSEDED 20 Aug 2026 by createClient() below, and kept only because
+ *  something else may still import it. It inserts a CRM row with NO login,
+ *  which is the state that made SQUARE's account authenticate into nowhere
+ *  on 17 Aug -- a client who cannot sign in is not a client. Do not use it
+ *  for new work. */
 export async function addClient(wid, { shopName, phone, note, discountPct }) {
   return sbCall(supabase.from("v2_clients").insert({
     wid, shop_name: shopName, phone: phone || null, note: note || null, discount_pct: discountPct || 0,
   }).select().single());
+}
+
+/** Create a client AND their login in one transaction (migration 060).
+ *
+ *  Everything that decides whether this is allowed happens server-side in
+ *  v2_create_client: the six required fields, the duplicate-phone check,
+ *  the duplicate-username check, the password hashing. This function does
+ *  not validate -- it relays. If it looks like it is enforcing something,
+ *  that is a mistake waiting to happen.
+ *
+ *  `temp_password` comes back ONLY when the server generated one, and only
+ *  in this one response. It is never stored readable and cannot be fetched
+ *  again -- only reset. */
+export async function createClient({
+  shopName, ownerName, phone, sells, username, password = null,
+  discountPct = 0, accessTier = 1, extra = {},
+}) {
+  const { data, error } = await sbCall(
+    supabase.rpc("v2_create_client", {
+      p_shop_name: shopName,
+      p_owner_name: ownerName,
+      p_phone: phone,
+      p_sells: sells,
+      p_username: username,
+      p_password: password,
+      p_discount_pct: discountPct,
+      p_access_tier: accessTier,
+      p_extra: extra,
+    })
+  );
+  if (error) return { ok: false, msg: error.message || "Could not add this client." };
+  const row = Array.isArray(data) ? data[0] : data;
+  return row || { ok: false, msg: "No response from the server." };
+}
+
+/** New one-time password for a client who forgot theirs. Also clears their
+ *  login lockout -- someone who forgot a password has usually just failed
+ *  ten attempts, and resetting into a locked account looks identical to the
+ *  reset not having worked. */
+export async function resetClientPassword(clientId) {
+  const { data, error } = await sbCall(
+    supabase.rpc("v2_reset_client_password", { p_client_id: clientId })
+  );
+  if (error) return { ok: false, msg: error.message || "Could not reset the password." };
+  const row = Array.isArray(data) ? data[0] : data;
+  return row || { ok: false, msg: "No response from the server." };
 }
 
 export async function deactivateClient(clientId) {
