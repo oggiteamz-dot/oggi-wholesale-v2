@@ -188,6 +188,24 @@ export const devAuth = {
     const { data, error } = await supabase.rpc("v2_buyer_login", { p_wid: wid, p_user: username, p_pass: password });
     if (error) return { ok: false, error: error.message };
     const row = data?.[0];
+
+    // BANNED (migration 059). The server only ever returns this when the
+    // password was CORRECT -- a wrong password still comes back as the
+    // same generic failure below, so this cannot be used to find out
+    // which usernames exist.
+    //
+    // The message names the wholesaler on purpose. Hadi, 20 Aug 2026:
+    // "we'll just say the name of the company has banned you from all of
+    // their catalogs." A blank refusal here would send the person to
+    // OGGI support for something only their wholesaler can undo.
+    if (row?.status === "banned") {
+      return {
+        ok: false,
+        banned: true,
+        error: `${row.banned_by_name || "This wholesaler"} has banned you from all of their catalogues. Contact them directly if you think this is a mistake.`,
+      };
+    }
+
     if (!row?.ok) return { ok: false, error: "Incorrect username or password (or this account is temporarily locked after repeated failed attempts -- try again in 15 minutes)" };
     const session = {
       role: "buyer", wid: row.wid, wholesalerName: row.wholesaler_name,
