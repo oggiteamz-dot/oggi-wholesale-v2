@@ -233,6 +233,26 @@ export function renderLogin(outlet, onLoggedIn) {
       const btn = panel.querySelector("#buyer-btn"); btn.disabled = true;
       const result = await devAuth.loginBuyer(wid, user, pass);
       btn.disabled = false;
+
+      // A ban is not a typo. It gets its own panel rather than a one-line
+      // red hint under the password box, because the person needs to
+      // understand that retyping will not help and that OGGI cannot undo
+      // it for them -- only their wholesaler can.
+      if (result.banned) {
+        panel.innerHTML = `
+          <div style="text-align:center;padding:8px 4px 4px;">
+            <div style="font-size:34px;line-height:1;margin-bottom:10px;">🚫</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px;">Access withdrawn</div>
+            <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px;">
+              ${result.error.replace(/</g, "&lt;")}
+            </div>
+            <button class="btn btn-ghost btn-sm" id="banned-back" style="width:100%;">Back to sign in</button>
+          </div>
+        `;
+        panel.querySelector("#banned-back").addEventListener("click", () => { buyerMode = "login"; render(); });
+        return;
+      }
+
       if (!result.ok) { status(statusEl, result.error, "error"); return; }
       onLoggedIn(devAuth.getSession());
     });
