@@ -7,7 +7,21 @@ import { supabase, sbCall } from "../lib/supabase-client.js";
  * order history rather than a stored-and-drifting last_order_at column. */
 export async function getClientsByRecency(wid) {
   const [{ data: clients }, { data: orders }] = await Promise.all([
-    sbCall(supabase.from("v2_clients").select("*").eq("wid", wid).eq("active", true)),
+    // CHANGED 20 Aug 2026 (migration 059): this used to filter
+    // .eq("active", true), which meant a BANNED client silently vanished
+    // from the wholesaler's own list the moment they were banned.
+    //
+    // That is exactly wrong. Every mature product that has this feature
+    // (Slack, GitLab, Discourse) keeps a banned record visible in the
+    // main list with a badge, because a ban you cannot see is a ban you
+    // cannot lift, cannot explain to your own staff, and cannot audit.
+    // Hadi's words were "it's VISUAL that this person cannot access
+    // anything" -- invisible is the opposite of that.
+    //
+    // So we now select active + banned + pending, and exclude only
+    // 'archived' (the old deactivate, which does mean "hide from my
+    // working list"). The row renders differently per status.
+    sbCall(supabase.from("v2_clients").select("*").eq("wid", wid).in("status", ["active", "banned", "pending"])),
     // FIXED 2026-08-17 (CR-0001 step 0) -- we now also select `client_id`,
     // and we match on it. See the comment block below for why.
     sbCall(supabase.from("v2_orders").select("client_id, buyer_label, created_at, subtotal").eq("wid", wid).order("created_at", { ascending: false })),
@@ -65,6 +79,11 @@ export async function getClientsByRecency(wid) {
   }));
 
   return enriched.sort((a, b) => {
+    // Banned clients stay in the list (see the note above) but sink to
+    // the bottom, so they never sit between two customers you actually
+    // trade with.
+    const aBanned = a.status === "banned", bBanned = b.status === "banned";
+    if (aBanned !== bBanned) return aBanned ? 1 : -1;
     if (!a.lastOrderAt && !b.lastOrderAt) return a.shop_name.localeCompare(b.shop_name);
     if (!a.lastOrderAt) return 1;
     if (!b.lastOrderAt) return -1;
