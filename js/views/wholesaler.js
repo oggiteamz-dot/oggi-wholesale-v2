@@ -324,6 +324,39 @@ async function ordersView(outlet) {
   });
 }
 
+// One product panel opener, shared by Products and Catalogs.
+//
+// Lifted out of productsView on 20 Aug 2026 when the ratio editor was
+// added to Catalogs as well. Copying the closure into the second view
+// would have worked on the day and rotted the moment one of the two got
+// fixed -- the same duplicate-helper failure this repo keeps a table of.
+// The only thing that differs between callers is where the panel lands,
+// so that is the only thing passed in.
+function openProductPanel(panelHost, title, product, painter) {
+  panelHost.innerHTML = "";
+  const card = document.createElement("div");
+  card.className = "card pdet";
+  const head = document.createElement("div");
+  head.className = "pdet-head";
+  head.innerHTML = `<div><h4>${esc(product.name)}</h4><p>${esc(title)}</p></div>`;
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "btn btn-ghost btn-sm";
+  closeBtn.textContent = "Close";
+  closeBtn.addEventListener("click", () => { panelHost.innerHTML = ""; });
+  const headActions = document.createElement("div");
+  headActions.className = "pdet-head-actions";
+  headActions.appendChild(closeBtn);
+  head.appendChild(headActions);
+  card.appendChild(head);
+
+  const body = document.createElement("div");
+  body.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);">Loading…</div>`;
+  card.appendChild(body);
+  panelHost.appendChild(card);
+  card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  painter(body);
+}
+
 // ---------- Products ----------
 
 async function productsView(outlet) {
@@ -353,30 +386,11 @@ async function productsView(outlet) {
   const grid = productGrid();
   const panelHost = document.createElement("div");
 
-  function openPanel(title, product, painter) {
-    panelHost.innerHTML = "";
-    const card = document.createElement("div");
-    card.className = "card pdet";
-    const head = document.createElement("div");
-    head.className = "pdet-head";
-    head.innerHTML = `<div><h4>${esc(product.name)}</h4><p>${esc(title)}</p></div>`;
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "btn btn-ghost btn-sm";
-    closeBtn.textContent = "Close";
-    closeBtn.addEventListener("click", () => { panelHost.innerHTML = ""; });
-    const headActions = document.createElement("div");
-    headActions.className = "pdet-head-actions";
-    headActions.appendChild(closeBtn);
-    head.appendChild(headActions);
-    card.appendChild(head);
-
-    const body = document.createElement("div");
-    body.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);">Loading…</div>`;
-    card.appendChild(body);
-    panelHost.appendChild(card);
-    card.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    painter(body);
-  }
+  // Was a closure private to this view until 20 Aug 2026. Lifted out to
+  // openProductPanel() below so Catalogs can open the same panels without
+  // a second copy of it -- this file's own rule is that a helper
+  // copy-pasted into two places is a bug waiting for one copy to be fixed.
+  const openPanel = (title, product, painter) => openProductPanel(panelHost, title, product, painter);
 
   products.forEach((p) => {
     const badges = [];
@@ -2019,6 +2033,7 @@ async function teamView(outlet) {
 async function catalogsView(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
+  let catPanelHost = null;
   outlet.appendChild(pageHeader(
     "Catalogs",
     "Group your products into catalogs. New products land in the one you are looking at."
@@ -2595,6 +2610,16 @@ async function catalogsView(outlet) {
         actions: [
           { label: "View", variant: "btn-primary", onClick: () => openProductView(p.id, () => paintList()) },
           { label: "Edit", onClick: () => openProductEditor(p.id, () => paintList()) },
+          // Hadi, 20 Aug 2026: the ratio editor belongs here as well as on
+          // Products, because the catalog is where you decide what you are
+          // actually selling and how it is sold. Deliberately NOT added to
+          // Inventory: that tab is about stock movements, and selling rules
+          // are a different job -- mixing them is how a screen stops having
+          // one answer to "what is this for".
+          { label: "Packs & ratios",
+            title: "Size ratios, prepacks and how this product is sold",
+            onClick: () => openProductPanel(catPanelHost, "Prepacks and ratios", p,
+                                            (body) => renderPacksPanel(body, wid, p)) },
           // Hadi: "I want them to be able to highlight as many items as they
           // want... no matter what order they put them in, always the
           // highlighted items will be on the top." The label says which way
@@ -2627,6 +2652,14 @@ async function catalogsView(outlet) {
       grid.appendChild(tile);
     });
     listHost.appendChild(grid);
+    // Where "Packs & ratios" opens, for the same reason Products has one:
+    // the panel lands under the grid rather than over it, so the product
+    // you clicked stays on screen while you edit how it is sold.
+    // Recreated on every paint because listHost is cleared above -- a host
+    // held from an earlier paint would be detached and the panel would
+    // open into nothing, which looks exactly like the button not working.
+    catPanelHost = document.createElement("div");
+    listHost.appendChild(catPanelHost);
   }
 
   paintTabs();
