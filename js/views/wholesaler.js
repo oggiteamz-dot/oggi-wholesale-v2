@@ -4,7 +4,7 @@ import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { getWholesaler } from "../data/catalog.js";
 import { getWholesalerOrders, advanceOrderStatus, nextStatus } from "../data/wholesaler-orders.js";
-import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate } from "../data/products-admin.js";
+import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate, setCatalogOnly, getStockStates } from "../data/products-admin.js";
 import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, adjustStock, getLocations } from "../data/inventory-admin.js";
 import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, setVariantRetailPrice, setVariantReorderSettings, setVariantBarcode, setVariantImages, getOrderMinimums, setOrderMinimums } from "../data/pricing-admin.js";
 import { listPacksForProduct, createPack, archivePack, suggestPackRatio } from "../data/prepacks.js";
@@ -2595,9 +2595,24 @@ async function catalogsView(outlet) {
     // list of text rows with a stamp-sized photo.
     const grid = productGrid();
     const catFacts = normaliseFacts((await getWholesalerSettings(wid)).card_facts, []);
+    // One call for the whole screen. Per-tile would be a query per product
+    // on a catalog that can hold hundreds.
+    const stockStates = await getStockStates(wid);
     products.forEach((p) => {
       const badges = [];
       if (p.archived) badges.push({ text: "Archived", kind: "badge-neutral" });
+
+      // Stock state, migration 062. THREE states, not two: a catalog-only
+      // product is never "out of stock" -- it is not stock-controlled at
+      // all, and saying "out" about it would be a lie that also drags it
+      // into every low-stock report.
+      const st = stockStates.get(p.id);
+      if (st?.state === "out") {
+        badges.push({ text: "OUT OF STOCK", kind: "badge-danger" });
+      } else if (st?.state === "not_tracked") {
+        badges.push({ text: "Catalog only", kind: "badge-neutral" });
+      }
+
       if (p.highlighted) badges.push({ text: catalog.highlightLabel || "Featured", kind: "badge-success" });
       p.colors.slice(0, 6).forEach((c) => badges.push({ text: c.name, kind: "badge-neutral" }));
 
@@ -2620,6 +2635,26 @@ async function catalogsView(outlet) {
             title: "Size ratios, prepacks and how this product is sold",
             onClick: () => openProductPanel(catPanelHost, "Prepacks and ratios", p,
                                             (body) => renderPacksPanel(body, wid, p)) },
+          // Hadi, 20 Aug 2026: "create a toggle... hey, this is a
+          // catalog-only product, don't put it in the inventory."
+          //
+          // The label states the RESULT of pressing it, not the current
+          // state -- a button called "Catalog only" leaves you working out
+          // whether that is what it is or what it will become.
+          { label: st?.state === "not_tracked" ? "Start tracking stock" : "Make catalog-only",
+            title: st?.state === "not_tracked"
+              ? "Put this back in Inventory and start counting stock for it"
+              : "Sell it from catalogs but keep it out of Inventory — for made-to-order, drop-ship or service lines that should never appear in a low-stock report",
+            onClick: async () => {
+              const goingCatalogOnly = st?.state !== "not_tracked";
+              const { error } = await setCatalogOnly(p.id, goingCatalogOnly);
+              if (error) { toast("Could not change this", { type: "danger" }); return; }
+              toast(goingCatalogOnly
+                ? `${p.name} is catalog-only — it will not appear in Inventory`
+                : `${p.name} is back in Inventory and stock-controlled`,
+                { type: "success" });
+              paintList();
+            } },
           // Hadi: "I want them to be able to highlight as many items as they
           // want... no matter what order they put them in, always the
           // highlighted items will be on the top." The label says which way
