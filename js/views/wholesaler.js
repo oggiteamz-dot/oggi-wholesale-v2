@@ -489,6 +489,8 @@ async function renderPricingPanel(panel, product) {
       <input class="input" id="moq-first" type="number" min="1" value="${pricing.moqQty}" style="width:100px;" /></div>
     <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Reorder MOQ (optional, usually lower)</label>
       <input class="input" id="moq-reorder" type="number" min="1" value="${pricing.moqReorderQty ?? ""}" style="width:100px;" placeholder="same as above" /></div>
+    <div><label style="font-size:11px;color:var(--text-tertiary);display:block;" title="Counted across all sizes of that colour. 12 means twelve red in any size mix — not twelve of each size.">Minimum per colour (optional)</label>
+      <input class="input" id="moq-colour" type="number" min="1" value="${pricing.moqPerColour ?? ""}" style="width:110px;" placeholder="no limit" /></div>
   `;
   const saveMoqBtn = document.createElement("button");
   saveMoqBtn.className = "btn btn-primary btn-sm";
@@ -497,8 +499,16 @@ async function renderPricingPanel(panel, product) {
     const moqQty = parseInt(panel.querySelector("#moq-first").value, 10) || 1;
     const reorderRaw = panel.querySelector("#moq-reorder").value;
     const moqReorderQty = reorderRaw === "" ? null : parseInt(reorderRaw, 10);
-    const { error } = await setProductMoq(product.id, { moqQty, moqReorderQty });
-    toast(error ? "Failed to save MOQ" : "MOQ saved", { type: error ? "danger" : "success" });
+    // Blank clears the rule. Passing "" rather than leaving it out is
+    // deliberate -- see setProductMoq: omission means "don't touch",
+    // empty means "remove the limit", and a wholesaler needs both.
+    const colourRaw = panel.querySelector("#moq-colour").value;
+    const moqPerColour = colourRaw === "" ? null : parseInt(colourRaw, 10);
+    const { error } = await setProductMoq(product.id, { moqQty, moqReorderQty, moqPerColour });
+    toast(error
+      ? "Failed to save MOQ"
+      : (moqPerColour ? `Saved — every colour now needs at least ${moqPerColour}` : "MOQ saved"),
+      { type: error ? "danger" : "success" });
   });
   moqRow.appendChild(saveMoqBtn);
   panel.appendChild(moqRow);
