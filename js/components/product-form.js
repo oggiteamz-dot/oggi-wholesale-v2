@@ -1204,11 +1204,30 @@ export function renderProductForm({
         // a number and discards it is worse than no box: the operator watches
         // themselves type 40, clicks Save, is told it saved, and finds 0.
         if (isEdit) {
-          const held = document.createElement("span");
+          // CHANGED 20 Aug 2026. This used to be a plain <span> whose only
+          // explanation was a hover title -- invisible on a phone, missed on
+          // desktop. Hadi hit it: "I can't update the amount on hand."
+          //
+          // The rule it enforces is right and stays: stock only ever moves
+          // through receive/adjust/transfer so every change carries a reason
+          // and a timestamp. What was wrong is that the form said "no"
+          // without saying where "yes" lives. Now it is a button that goes
+          // there. Same rule, no dead end.
+          const held = document.createElement("button");
+          held.type = "button";
           held.className = "pb-cell-onhand";
           const n = c.cells[size]?.qty ?? 0;
           held.textContent = `${n} on hand`;
-          held.title = "Stock moves through Receive & transfer, not here — so this cannot be edited from the product form.";
+          held.title = "Stock changes through Receive & transfer so every movement is dated and explained. Tap to go there.";
+          held.style.cssText = "background:none;border:0;padding:2px 4px;font:inherit;color:inherit;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;";
+          held.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // Hash routing (js/app.js), so this is a normal in-app move and
+            // not a page load -- nothing typed elsewhere in the form is lost
+            // to a reload, because the form is a modal over the same page.
+            location.hash = "#/wholesaler/inventory";
+          });
           cell.appendChild(held);
         } else {
           const qty = document.createElement("input");
