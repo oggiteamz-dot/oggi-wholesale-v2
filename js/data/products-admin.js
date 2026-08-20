@@ -760,3 +760,30 @@ export async function getProductDetail(productId) {
     archivedVariantCount: base.variants.filter((v) => v.archived).length,
   };
 }
+
+/** Catalog-only: sold from catalogs, NOT stock-controlled (migration 062).
+ *
+ *  Hadi, 20 Aug 2026: "create a toggle... whenever they click it they're
+ *  telling you, hey, this is a catalog-only product, don't put it in the
+ *  inventory."
+ *
+ *  This is deliberately NOT the same as holding zero stock. Zero drives
+ *  low-stock alerts, reorder suggestions, dead-stock reports and an
+ *  out-of-stock ribbon; a made-to-order or drop-shipped line would sit in
+ *  all of them forever and teach the wholesaler to ignore the reports.
+ *  "I do not stock this" and "I have run out" are different statements. */
+export async function setCatalogOnly(productId, catalogOnly) {
+  return sbCall(supabase.from("v2_products")
+    .update({ catalog_only: !!catalogOnly, updated_at: new Date().toISOString() })
+    .eq("id", productId));
+}
+
+/** in / out / not_tracked for every product this wholesaler has, keyed by
+ *  product id. One call for a whole catalog screen rather than one per
+ *  tile, and one place that decides what "out of stock" means. */
+export async function getStockStates(wid) {
+  const { data } = await sbCall(supabase.rpc("v2_catalog_stock_state", { p_wid: wid }));
+  const map = new Map();
+  (data || []).forEach((r) => map.set(r.product_id, { state: r.stock_state, onHand: Number(r.on_hand) || 0 }));
+  return map;
+}

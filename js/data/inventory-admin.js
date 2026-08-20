@@ -68,7 +68,18 @@ export async function getLocations(wid) {
 
 export async function getStockTable(wid) {
   const { data: products } = await sbCall(
-    supabase.from("v2_products").select("id,name").eq("wid", wid)
+    // CHANGED 20 Aug 2026 (migration 062): catalog-only products are
+    // excluded from Inventory entirely. Hadi: "this is a catalog-only
+    // product, don't put it in the inventory."
+    //
+    // This is the ONE place that decision is made for the whole stock
+    // system -- every report downstream (low stock, reorder, dead stock,
+    // valuation, the stock table) reads getStockTable, so filtering here
+    // means a made-to-order or drop-shipped line cannot sit at zero in
+    // six different reports forever, training the wholesaler to ignore
+    // them. Filtering in each report instead would be six chances to
+    // forget one.
+    supabase.from("v2_products").select("id,name").eq("wid", wid).eq("catalog_only", false)
   );
   if (!products || !products.length) return [];
   const productById = new Map(products.map((p) => [p.id, p.name]));
