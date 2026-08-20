@@ -8,6 +8,8 @@ import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTempl
 import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, adjustStock, getLocations } from "../data/inventory-admin.js";
 import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, setVariantRetailPrice, setVariantReorderSettings, setVariantBarcode, setVariantImages, getOrderMinimums, setOrderMinimums } from "../data/pricing-admin.js";
 import { listPacksForProduct, createPack, archivePack, suggestPackRatio } from "../data/prepacks.js";
+import { listRatios, createRatio, applyRatio, ratioUsage, archiveRatio, ratioTotal, ratioShorthand,
+         productSizes, productColors, setBaseUnit, STARTER_RATIOS } from "../data/size-ratios.js";
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
 import { getReorderSuggestions, getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
 import { recordReceiptCost } from "../data/landed-cost.js";
@@ -675,9 +677,244 @@ async function renderPricingPanel(panel, product) {
 
 // ---------- Packs panel (Batch 7, per-product) ----------
 
+// ---------- Ratio-first pack authoring (migration 061) ----------
+//
+// This section sits ABOVE the old per-variant pack builder, which is
+// deliberately left in place below it: it is still the right tool for a
+// genuinely bespoke one-off pack, and deleting a working feature to make
+// room for a new one is how things silently disappear here.
+//
+// What it replaces is the DEFAULT path. Before this, the only way to
+// build a pack was to type a quantity into every colour x size row --
+// 8 colours x 8 sizes is 64 boxes, one pack at a time, and it is why
+// nobody used the builder. Now: write the curve once as a single row of
+// steppers, then apply it to every colour in one click.
+async function renderRatioSection(host, wid, product, reload) {
+  host.innerHTML = "";
+
+  const sizes  = productSizes(product);
+  const colors = productColors(product);
+
+  const head = document.createElement("div");
+  head.style.cssText = "font-size:12px;font-weight:650;margin:0 0 2px;";
+  head.textContent = "Sell by ratio";
+  host.appendChild(head);
+
+  const sub = document.createElement("div");
+  sub.style.cssText = "font-size:11px;color:var(--text-tertiary);margin-bottom:10px;";
+  sub.textContent = `Write the size curve once, then apply it to all ${colors.length} colour${colors.length === 1 ? "" : "s"} at once.`;
+  host.appendChild(sub);
+
+  if (!sizes.length || !colors.length) {
+    const warn = document.createElement("div");
+    warn.style.cssText = "font-size:12px;color:var(--danger,#b42318);margin-bottom:12px;";
+    warn.textContent = "This product has no colours or sizes yet, so there is nothing to build a ratio over. Add variants first.";
+    host.appendChild(warn);
+    return;
+  }
+
+  // ---- base unit: per PRODUCT, never a wholesaler-wide default ----
+  // Hadi, 20 Aug 2026, correcting me directly: "no it is not, they decide
+  // the base unit per product."
+  const buRow = document.createElement("div");
+  buRow.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;";
+  buRow.innerHTML = `
+    <label style="font-size:11px;color:var(--text-tertiary);">One unit of this product =</label>
+    <input class="input" id="base-unit" type="number" min="1" placeholder="1"
+           value="${product.base_unit != null ? product.base_unit : ""}" style="width:80px;" />
+    <span style="font-size:11px;color:var(--text-tertiary);">pieces &nbsp;·&nbsp; blank = sold by the single piece</span>
+  `;
+  host.appendChild(buRow);
+  const buInput = buRow.querySelector("#base-unit");
+  buInput.addEventListener("change", async () => {
+    await setBaseUnit(product.id, buInput.value);
+    toast(buInput.value ? `Sold in units of ${buInput.value}` : "Sold by the single piece", { type: "success" });
+  });
+
+  // ---- saved ratios: apply one, or start from it ----
+  const saved = await listRatios(wid);
+  const savedWrap = document.createElement("div");
+  savedWrap.style.cssText = "margin-bottom:12px;";
+  host.appendChild(savedWrap);
+
+  function renderSaved() {
+    savedWrap.innerHTML = "";
+    if (!saved.length) return;
+    const lbl = document.createElement("div");
+    lbl.style.cssText = "font-size:11px;color:var(--text-tertiary);margin-bottom:6px;";
+    lbl.textContent = "Your saved ratios";
+    savedWrap.appendChild(lbl);
+
+    saved.forEach((r) => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;";
+      row.innerHTML = `
+        <div style="flex:1;min-width:150px;">
+          <div style="font-size:12px;font-weight:600;">${esc(r.name)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);">
+            ${esc(ratioShorthand(r.weights))} over ${esc((r.sizes || []).join("/"))} · ${ratioTotal(r.weights)} pieces
+          </div>
+        </div>
+      `;
+      const useBtn = document.createElement("button");
+      useBtn.className = "btn btn-primary btn-sm";
+      useBtn.textContent = `Apply to all ${colors.length}`;
+      useBtn.addEventListener("click", async () => {
+        useBtn.disabled = true;
+        const res = await applyRatio(r.id, product.id, { colors: null, multiplier: 1 });
+        useBtn.disabled = false;
+        if (!res.ok) return toast(res.msg || "Could not apply.", { type: "danger" });
+        // The message deliberately reports unmatched sizes rather than
+        // quietly dropping them -- a ratio naming XXL applied to a product
+        // that stops at XL must not leave anyone believing otherwise.
+        toast(res.msg, { type: res.sizes_unmatched ? "default" : "success" });
+        reload && reload();
+      });
+      row.appendChild(useBtn);
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "btn btn-ghost btn-sm";
+      editBtn.textContent = "Start from this";
+      editBtn.addEventListener("click", () => {
+        nameInput.value = r.name + " copy";
+        sizes.forEach((sz, i) => {
+          const idx = (r.sizes || []).indexOf(sz);
+          steppers[i].value = idx >= 0 ? String(r.weights[idx]) : "0";
+        });
+        syncTotal();
+      });
+      row.appendChild(editBtn);
+      savedWrap.appendChild(row);
+    });
+  }
+
+  // ---- the editor: ONE row of steppers, not 64 boxes ----
+  const edHead = document.createElement("div");
+  edHead.style.cssText = "font-size:11px;color:var(--text-tertiary);margin:14px 0 6px;";
+  edHead.textContent = "New ratio";
+  host.appendChild(edHead);
+
+  const nameRow = document.createElement("div");
+  nameRow.style.cssText = "display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px;";
+  nameRow.innerHTML = `
+    <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Name</label>
+      <input class="input" id="ratio-name" placeholder="Boutique 12" style="width:170px;" /></div>
+  `;
+  host.appendChild(nameRow);
+  const nameInput = nameRow.querySelector("#ratio-name");
+
+  // Sizes as COLUMNS, one number under each. This is the whole
+  // simplification: the curve is one row, and the colours are handled by
+  // "apply to all" rather than by repeating the row per colour.
+  const grid = document.createElement("div");
+  grid.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;";
+  const steppers = [];
+  sizes.forEach((sz) => {
+    const cell = document.createElement("div");
+    cell.style.cssText = "text-align:center;";
+    const lab = document.createElement("div");
+    lab.style.cssText = "font-size:11px;color:var(--text-tertiary);margin-bottom:2px;";
+    lab.textContent = sz;
+    const inp = document.createElement("input");
+    inp.className = "input";
+    inp.type = "number"; inp.min = "0"; inp.value = "0";
+    // 56px keeps the tap target above the 44px floor on a phone; the old
+    // builder's 70px rows stacked vertically and ran off the screen.
+    inp.style.cssText = "width:56px;height:44px;text-align:center;padding:0;";
+    inp.addEventListener("input", syncTotal);
+    steppers.push(inp);
+    cell.appendChild(lab); cell.appendChild(inp);
+    grid.appendChild(cell);
+  });
+  host.appendChild(grid);
+
+  // Live total. A wholesaler thinking "twelve per colour" needs to see
+  // the twelve appear as they type, not discover it after saving.
+  const totalLine = document.createElement("div");
+  totalLine.style.cssText = "font-size:12px;font-weight:600;margin-bottom:10px;";
+  host.appendChild(totalLine);
+  function syncTotal() {
+    const w = steppers.map((i) => parseInt(i.value, 10) || 0);
+    const t = ratioTotal(w);
+    totalLine.textContent = t
+      ? `= ${t} pieces per colour  (${ratioShorthand(w)})`
+      : "Set at least one size above.";
+    totalLine.style.color = t ? "var(--accent-600,#2f6b4f)" : "var(--text-tertiary)";
+  }
+  syncTotal();
+
+  // Starter curves from real published practice. Offered to copy, never
+  // applied on their own.
+  const starters = document.createElement("div");
+  starters.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;";
+  STARTER_RATIOS.forEach((st) => {
+    const b = document.createElement("button");
+    b.className = "btn btn-ghost btn-sm";
+    b.style.fontSize = "11px";
+    b.textContent = st.name;
+    b.title = `${st.weights.join("-")} over ${st.sizes.join("/")} — ${ratioTotal(st.weights)} pieces`;
+    b.addEventListener("click", () => {
+      // Match by size NAME, so a starter built on S-XL does something
+      // sensible on a product sized 36-42 instead of silently misaligning.
+      sizes.forEach((sz, i) => {
+        const idx = st.sizes.indexOf(sz);
+        steppers[i].value = idx >= 0 ? String(st.weights[idx]) : "0";
+      });
+      if (!nameInput.value.trim()) nameInput.value = st.name;
+      syncTotal();
+    });
+    starters.appendChild(b);
+  });
+  host.appendChild(starters);
+
+  const saveRow = document.createElement("div");
+  saveRow.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;";
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "btn btn-primary btn-sm";
+  saveBtn.textContent = "Save ratio and apply to all colours";
+  saveBtn.addEventListener("click", async () => {
+    const name = nameInput.value.trim();
+    if (!name) return toast("Give this ratio a name so you can reuse it.", { type: "danger" });
+    const weights = steppers.map((i) => parseInt(i.value, 10) || 0);
+    if (!ratioTotal(weights)) return toast("A ratio has to add up to at least one piece.", { type: "danger" });
+
+    saveBtn.disabled = true;
+    const { data: made, error } = await createRatio(wid, { name, sizes, weights });
+    if (error || !made) {
+      saveBtn.disabled = false;
+      return toast(error?.message?.includes("duplicate") ? "You already have a ratio with that name." : (error?.message || "Could not save."), { type: "danger" });
+    }
+    const res = await applyRatio(made.id, product.id, { colors: null, multiplier: 1 });
+    saveBtn.disabled = false;
+    if (!res.ok) return toast(res.msg || "Saved, but could not apply.", { type: "danger" });
+    toast(`${name}: ${res.msg}`, { type: res.sizes_unmatched ? "default" : "success" });
+    reload && reload();
+  });
+  saveRow.appendChild(saveBtn);
+  host.appendChild(saveRow);
+
+  renderSaved();
+}
+
 async function renderPacksPanel(panel, wid, product) {
-  const packs = await listPacksForProduct(product.id);
+  // Ratio-first section goes ABOVE the original per-variant builder. The
+  // old builder is not removed -- it is still the right tool for a
+  // bespoke one-off pack, and removing a working feature to make room is
+  // exactly the failure this codebase keeps a ledger about.
   panel.innerHTML = "";
+  const ratioHost = document.createElement("div");
+  ratioHost.style.cssText = "padding-bottom:16px;margin-bottom:16px;border-bottom:2px solid var(--border-subtle);";
+  panel.appendChild(ratioHost);
+  await renderRatioSection(ratioHost, wid, product, () => renderPacksPanel(panel, wid, product));
+
+  const packs = await listPacksForProduct(product.id);
+  // NOTE: the original builder below used to start with
+  //   panel.innerHTML = "";
+  // That line is gone on purpose. The panel is already cleared at the top
+  // of this function, and leaving the second clear in would have wiped the
+  // ratio section that was just rendered above -- the whole new feature
+  // would have flashed on screen and vanished, with no error anywhere.
+  // Everything below appends, so it now lands underneath the ratio block.
 
   const header = document.createElement("div");
   header.style.cssText = "font-size:12px;font-weight:650;margin-bottom:8px;";
