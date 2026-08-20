@@ -12,6 +12,8 @@ export async function getProductPricing(productId) {
   return {
     moqQty: product?.moq_qty ?? 1,
     moqReorderQty: product?.moq_reorder_qty ?? null,
+    // migration 063 — minimum units of EACH colour, summed across sizes
+    moqPerColour: product?.moq_per_colour ?? null,
     tiers: (tiers || []).map((t) => ({ id: t.id, minQty: t.min_qty, unitPrice: Number(t.unit_price) })),
     variants: (variants || []).map((v) => ({
       id: v.id, sku: v.sku, price: Number(v.price ?? 0),
@@ -33,9 +35,16 @@ export async function getProductPricing(productId) {
   };
 }
 
-export async function setProductMoq(productId, { moqQty, moqReorderQty }) {
+export async function setProductMoq(productId, { moqQty, moqReorderQty, moqPerColour }) {
   return sbCall(supabase.from("v2_products").update({
     moq_qty: moqQty, moq_reorder_qty: moqReorderQty === "" || moqReorderQty == null ? null : moqReorderQty,
+    // Sent as undefined-safe: an explicit null CLEARS the colour rule,
+    // which is a real thing a wholesaler wants to do. Only `undefined`
+    // means "leave it alone", so callers that don't know about this
+    // field cannot wipe it by omission.
+    ...(moqPerColour === undefined ? {} : {
+      moq_per_colour: moqPerColour === "" || moqPerColour == null ? null : parseInt(moqPerColour, 10),
+    }),
     updated_at: new Date().toISOString(),
   }).eq("id", productId));
 }
