@@ -13,6 +13,7 @@ import { getReorderSuggestions, getInventoryIntelligenceReport, getCycleCountSch
 import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
+import { banClient, unbanClient, BAN_REASONS, banReasonLabel, getLiveBansByClient } from "../data/client-bans.js";
 import { updateCatalogSettings, addProductsToCatalog, DISCOUNT_MODES,
          catalogLink, setCatalogPublic, rotateCatalogLink,
          setBillboard, setHighlightLabel, setProductHighlighted,
@@ -1478,7 +1479,10 @@ async function clientsView(outlet) {
   loading.textContent = "Loading…";
   outlet.appendChild(loading);
 
-  const clients = await getClientsByRecency(wid);
+  const [clients, liveBans] = await Promise.all([
+    getClientsByRecency(wid),
+    getLiveBansByClient(wid),
+  ]);
   loading.remove();
 
   const coverage = coverageSnapshot(clients);
@@ -1506,22 +1510,56 @@ async function clientsView(outlet) {
   list.className = "card";
   list.style.padding = "8px";
   clients.forEach((c) => {
+    const ban = liveBans.get(c.id) || null;
+    const isBanned = c.status === "banned" || !!ban;
+
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-subtle);";
+    // A banned row is muted and carries a red left edge, so it reads as
+    // "cut off" at a glance without being hidden. Hadi's requirement was
+    // that the ban be VISUAL -- this is that, and the row stays in place
+    // so it can be lifted from the same screen it was applied on.
+    row.style.cssText =
+      "display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-subtle);" +
+      (isBanned ? "background:var(--danger-bg,rgba(180,35,24,.06));border-left:3px solid var(--danger,#b42318);" : "");
+
+    const bannedBadge = isBanned
+      ? `<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--danger,#b42318);color:#fff;font-size:11px;font-weight:700;letter-spacing:.02em;vertical-align:middle;">BANNED</span>`
+      : "";
+    const banLine = isBanned && ban
+      ? `<div style="font-size:12px;color:var(--danger,#b42318);margin-top:2px;">Banned ${new Date(ban.banned_at).toLocaleDateString()} — ${esc(banReasonLabel(ban.reason_code))}${ban.reason_text ? ": " + esc(ban.reason_text) : ""}</div>`
+      : "";
+
     row.innerHTML = `
       <div style="flex:1;min-width:0;">
-        <div style="font-weight:650;">${esc(c.shop_name)}</div>
+        <div style="font-weight:650;${isBanned ? "opacity:.75;" : ""}">${esc(c.shop_name)}${bannedBadge}</div>
         <div style="font-size:12px;color:var(--text-secondary);">${esc(c.phone || "—")}${c.discount_pct ? ` · ${c.discount_pct}% discount` : ""}${c.note ? " · " + esc(c.note) : ""}</div>
+        ${banLine}
       </div>
       <div style="text-align:right;width:130px;">
         <div style="font-size:12px;font-weight:600;">${c.orderCount} order${c.orderCount === 1 ? "" : "s"}</div>
         <div style="font-size:11px;color:var(--text-tertiary);">${c.lastOrderAt ? new Date(c.lastOrderAt).toLocaleDateString() : "never ordered"}</div>
       </div>
       <div style="text-align:right;width:90px;font-size:12px;font-weight:600;">$${c.lifetimeValue.toFixed(0)}</div>
-      <button class="btn btn-ghost btn-sm" data-action="deactivate">Deactivate</button>
+      <button class="btn ${isBanned ? "btn-secondary" : "btn-ghost"} btn-sm" data-action="ban">${isBanned ? "Unban" : "Ban"}</button>
+      ${isBanned ? "" : `<button class="btn btn-ghost btn-sm" data-action="deactivate">Deactivate</button>`}
     `;
-    row.querySelector('[data-action="deactivate"]').addEventListener("click", async () => {
-      if (!confirm(`Deactivate ${c.shop_name}? This hides them from your active client list (their order history is kept).`)) return;
+
+    row.querySelector('[data-action="ban"]').addEventListener("click", () => {
+      if (isBanned) {
+        if (!confirm(`Lift the ban on ${c.shop_name}? They will be able to sign in and order again. The record of this ban is kept.`)) return;
+        unbanClient(c.id, null).then((r) => {
+          if (!r.ok) return toast(r.msg || "Could not lift the ban.", { type: "error" });
+          toast(`${c.shop_name} can trade again`, { type: "success" });
+          clientsView(outlet);
+        });
+      } else {
+        openBanDialog(c, () => clientsView(outlet));
+      }
+    });
+
+    const deact = row.querySelector('[data-action="deactivate"]');
+    if (deact) deact.addEventListener("click", async () => {
+      if (!confirm(`Deactivate ${c.shop_name}? This hides them from your active client list (their order history is kept). It is NOT a ban — they can still sign in.`)) return;
       await deactivateClient(c.id);
       toast(`${c.shop_name} deactivated`, { type: "default" });
       row.remove();
@@ -1529,6 +1567,82 @@ async function clientsView(outlet) {
     list.appendChild(row);
   });
   outlet.appendChild(list);
+}
+
+// ---------- Ban dialog ----------
+//
+// A reason is MANDATORY. That is not bureaucracy: a ban with no reason
+// cannot be explained to the person, cannot be explained to your own
+// staff next month, and cannot be reviewed when they ask to come back.
+// "Rejected/banned with no reason given" was the single most frequent
+// complaint across every B2B platform researched for this feature, and
+// the database refuses reason_code='other' with no text regardless of
+// what this dialog does.
+function openBanDialog(client, onDone) {
+  const back = document.createElement("div");
+  back.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;";
+
+  const box = document.createElement("div");
+  box.className = "card";
+  box.style.cssText = "max-width:460px;width:100%;padding:20px;";
+  box.innerHTML = `
+    <div style="font-size:18px;font-weight:700;margin-bottom:4px;">Ban ${esc(client.shop_name)}?</div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+      They will be signed out and will not be able to see your catalogues or place orders.
+      Their order history is kept, and you can lift this at any time.
+    </div>
+    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Why? <span style="color:var(--danger,#b42318);">*</span></label>
+    <select id="ban-reason" class="input" style="width:100%;margin-bottom:4px;">
+      ${BAN_REASONS.map((r) => `<option value="${esc(r.code)}">${esc(r.label)}</option>`).join("")}
+    </select>
+    <div id="ban-hint" style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px;"></div>
+    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Note <span id="ban-note-req" style="color:var(--danger,#b42318);display:none;">*</span></label>
+    <textarea id="ban-note" class="input" rows="3" style="width:100%;margin-bottom:6px;" placeholder="Only you and OGGI see this. The client is never shown it."></textarea>
+    <div id="ban-err" style="font-size:12px;color:var(--danger,#b42318);min-height:16px;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost" data-a="cancel">Cancel</button>
+      <button class="btn btn-danger" data-a="confirm" style="background:var(--danger,#b42318);color:#fff;">Ban this client</button>
+    </div>
+  `;
+  back.appendChild(box);
+  document.body.appendChild(back);
+
+  const sel  = box.querySelector("#ban-reason");
+  const hint = box.querySelector("#ban-hint");
+  const note = box.querySelector("#ban-note");
+  const req  = box.querySelector("#ban-note-req");
+  const err  = box.querySelector("#ban-err");
+
+  const syncHint = () => {
+    const r = BAN_REASONS.find((x) => x.code === sel.value);
+    hint.textContent = r ? r.hint : "";
+    req.style.display = sel.value === "other" ? "inline" : "none";
+  };
+  sel.addEventListener("change", syncHint);
+  syncHint();
+
+  const close = () => back.remove();
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  box.querySelector('[data-a="cancel"]').addEventListener("click", close);
+
+  box.querySelector('[data-a="confirm"]').addEventListener("click", async () => {
+    err.textContent = "";
+    if (sel.value === "other" && !note.value.trim()) {
+      err.textContent = "Pick a reason, or write one here. A ban with no reason cannot be explained later.";
+      return;
+    }
+    const btn = box.querySelector('[data-a="confirm"]');
+    btn.disabled = true; btn.textContent = "Banning…";
+    const r = await banClient(client.id, sel.value, note.value.trim());
+    if (!r.ok) {
+      err.textContent = r.msg || "Could not ban this client.";
+      btn.disabled = false; btn.textContent = "Ban this client";
+      return;
+    }
+    close();
+    toast(`${client.shop_name} is banned`, { type: "default" });
+    onDone && onDone();
+  });
 }
 
 // ---------- Team & Buyers (Batch 14) ----------
