@@ -78,7 +78,9 @@ export async function locationStockTotals(wid) {
   if (!vids.length) return new Map();
 
   const { data: balances } = await sbCall(
-    supabase.from("v2_inventory_balances").select("location_id, qty_on_hand, qty_reserved").in("variant_id", vids)
+    // Live view, not the table -- its qty_reserved ignores expires_at, so the
+    // per-location "reserved" figure counted abandoned carts forever (064).
+    supabase.from("v2_inventory_balances_live").select("location_id, qty_on_hand, qty_reserved").in("variant_id", vids)
   );
   const byLocation = new Map();
   (balances || []).forEach((b) => {

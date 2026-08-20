@@ -703,8 +703,9 @@ export async function getProductDetail(productId) {
   // that table.
   const [{ data: balances }, supplier] = await Promise.all([
     variantIds.length
-      ? sbCall(supabase.from("v2_inventory_balances")
-          .select("variant_id, location_id, qty_on_hand, qty_reserved, v2_locations(name)")
+      // Live view, not the table (064). Same columns, plus qty_available.
+      ? sbCall(supabase.from("v2_inventory_balances_live")
+          .select("variant_id, location_id, qty_on_hand, qty_reserved, qty_available, v2_locations(name)")
           .in("variant_id", variantIds))
       : Promise.resolve({ data: [] }),
     getSupplier(base.product.supplier_id),
@@ -719,7 +720,8 @@ export async function getProductDetail(productId) {
       locationName: b.v2_locations?.name || "Unnamed location",
       onHand: Number(b.qty_on_hand) || 0,
       reserved: Number(b.qty_reserved) || 0,
-      available: (Number(b.qty_on_hand) || 0) - (Number(b.qty_reserved) || 0),
+      // From the view, not re-derived here -- see 064.
+      available: Number(b.qty_available) || 0,
     });
   });
 

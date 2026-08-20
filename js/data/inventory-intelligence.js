@@ -23,7 +23,9 @@ async function loadVariantsWithBalances(wid) {
   if (!variants || !variants.length) return [];
   const variantIds = variants.map((v) => v.id);
 
-  const { data: balances } = await sbCall(supabase.from("v2_inventory_balances").select("*").in("variant_id", variantIds));
+  // Live view, not the table (064): this feeds reorder and dead-stock
+  // intelligence, so a phantom "reserved" here becomes a wrong buying decision.
+  const { data: balances } = await sbCall(supabase.from("v2_inventory_balances_live").select("*").in("variant_id", variantIds));
   const balByVariant = new Map();
   (balances || []).forEach((b) => {
     const cur = balByVariant.get(b.variant_id) || { onHand: 0, reserved: 0 };
