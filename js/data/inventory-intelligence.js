@@ -10,6 +10,7 @@
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { getLatestLandedCosts } from "./landed-cost.js";
 import { adjustStock } from "./inventory-admin.js";
+import { getInventorySettings } from "./inventory-settings.js";
 
 async function loadVariantsWithBalances(wid) {
   const { data: products } = await sbCall(supabase.from("v2_products").select("id,name").eq("wid", wid).eq("archived", false));
@@ -47,29 +48,26 @@ async function loadVariantsWithBalances(wid) {
   });
 }
 
-// ---------- Reorder-point automation ----------
-
-/** Every variant with a configured reorder_point whose current AVAILABLE
- * (not just on-hand) qty has dropped to or below it, sorted most-urgent
- * first (furthest below the point). A variant with no reorder_point set
- * simply never appears here -- no fabricated default threshold. */
-export async function getReorderSuggestions(wid) {
-  const variants = await loadVariantsWithBalances(wid);
-  return variants
-    .filter((v) => v.reorderPoint != null && v.available <= v.reorderPoint)
-    .map((v) => ({
-      ...v,
-      suggestedQty: v.reorderQty || Math.max(v.reorderPoint * 2 - v.available, 1),
-    }))
-    .sort((a, b) => (a.available - a.reorderPoint) - (b.available - b.reorderPoint));
-}
+// The signal itself now lives in js/data/inventory-signals.js so that
+// js/data/inventory-admin.js can use it too without an import cycle (this
+// file already imports adjustStock from there). Re-exported here so nothing
+// that used to import it from this module breaks.
+export { getInventorySignals, getReorderSuggestions, getBreakouts, getVariantStatuses } from "./inventory-signals.js";
 
 // ---------- GMROI / aging / sell-through report + ABC classification ----------
 
 /** Full inventory intelligence report: one row per active variant, with
  * trailing-period sales, GMROI, an aging bucket, sell-through rate, and an
  * ABC tier derived from this variant's share of trailing revenue. */
-export async function getInventoryIntelligenceReport(wid, { trailingDays = 90 } = {}) {
+export async function getInventoryIntelligenceReport(wid, { trailingDays } = {}) {
+  // Batch 1: the trailing window is the wholesaler's own setting, not a
+  // constant. It still DEFAULTS to 90 -- the number that was hardcoded here
+  // -- so no wholesaler's existing report changes value the day this ships.
+  // Only the ability to change it is new.
+  if (trailingDays == null) {
+    const { settings } = await getInventorySettings(wid);
+    trailingDays = settings.velocityWindowDays;
+  }
   const variants = await loadVariantsWithBalances(wid);
   if (!variants.length) return { rows: [], trailingDays, generatedAt: new Date().toISOString() };
   const variantIds = variants.map((v) => v.variantId);
