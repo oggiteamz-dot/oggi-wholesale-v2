@@ -198,4 +198,27 @@ body {
   body { background: #fff; }
   #topbar, #sidenav, #bottomnav { display: none !important; }
   #view-outlet { padding: 0; }
+
+  /* Batch 4: barcode label sheets.
+     Anything marked no-print is on-screen scaffolding -- the assign button,
+     the "no barcode yet" placeholder, the page header. Printing those wastes
+     a label, and on a sheet of adhesive labels a wasted cell is a wasted
+     label, not just wasted ink. */
+  .no-print { display: none !important; }
+
+  /* A label must never be split across a page break. Half a barcode is not a
+     degraded label, it is an unscannable one -- and the person only finds out
+     at the shelf with a scanner in their hand. */
+  .label-cell {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #ccc !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Bars must print as true black on true white whatever the screen theme is
+     doing. A scanner reads contrast, and a dark-mode label is unreadable. */
+  .label-cell svg rect[fill="#000"] { fill: #000 !important; }
+  .label-sheet { gap: 6px !important; }
 }
