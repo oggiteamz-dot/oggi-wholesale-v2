@@ -213,7 +213,15 @@ function render(over = {}, opts = {}) {
   };
   const card = render({ sellingModel: "prepack" }, { packs: [pack] });
   ok(/Sold in fixed cartons/.test(card.textContent), "a prepack product explains how it is sold");
-  ok(!card.querySelector("button.pc-step"), "and offers no per-size stepper, because the server refuses loose lines for it");
+  // ":not(.pc-step-pack)" matters. Batch 5's follow-up gave the pack row its own
+  // − / + , which share the tap-target class. The claim here is specifically
+  // that there is no PER-SIZE stepper -- a bare "button.pc-step" would now
+  // match the pack's buttons and this assertion would fail for the wrong
+  // reason, which is how a correct feature gets "fixed" back out again.
+  ok(!card.querySelector("button.pc-step:not(.pc-step-pack)"),
+     "and offers no per-SIZE stepper, because the server refuses loose lines for it");
+  const packSteps = card.querySelectorAll("button.pc-step-pack");
+  ok(packSteps.length === 2, `but the pack row has its own − and + (got ${packSteps.length}) — the plan sketched "[ − ] 1 pack [ + ]" and it first shipped as a bare number field`);
   ok(/\$8\.00/.test(card.textContent), "the pack quotes a PER PIECE price");
   const badge = [...card.querySelectorAll(".pc-multiplier")].find((b) => b.textContent === "×12");
   ok(!!badge, "with a ×12 badge for the pieces in one pack");

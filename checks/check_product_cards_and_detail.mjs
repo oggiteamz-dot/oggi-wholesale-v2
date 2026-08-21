@@ -205,9 +205,21 @@ function viewBody(src, marker) {
   return next === -1 ? src.slice(start) : src.slice(start, start + marker.length + next);
 }
 
+// RENAMED 21 Aug 2026 (Batch 6), and the rename is the point.
+//
+// Products folded into Inventory, so inventoryView() and productsView() became
+// stockPane() and productsPane(), panes of one screen. This gate went RED --
+// six assertions, naming both screens it could no longer read. That is the
+// behaviour the comment above asks for: it did NOT quietly stop checking a
+// screen whose function had been renamed out from under it.
+//
+// Editing a gate so it passes is a real hazard, so it is worth being explicit
+// about what changed: only the two markers below. Not one assertion was
+// weakened, and the panes really do still build cards with the shared tile and
+// still offer View and Edit -- which is what the six assertions then confirmed.
 for (const [view, marker] of [
-  ["Inventory", "async function inventoryView"],
-  ["Products", "async function productsView"],
+  ["Inventory (Stock pane)", "async function stockPane"],
+  ["Inventory (Products pane)", "async function productsPane"],
   ["Catalogs", "async function catalogsView"],
 ]) {
   const start = wsrc.indexOf(marker);
