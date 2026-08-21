@@ -14,6 +14,7 @@ import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesa
 import { getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
 import { getInventorySignals, getVariantStatuses } from "../data/inventory-signals.js";
 import { getMovementLedger, movementTypeLabel, referenceLabel, MOVEMENT_TYPES } from "../data/inventory-movements.js";
+import { getInventoryValuation, isFullyCosted } from "../data/inventory-valuation.js";
 import { getInventorySettings, saveInventorySettings, resetInventorySettings, INVENTORY_SETTING_DEFAULTS, INVENTORY_SETTING_HELP, INVENTORY_SETTING_BOUNDS } from "../data/inventory-settings.js";
 import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
@@ -1611,9 +1612,10 @@ async function intelligenceView(outlet) {
 
   // One signal fetch feeds the summary, the reorder list and the breakout
   // alert, so the three can never disagree with each other on screen.
-  const [signals, report, cycleSchedule, kits, stock, locations, settingsResult] = await Promise.all([
+  const [signals, report, cycleSchedule, kits, stock, locations, settingsResult, valuation] = await Promise.all([
     getInventorySignals(wid), getInventoryIntelligenceReport(wid), getCycleCountSchedule(wid),
     listKits(wid), getStockTable(wid), getLocations(wid), getInventorySettings(wid),
+    getInventoryValuation(wid),
   ]);
   const reorderSuggestions = signals
     .filter((sig) => (sig.status === "reorder" || sig.status === "out") && sig.suggestedQty > 0)
@@ -1673,6 +1675,71 @@ async function intelligenceView(outlet) {
   }
   healthSection.appendChild(chipRow);
   outlet.appendChild(healthSection);
+
+  // --- What the stock is worth (Batch 3, restores v1's L4 and L5) ---
+  // Every figure here is shown WITH its coverage. One production wholesaler
+  // holds 1,400 units of which 0% carry a cost; printing "$0.00" would tell
+  // them their inventory is worthless when the truth is that nobody has
+  // entered a cost price. Those are opposite instructions.
+  if (valuation && valuation.unitsOnHand > 0) {
+    const money = (n) => `${session.currency || "$"}${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const val = document.createElement("div");
+    val.className = "card";
+    val.style.cssText = "padding:16px;margin-bottom:16px;";
+    val.innerHTML = `<h4 style="margin-bottom:4px;">What your stock is worth</h4>`;
+
+    const fully = isFullyCosted(valuation);
+    const sub = document.createElement("div");
+    sub.style.cssText = "font-size:11px;color:var(--text-tertiary);margin-bottom:12px;";
+    sub.innerHTML = fully
+      ? `Across all ${valuation.unitsOnHand.toLocaleString()} units on hand.`
+      : `⚠️ Worked out from <strong>${valuation.unitsValued.toLocaleString()} of ${valuation.unitsOnHand.toLocaleString()}</strong> units ` +
+        `(${valuation.coveragePct ?? 0}%). The other ${valuation.unitsUnvalued.toLocaleString()} have no cost price recorded, ` +
+        `so they are left out rather than counted as free. Add cost prices under Products → Pricing &amp; MOQ and this figure completes itself.`;
+    val.appendChild(sub);
+
+    const figs = document.createElement("div");
+    figs.style.cssText = "display:flex;flex-wrap:wrap;gap:20px;";
+    const fig = (label, value, note, tone) => {
+      const d = document.createElement("div");
+      d.style.cssText = "min-width:130px;";
+      d.innerHTML =
+        `<div style="font-size:11px;color:var(--text-tertiary);">${esc(label)}</div>` +
+        `<div style="font-size:19px;font-weight:750;${tone ? `color:${tone};` : ""}">${esc(value)}</div>` +
+        (note ? `<div style="font-size:11px;color:var(--text-tertiary);">${esc(note)}</div>` : "");
+      return d;
+    };
+    figs.appendChild(fig("Value at cost", valuation.unitsValued ? money(valuation.valueAtCost) : "—",
+      valuation.unitsValued ? "what it cost you" : "no cost prices recorded yet"));
+    figs.appendChild(fig("Value at your list price", valuation.valueAtPrice ? money(valuation.valueAtPrice) : "—",
+      "if every unit sold at list"));
+    figs.appendChild(fig("Margin in stock",
+      valuation.marginPct == null ? "—" : money(valuation.marginValue),
+      // Never "0%". Null means it could not be computed, which is a different
+      // statement from "you make nothing".
+      valuation.marginPct == null ? "needs both cost and price" : `${valuation.marginPct}% of list`));
+    val.appendChild(figs);
+
+    // Dead stock and undated stock are two different categories and are shown
+    // as such. 075 stopped treating "no arrival on record" as "old".
+    const notes = document.createElement("div");
+    notes.style.cssText = "margin-top:14px;padding-top:12px;border-top:1px solid var(--border-subtle);font-size:12px;display:grid;gap:6px;";
+    if (valuation.deadUnits > 0) {
+      notes.innerHTML += `<div><strong style="color:var(--danger,#c33);">${money(valuation.deadValueAtCost)}</strong> ` +
+        `tied up in dead stock — ${valuation.deadUnits.toLocaleString()} units across ${valuation.deadVariants} ` +
+        `SKU${valuation.deadVariants === 1 ? "" : "s"} that arrived over ${valuation.deadStockDays} days ago and have not sold since.</div>`;
+    } else {
+      notes.innerHTML += `<div style="color:var(--text-tertiary);">No dead stock: nothing has been sitting unsold for more than ${valuation.deadStockDays} days.</div>`;
+    }
+    if (valuation.unknownAgeUnits > 0) {
+      notes.innerHTML += `<div style="color:var(--text-tertiary);">` +
+        `${valuation.unknownAgeUnits.toLocaleString()} units across ${valuation.unknownAgeVariants} ` +
+        `SKU${valuation.unknownAgeVariants === 1 ? "" : "s"} have no recorded arrival, so their age is unknown. ` +
+        `They are <em>not</em> counted as dead — they are simply undated. Receiving stock through the app dates it from then on.</div>`;
+    }
+    val.appendChild(notes);
+    outlet.appendChild(val);
+  }
 
   // --- Reorder suggestions ---
   const reorderSection = document.createElement("div");
