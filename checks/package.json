@@ -1,0 +1,12 @@
+{
+  "name": "oggi-wholesale-v2-checks",
+  "private": true,
+  "description": "Dependencies for the behaviour gates in this directory. See README.md. Deliberately nested here rather than at the repository root: Cloudflare Workers Builds detects a ROOT package.json and would insert an npm install step into the deploy of a live site. A nested one is invisible to it, and node resolves node_modules upward from the script that imports, so `npm install` run in this directory is enough for every gate here. checks/ is already in .assetsignore, so nothing in this directory is ever served.",
+  "scripts": {
+    "test": "for f in check_*.mjs; do node \"$f\" || exit 1; done"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1",
+    "playwright": "1.56.0"
+  }
+}
