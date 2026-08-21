@@ -124,7 +124,12 @@ revoke execute on function wholesale_v2.v2_movement_ledger(uuid,uuid,uuid,text[]
 revoke execute on function wholesale_v2.v2_movement_ledger(uuid,uuid,uuid,text[],timestamptz,int,int,text) from anon;
 grant  execute on function wholesale_v2.v2_movement_ledger(uuid,uuid,uuid,text[],timestamptz,int,int,text) to authenticated;
 
-comment on function wholesale_v2.v2_movement_ledger is
+-- Batch 7 (21 Aug 2026): argument list added. Without it this statement only
+-- works while the name is unique, and a replay that ever produces a second
+-- overload would stop here -- on a comment. The signature is spelled out
+-- rather than resolved at run time because this migration defines the
+-- function immediately above, so there is exactly one right answer.
+comment on function wholesale_v2.v2_movement_ledger(uuid,uuid,uuid,text[],timestamptz,int,int,text) is
   'Migration 071. Batch 2 read path for the stock movement ledger. Scoped to '
   'the caller''s own wid (owners may name another), filterable by product, '
   'variant, location, type and date, paginated with a hard 500-row cap, and '
