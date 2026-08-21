@@ -23,6 +23,10 @@ export const NAV_BY_ROLE = {
     // Added 18 Aug 2026. Stock has been per-location in the data since
     // migration 001, but nothing could create a second location and nothing
     // could move stock between two -- regression ledger #17.
+    // Batch 2. The stock ledger has been written since migration 001 and had
+    // nowhere to be seen. Sits directly under Inventory because it answers the
+    // question Inventory provokes: "why is this number what it is?"
+    { icon: "🕓", label: "Stock Movements", path: "/wholesaler/movements" },
     { icon: "🏬", label: "Locations", path: "/wholesaler/locations" },
     // Batch 17. Sits next to Locations because both answer "where does stock
     // come from and go" -- Locations is inside the business, Suppliers is the
