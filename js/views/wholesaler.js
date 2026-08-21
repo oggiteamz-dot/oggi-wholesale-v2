@@ -15,6 +15,8 @@ import { getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } 
 import { getInventorySignals, getVariantStatuses } from "../data/inventory-signals.js";
 import { getMovementLedger, movementTypeLabel, referenceLabel, MOVEMENT_TYPES } from "../data/inventory-movements.js";
 import { getInventoryValuation, isFullyCosted } from "../data/inventory-valuation.js";
+import { assignInternalBarcodes, getLabelRows } from "../data/barcodes.js";
+import { renderEan13Svg, isValidEan13, isInternalBarcode } from "../lib/barcode-ean13.js";
 import { getInventorySettings, saveInventorySettings, resetInventorySettings, INVENTORY_SETTING_DEFAULTS, INVENTORY_SETTING_HELP, INVENTORY_SETTING_BOUNDS } from "../data/inventory-settings.js";
 import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
@@ -1378,6 +1380,141 @@ function openTransfer(row, locations, onDone) {
   const rowEl = document.getElementById("transfer-anchor");
   (rowEl || document.getElementById("view-outlet")).appendChild(panel);
   panel.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+// ---------- Barcode labels (Batch 4, migration 076) ----------
+// v1 printed barcodes; the 2.0 rewrite kept only the reader. Production had
+// 0 of 191 variants carrying a code, so the camera scanner shipped in Batch 18
+// had nothing to scan.
+//
+// The labels are EAN-13, not v1's Code 128-B, because THIS app's decoder reads
+// EAN-13 and explicitly does not read Code 128. Printing Code 128 would have
+// produced labels the app that printed them could not scan.
+
+async function labelsView(outlet, params = {}) {
+  const session = devAuth.getSession();
+  const wid = session.wid;
+
+  const labelsHeader = pageHeader("Barcode labels",
+    "Print a scannable label for every colour and size. Codes are read by the app's own camera scanner and by any hardware scanner.");
+  // Screen furniture only -- printing the page title would cost a label off
+  // the top of the sheet.
+  labelsHeader.classList.add("no-print");
+  outlet.appendChild(labelsHeader);
+
+  const host = document.createElement("div");
+  outlet.appendChild(host);
+
+  async function paint() {
+    host.innerHTML = "";
+    const { rows, error } = await getLabelRows(wid, { productId: params.productId || null });
+
+    if (error) {
+      host.appendChild(emptyState({ icon: "⚠️", title: "Could not load your products",
+        body: "Nothing has been changed." }));
+      return;
+    }
+    if (!rows.length) {
+      host.appendChild(emptyState({ icon: "🏷", title: "No products to label yet",
+        body: "Add a product and every colour and size will appear here, ready to print." }));
+      return;
+    }
+
+    const missing = rows.filter((r) => !r.barcode);
+
+    // --- the action bar ---
+    const bar = document.createElement("div");
+    bar.className = "card no-print";
+    bar.style.cssText = "padding:14px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;";
+    const summary = document.createElement("div");
+    summary.style.cssText = "flex:1;min-width:220px;font-size:12px;color:var(--text-secondary);";
+    summary.innerHTML = missing.length
+      ? `<strong>${missing.length}</strong> of ${rows.length} have no barcode yet. ` +
+        `Assigning one gives it a code in the range set aside for a shop's own use, so it can never clash with a manufacturer's.`
+      : `All ${rows.length} colour/size combinations have a barcode.`;
+    bar.appendChild(summary);
+
+    if (missing.length) {
+      const assign = document.createElement("button");
+      assign.className = "btn btn-primary";
+      assign.style.minHeight = "44px";
+      assign.textContent = `Give the other ${missing.length} a barcode`;
+      assign.addEventListener("click", async () => {
+        assign.disabled = true; assign.textContent = "Assigning…";
+        const { assigned, error: e } = await assignInternalBarcodes(wid, { productId: params.productId || null });
+        if (e) { toast("Could not assign barcodes", { type: "danger" }); assign.disabled = false; return; }
+        toast(`${assigned.length} barcode${assigned.length === 1 ? "" : "s"} assigned`, { type: "success" });
+        paint();
+      });
+      bar.appendChild(assign);
+    }
+
+    const printBtn = document.createElement("button");
+    printBtn.className = "btn btn-secondary";
+    printBtn.style.minHeight = "44px";
+    printBtn.textContent = "Print these labels";
+    printBtn.disabled = rows.every((r) => !r.barcode);
+    printBtn.addEventListener("click", () => window.print());
+    bar.appendChild(printBtn);
+    host.appendChild(bar);
+
+    // --- the sheet ---
+    const sheet = document.createElement("div");
+    sheet.className = "label-sheet";
+    sheet.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;";
+
+    rows.forEach((r) => {
+      const cell = document.createElement("div");
+      cell.className = "label-cell";
+      cell.style.cssText =
+        "border:1px solid var(--border-subtle);border-radius:8px;padding:10px;background:#fff;color:#000;" +
+        "display:flex;flex-direction:column;gap:6px;break-inside:avoid;";
+
+      const bits = [r.color, r.size].filter(Boolean).join(" / ");
+      const head = document.createElement("div");
+      head.style.cssText = "font-size:11px;line-height:1.3;";
+      head.innerHTML =
+        `<div style="font-weight:700;">${esc(r.productName)}</div>` +
+        (bits ? `<div>${esc(bits)}</div>` : "") +
+        `<div style="font-family:monospace;color:#444;">${esc(r.sku)}</div>`;
+      cell.appendChild(head);
+
+      if (r.barcode && isValidEan13(r.barcode)) {
+        const wrap = document.createElement("div");
+        // The SVG is inserted as markup rather than an <img src="data:...">
+        // because index.html ships a CSP without data: in img-src, and an
+        // inline <svg> element needs no source at all.
+        wrap.innerHTML = renderEan13Svg(r.barcode, { moduleWidth: 2, height: 46 });
+        const svg = wrap.firstElementChild;
+        if (svg) { svg.style.maxWidth = "100%"; svg.style.height = "auto"; }
+        cell.appendChild(wrap);
+        if (!isInternalBarcode(r.barcode)) {
+          const note = document.createElement("div");
+          note.style.cssText = "font-size:10px;color:#666;";
+          note.textContent = "Manufacturer's barcode";
+          cell.appendChild(note);
+        }
+      } else if (r.barcode) {
+        // A code that exists but is not a valid EAN-13 is shown as text and
+        // named as such. Drawing bars for it would produce a label that looks
+        // right and cannot be scanned, which is worse than no label.
+        const note = document.createElement("div");
+        note.style.cssText = "font-size:11px;color:#a33;";
+        note.textContent = `Code "${r.barcode}" is not a valid EAN-13, so it cannot be drawn as bars.`;
+        cell.appendChild(note);
+      } else {
+        const note = document.createElement("div");
+        note.className = "no-print";
+        note.style.cssText = "font-size:11px;color:#888;";
+        note.textContent = "No barcode yet";
+        cell.appendChild(note);
+      }
+      sheet.appendChild(cell);
+    });
+    host.appendChild(sheet);
+  }
+
+  await paint();
 }
 
 // ---------- Stock movements (Batch 2, migrations 069/070/071) ----------
@@ -3820,6 +3957,8 @@ export function registerWholesalerRoutes(router) {
   router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));
   router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet));
   router.register("/wholesaler/movements", (outlet) => movementsView(outlet));
+  router.register("/wholesaler/labels", (outlet) => labelsView(outlet));
+  router.register("/wholesaler/labels/:productId", (outlet, params) => labelsView(outlet, params));
   // Deep link from a product card, so "why is this 12 and not 20" is answered
   // where the question is actually asked rather than on a screen the
   // wholesaler has to think to go and find.
