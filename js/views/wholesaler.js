@@ -13,6 +13,7 @@ import { listRatios, createRatio, applyRatio, ratioUsage, archiveRatio, ratioTot
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
 import { getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
 import { getInventorySignals, getVariantStatuses } from "../data/inventory-signals.js";
+import { getMovementLedger, movementTypeLabel, referenceLabel, MOVEMENT_TYPES } from "../data/inventory-movements.js";
 import { getInventorySettings, saveInventorySettings, resetInventorySettings, INVENTORY_SETTING_DEFAULTS, INVENTORY_SETTING_HELP, INVENTORY_SETTING_BOUNDS } from "../data/inventory-settings.js";
 import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
@@ -1177,6 +1178,20 @@ async function inventoryView(outlet) {
     head.className = "inv-detail-head";
     head.innerHTML = `<h4>${esc(p.productName)}</h4>
       <p>${p.variantCount} colour/size combination${p.variantCount === 1 ? "" : "s"} · ${p.available} available of ${p.onHand} on hand</p>`;
+    // Batch 2: the ledger, reachable from the number it explains. A wholesaler
+    // looking at "12 available" and expecting 20 is one tap from the list of
+    // every movement that produced the 12 -- rather than having to know a
+    // Stock Movements screen exists and then filter their way back here.
+    const history = document.createElement("button");
+    history.className = "btn btn-secondary btn-sm";
+    history.textContent = "History";
+    history.title = `Every stock movement for ${p.productName}`;
+    history.style.minHeight = "44px";
+    history.addEventListener("click", () => {
+      location.hash = `#/wholesaler/movements/${encodeURIComponent(p.productId)}`;
+    });
+    head.appendChild(history);
+
     const close = document.createElement("button");
     close.className = "btn btn-ghost btn-sm";
     close.textContent = "Close";
@@ -1362,6 +1377,214 @@ function openTransfer(row, locations, onDone) {
   const rowEl = document.getElementById("transfer-anchor");
   (rowEl || document.getElementById("view-outlet")).appendChild(panel);
   panel.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+// ---------- Stock movements (Batch 2, migrations 069/070/071) ----------
+// The audit trail that makes "why is this 12 and not 20" answerable.
+// v2_inventory_movements has been written correctly since migration 001 and
+// shown nowhere. Two things had to be fixed before it could be displayed:
+// its read policy was `using (true)` and readable anonymously across all six
+// wholesalers (069), and only 9 of 236 rows recorded who did it (070).
+
+const MOVEMENT_PAGE_SIZE = 50;
+
+async function movementsView(outlet, params = {}) {
+  const session = devAuth.getSession();
+  const wid = session.wid;
+
+  // Filter state lives here rather than in the URL: the filters are a way of
+  // reading one screen, not four separate places a wholesaler navigates to.
+  const filters = {
+    productId: params.productId || null,
+    locationId: null,
+    types: [],
+    since: null,
+    offset: 0,
+  };
+
+  outlet.appendChild(pageHeader("Stock movements",
+    "Every change to your stock, newest first — what moved, when, why, and who did it."));
+
+  const host = document.createElement("div");
+  outlet.appendChild(host);
+
+  const locations = await getLocations(wid);
+
+  async function paint() {
+    host.innerHTML = "";
+
+    const { rows, total, error } = await getMovementLedger(wid, {
+      productId: filters.productId,
+      locationId: filters.locationId,
+      types: filters.types,
+      since: filters.since,
+      limit: MOVEMENT_PAGE_SIZE,
+      offset: filters.offset,
+    });
+
+    // --- filters ---
+    const bar = document.createElement("div");
+    bar.className = "card";
+    bar.style.cssText = "padding:12px 16px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;";
+
+    const typeSel = document.createElement("select");
+    typeSel.className = "input";
+    typeSel.style.cssText = "min-height:44px;max-width:220px;";
+    typeSel.innerHTML = `<option value="">Everything that happened</option>` +
+      Object.entries(MOVEMENT_TYPES)
+        .map(([k, v]) => `<option value="${esc(k)}"${filters.types[0] === k ? " selected" : ""}>${esc(v.label)}</option>`)
+        .join("");
+    typeSel.addEventListener("change", () => {
+      filters.types = typeSel.value ? [typeSel.value] : [];
+      filters.offset = 0; paint();
+    });
+    bar.appendChild(typeSel);
+
+    if (locations.length > 1) {
+      const locSel = document.createElement("select");
+      locSel.className = "input";
+      locSel.style.cssText = "min-height:44px;max-width:220px;";
+      locSel.innerHTML = `<option value="">Every warehouse</option>` +
+        locations.map((l) => `<option value="${esc(l.id)}"${filters.locationId === l.id ? " selected" : ""}>${esc(l.name)}</option>`).join("");
+      locSel.addEventListener("change", () => {
+        filters.locationId = locSel.value || null; filters.offset = 0; paint();
+      });
+      bar.appendChild(locSel);
+    }
+
+    const sinceSel = document.createElement("select");
+    sinceSel.className = "input";
+    sinceSel.style.cssText = "min-height:44px;max-width:200px;";
+    [["", "All time"], ["7", "Last 7 days"], ["30", "Last 30 days"], ["90", "Last 90 days"]]
+      .forEach(([v, label]) => {
+        const o = document.createElement("option");
+        o.value = v; o.textContent = label;
+        if ((filters.since ? String(filters.sinceDays) : "") === v) o.selected = true;
+        sinceSel.appendChild(o);
+      });
+    sinceSel.addEventListener("change", () => {
+      const d = sinceSel.value ? parseInt(sinceSel.value, 10) : null;
+      filters.sinceDays = d;
+      filters.since = d ? new Date(Date.now() - d * 86400000).toISOString() : null;
+      filters.offset = 0; paint();
+    });
+    bar.appendChild(sinceSel);
+
+    if (filters.productId && rows.length) {
+      const chip = document.createElement("button");
+      chip.className = "btn btn-secondary btn-sm";
+      chip.style.minHeight = "44px";
+      chip.textContent = `Only ${rows[0].productName} ✕`;
+      chip.title = "Show every product again";
+      chip.addEventListener("click", () => { filters.productId = null; filters.offset = 0; paint(); });
+      bar.appendChild(chip);
+    }
+    host.appendChild(bar);
+
+    if (error) {
+      host.appendChild(emptyState({ icon: "⚠️", title: "Could not load the ledger",
+        body: "Something went wrong reading your stock history. Nothing has been changed." }));
+      return;
+    }
+
+    if (!rows.length) {
+      // Say which of the two it is. "No results" for a filter and "no history"
+      // for an empty ledger look identical and mean different things.
+      const filtered = filters.productId || filters.locationId || filters.types.length || filters.since;
+      host.appendChild(emptyState({
+        icon: "🕓",
+        title: filtered ? "Nothing matches those filters" : "No stock movements yet",
+        body: filtered
+          ? "Try widening the date range or choosing 'Everything that happened'."
+          : "Every receipt, sale, transfer and correction will be listed here automatically, from the moment you first receive stock.",
+      }));
+      return;
+    }
+
+    // --- the ledger ---
+    const card = document.createElement("div");
+    card.className = "card";
+    card.style.cssText = "padding:0;overflow:hidden;";
+
+    const shown = filters.offset + rows.length;
+    const head = document.createElement("div");
+    head.style.cssText = "padding:12px 16px;font-size:12px;color:var(--text-tertiary);border-bottom:1px solid var(--border-subtle);";
+    head.textContent = `Showing ${filters.offset + 1}–${shown} of ${total}`;
+    card.appendChild(head);
+
+    let lastDay = null;
+    rows.forEach((r) => {
+      const when = new Date(r.createdAt);
+      const day = when.toDateString();
+      if (day !== lastDay) {
+        lastDay = day;
+        const sep = document.createElement("div");
+        sep.style.cssText = "padding:8px 16px;background:var(--surface-2);font-size:11px;font-weight:650;color:var(--text-secondary);";
+        sep.textContent = when.toLocaleDateString(undefined, { weekday:"short", day:"numeric", month:"short", year:"numeric" });
+        card.appendChild(sep);
+      }
+
+      const meta = MOVEMENT_TYPES[r.type] || { tone: "neutral", blurb: "" };
+      const colour = meta.tone === "in" ? "var(--success,#137a4a)"
+                   : meta.tone === "out" ? "var(--danger,#c33)" : "var(--text-tertiary)";
+      const sign = r.qtyDelta > 0 ? "+" : "";
+
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-bottom:1px solid var(--border-subtle);font-size:12px;";
+
+      const qty = document.createElement("div");
+      qty.style.cssText = `min-width:56px;text-align:right;font-weight:750;font-size:15px;color:${colour};`;
+      qty.textContent = `${sign}${r.qtyDelta}`;
+      row.appendChild(qty);
+
+      const body = document.createElement("div");
+      body.style.cssText = "flex:1;min-width:0;";
+      const variantBits = [r.color, r.size].filter(Boolean).join(" / ");
+      const ref = referenceLabel(r.referenceType);
+      // "who" is shown honestly. Rows written before migration 070 have no
+      // actor and say so, rather than showing a blank that reads as data loss.
+      const who = r.actorLabel
+        ? `by ${esc(r.actorLabel)}`
+        : `<span title="Who did this was not recorded before 21 Aug 2026. New movements record it automatically.">who: not recorded</span>`;
+      body.innerHTML =
+        `<div style="font-weight:650;color:${colour};">${esc(movementTypeLabel(r.type))}` +
+        `<span style="font-weight:400;color:var(--text-tertiary);"> · ${esc(meta.blurb)}</span></div>` +
+        `<div style="margin-top:2px;">${esc(r.productName)}` +
+        (variantBits ? ` <span style="color:var(--text-tertiary);">${esc(variantBits)}</span>` : "") +
+        ` <span style="color:var(--text-tertiary);">${esc(r.sku || "")}</span></div>` +
+        `<div style="margin-top:2px;color:var(--text-tertiary);">` +
+        `${when.toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"})}` +
+        (r.locationName ? ` · ${esc(r.locationName)}` : "") +
+        (ref ? ` · ${esc(ref)}` : "") +
+        ` · ${who}</div>` +
+        (r.note ? `<div style="margin-top:4px;color:var(--text-secondary);font-style:italic;">${esc(r.note)}</div>` : "");
+      row.appendChild(body);
+      card.appendChild(row);
+    });
+    host.appendChild(card);
+
+    // --- paging ---
+    if (total > MOVEMENT_PAGE_SIZE) {
+      const pager = document.createElement("div");
+      pager.style.cssText = "display:flex;gap:8px;justify-content:center;padding:14px 0;";
+      const mk = (label, disabled, delta) => {
+        const b = document.createElement("button");
+        b.className = "btn btn-secondary"; b.textContent = label;
+        b.style.minHeight = "44px"; b.disabled = disabled;
+        b.addEventListener("click", () => {
+          filters.offset = Math.max(0, filters.offset + delta);
+          paint();
+          host.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+        return b;
+      };
+      pager.appendChild(mk("← Newer", filters.offset === 0, -MOVEMENT_PAGE_SIZE));
+      pager.appendChild(mk("Older →", shown >= total, MOVEMENT_PAGE_SIZE));
+      host.appendChild(pager);
+    }
+  }
+
+  await paint();
 }
 
 // ---------- Inventory intelligence (Batch 9) ----------
@@ -3529,6 +3752,11 @@ export function registerWholesalerRoutes(router) {
   router.register("/wholesaler/team", (outlet) => teamView(outlet));
   router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));
   router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet));
+  router.register("/wholesaler/movements", (outlet) => movementsView(outlet));
+  // Deep link from a product card, so "why is this 12 and not 20" is answered
+  // where the question is actually asked rather than on a screen the
+  // wholesaler has to think to go and find.
+  router.register("/wholesaler/movements/:productId", (outlet, params) => movementsView(outlet, params));
 
   router.register("/wholesaler/locations", (outlet) => locationsView(outlet));
   router.register("/wholesaler/suppliers", (outlet) => suppliersView(outlet));
