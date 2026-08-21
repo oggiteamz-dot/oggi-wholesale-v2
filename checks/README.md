@@ -33,19 +33,34 @@ Requires a local Postgres. Nothing here touches the live database.
 # 1. start a scratch Postgres (any local instance works)
 initdb -D /tmp/pgdata -U postgres --auth=trust
 pg_ctl -D /tmp/pgdata -o "-k /tmp/pgrun -p 5433" start
+C="-h /tmp/pgrun -p 5433 -U postgres"
 
 # 2. build the scratch database
-createdb -h /tmp/pgrun -p 5433 -U postgres wtest
-psql -h /tmp/pgrun -p 5433 -U postgres -d wtest -f checks/fixture.sql
-psql -h /tmp/pgrun -p 5433 -U postgres -d wtest -f checks/seed.sql
+#    The schema matters. Migration 026 moved every v2 object out of `public`
+#    into `wholesale_v2`, and 028 names that schema explicitly, so the fixture
+#    has to be loaded there too. Loading it into `public` -- as the recipe here
+#    said until 21 Aug 2026 -- fails with
+#        ERROR: schema "wholesale_v2" does not exist
+createdb $C wtest
+psql $C -d wtest -c "create schema wholesale_v2;
+                     alter database wtest set search_path = wholesale_v2, public;"
+psql $C -d wtest -c "set search_path = wholesale_v2, public" -f checks/fixture.sql
+psql $C -d wtest -f checks/seed.sql
 
 # 3. load the function under test
-psql -h /tmp/pgrun -p 5433 -U postgres -d wtest \
-     -f supabase/migrations/028_v2_pack_line_validation.sql
+psql $C -d wtest -f supabase/migrations/028_v2_pack_line_validation.sql
 
-# 4. run
-./checks/check_pack_moq.sh -h /tmp/pgrun -p 5433 -U postgres
+# 4. run  -- expect: passed: 11   failed: 0
+./checks/check_pack_moq.sh $C
 ```
+
+**This recipe was broken from migration 024 until 21 Aug 2026** and nobody
+noticed, because the gate could not reach a database and said so in a way that
+read like a finding. See the note at the top of `check_pack_moq.sh` and the two
+Batch 7 comments in `fixture.sql`. The lesson is the same one this directory
+already had written down and had not yet applied to itself: **a green suite and
+a suite that never ran look identical from a distance.** Run it, watch it fail
+on purpose, then trust it.
 
 Exit code 0 means every assertion held. Non-zero means something regressed.
 

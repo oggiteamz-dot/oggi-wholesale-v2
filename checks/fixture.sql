@@ -72,5 +72,54 @@ create table v2_pack_components (
 create function v2_confirm_reservation(bigint, uuid, uuid) returns void
 language plpgsql as $$ begin return; end; $$;
 
-create function v2_effective_unit_price(uuid, uuid, uuid, int) returns numeric
+-- Signature corrected in Batch 7, 21 Aug 2026. This stub declared its fourth
+-- argument as `int`; the real function has taken `bigint` since migration 010,
+-- and v2_submit_order passes a bigint. Postgres will not narrow bigint to int
+-- when resolving a function call, so every ACCEPTANCE case in
+-- check_pack_moq.sh died on
+--
+--     function v2_effective_unit_price(uuid, uuid, uuid, bigint) does not exist
+--
+-- while all eight REJECTION cases passed. A check that only ever says no can
+-- "pass" by having broken the feature outright -- which is precisely the
+-- failure the acceptance cases exist to catch, and they were the half that was
+-- silently dead.
+create function v2_effective_unit_price(uuid, uuid, uuid, bigint) returns numeric
 language plpgsql as $$ begin return 10.00; end; $$;
+
+-- ---------------------------------------------------------------------------
+-- Added Batch 7, 21 Aug 2026, because this fixture had fallen behind the
+-- function it tests.
+-- ---------------------------------------------------------------------------
+-- Migration 024 gave v2_submit_order a sixth parameter, p_account_id, so the
+-- server takes wid / client_id / buyer_label from the authenticated account
+-- row instead of believing whatever the caller sent. That is the protection
+-- against "order as any buyer". This fixture was written before 024 and never
+-- gained the table, so loading 028 into it died on
+--
+--     relation "wholesale_v2.v2_portal_accounts" does not exist
+--
+-- and check_pack_moq.sh could not run AT ALL. Before Batch 7 that surfaced as
+-- eight false "MOQ rule broken" alarms; the preflight now stops instead, which
+-- is honest but still means nothing was being guarded. A gate that cannot run
+-- guards nothing, however loudly it says so.
+--
+-- Only the columns 028 reads are reproduced. v2_clients is a bare stub for the
+-- foreign key -- client identity is not what this check is about.
+create table v2_clients (
+  id   uuid primary key default gen_random_uuid(),
+  wid  text not null references v2_wholesalers(wid) on delete cascade
+);
+
+create table v2_portal_accounts (
+  id            uuid primary key default gen_random_uuid(),
+  wid           text not null references v2_wholesalers(wid) on delete cascade,
+  role          text not null check (role in ('buyer','sales')),
+  username      text not null,
+  password_hash text not null,
+  client_id     uuid references v2_clients(id) on delete set null,
+  actor_label   text not null,
+  active        boolean not null default true,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
