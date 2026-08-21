@@ -224,6 +224,66 @@ run as `postgres` `auth.uid()` is NULL and every guarded call would raise "not
 allowed" — the check would pass for the wrong reason, which is the worst kind
 of green.
 
+## `check_migration_chain.mjs` + `replay_migrations.sh` — the repo rebuilds the DB
+
+```bash
+node checks/check_migration_chain.mjs          # offline, always runnable
+PGHOST=/tmp PGPORT=5433 ./checks/replay_migrations.sh   # the real thing
+```
+
+"The repo cannot currently rebuild the product" had been written down since
+11 August and repeated in `FEATURE-MANIFEST.md` without anyone running it. On
+21 August it was run. The chain stopped **five** times, each for a different
+reason:
+
+1. **Three migration files did not exist** — 035, 036, 038, applied 17 Aug and
+   never committed. An earlier back-fill had fixed 028/030/031/032 and missed
+   these, so the gap persisted with nothing saying so. Recovered verbatim from
+   `supabase_migrations.schema_migrations`.
+2. **v2 reaches into v1 and no migration says so** — ten foreign keys point at
+   `public.wholesalers`; migration 002 reads `public.wholesale_state`. Added
+   `000_v1_prerequisites.sql`: minimum shape, `if not exists`, a no-op on the
+   real database.
+3. **Thirteen `comment on function NAME is` without an argument list** — fine
+   while the name is unique, fatal the moment `v2_submit_order` transiently has
+   two overloads mid-replay. The chain aborted on a *comment*.
+4. **Unqualified type references after migration 026** — a return type resolves
+   against the *session* search_path at creation time. 026 moved everything into
+   `wholesale_v2`; the Supabase editor has it on the path and `psql -f` does not.
+   The identical references in 001–024 are correct as they stand and were left
+   alone — they run before the move.
+5. **`create extension pg_cron` unguarded** — migration 065's own header says
+   "if this file fails, nothing breaks", and under `ON_ERROR_STOP` it took sixty
+   later migrations with it.
+
+After all five: **80 migrations, no errors**, and the rebuilt schema matches
+production exactly — tables 89, views 4, functions 91, policies 89, and a shape
+hash over every table, view and function signature identical on both sides.
+
+Negative-tested by deleting a migration file (the offline check names it) and by
+renaming a function a later migration depends on (the replay stops there).
+
+Worth knowing: **counts are a coarse instrument.** Deleting migration 035 changed
+none of the four numbers, because 034 creates the same two tables with
+`if not exists`. That is not the gate lying — the objects really are all there —
+but it is why the offline numbering check exists alongside it.
+
+## `check_manifest_is_honest.mjs` — the manifest still describes the repo
+
+```bash
+node checks/check_manifest_is_honest.mjs
+```
+
+`FEATURE-MANIFEST.md` is the answer to "how do we never lose a feature again",
+and on 21 August it was six days and seven batches out of date. Not through
+carelessness — **nothing failed when it went stale.** Every other promise here is
+held by a check that goes red; that one was held by remembering.
+
+Checks the document in both directions: every check it names must exist, every
+check that exists must be named, and the reconciliation table must match the
+rows above it. It found three real errors in the rewritten manifest on its very
+first run — six checks unmentioned and two counts off by one.
+
 ## Still to build
 
 The ⚠️ rows in `FEATURE-MANIFEST.md` are the backlog, in rough priority order:
