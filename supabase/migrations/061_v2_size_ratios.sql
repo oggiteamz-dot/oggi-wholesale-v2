@@ -363,8 +363,24 @@ $$;
 revoke all on function wholesale_v2.v2_apply_ratio(uuid, uuid, text[], integer, text) from public, anon;
 grant execute on function wholesale_v2.v2_apply_ratio(uuid, uuid, text[], integer, text) to authenticated;
 
-comment on function wholesale_v2.v2_apply_ratio is
-  'Turns one reusable ratio into real packs across many colours of a product in a single call -- the thing that replaces re-typing a curve per colour per product. Only ever replaces packs it generated itself (ratio_id match); handmade packs are never touched. Reports unmatched sizes instead of silently dropping them.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_apply_ratio'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Turns one reusable ratio into real packs across many colours of a product in a single call -- the thing that replaces re-typing a curve per colour per product. Only ever replaces packs it generated itself (ratio_id match); handmade packs are never touched. Reports unmatched sizes instead of silently dropping them.');
+  end loop;
+end $cmt$;
 
 -- ---------------------------------------------------------------------
 -- 6. Which products is this ratio on?
@@ -395,5 +411,21 @@ $$;
 revoke all on function wholesale_v2.v2_ratio_usage(uuid) from public, anon;
 grant execute on function wholesale_v2.v2_ratio_usage(uuid) to authenticated;
 
-comment on function wholesale_v2.v2_ratio_usage is
-  'Which products currently carry packs generated from this ratio. Shown before editing or archiving one, so changing a curve is never a blind action.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_ratio_usage'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Which products currently carry packs generated from this ratio. Shown before editing or archiving one, so changing a curve is never a blind action.');
+  end loop;
+end $cmt$;

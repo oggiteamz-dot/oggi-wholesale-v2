@@ -80,8 +80,24 @@ begin
   return v_result;
 end;
 $$;
-comment on function v2_get_buyer_orders is
-  'Buyer order history, scoped to a real v2_portal_accounts id (validated inside, not trusted from the caller beyond "this uuid exists and is an active buyer account"). Returns the same shape js/data/orders.js already builds client-side from two separate queries, so the JS-side mapping code barely changes.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_get_buyer_orders'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Buyer order history, scoped to a real v2_portal_accounts id (validated inside, not trusted from the caller beyond "this uuid exists and is an active buyer account"). Returns the same shape js/data/orders.js already builds client-side from two separate queries, so the JS-side mapping code barely changes.');
+  end loop;
+end $cmt$;
 revoke all on function v2_get_buyer_orders(uuid) from public;
 grant execute on function v2_get_buyer_orders(uuid) to anon, authenticated;
 
@@ -227,8 +243,24 @@ begin
   return v_order;
 end;
 $$;
-comment on function v2_submit_order is
-  'Batch 4 original, extended in Batch 14 with an optional p_account_id: when a real buyer session is present, its wid/client_id/actor_label override anything the caller separately claims, closing the identity-spoofing gap the original (still-supported, for backward compatibility) p_wid/p_buyer_label/p_client_id-only call shape had.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_submit_order'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Batch 4 original, extended in Batch 14 with an optional p_account_id: when a real buyer session is present, its wid/client_id/actor_label override anything the caller separately claims, closing the identity-spoofing gap the original (still-supported, for backward compatibility) p_wid/p_buyer_label/p_client_id-only call shape had.');
+  end loop;
+end $cmt$;
 
 -- ---------------------------------------------------------------------
 -- Buyer signup requests: v2_submit_signup_request (anon, rate-limited,
@@ -324,8 +356,24 @@ begin
   return query select true, '', v_username, v_password, v_client_id, v_account_id;
 end;
 $$;
-comment on function v2_approve_signup_request is
-  'Approving a signup request now actually provisions a real login (v2_clients CRM row + v2_portal_accounts buyer credential), not just a status flip. The generated password is returned exactly once in this call''s response -- there is nowhere it is stored in the clear, and no way to retrieve it again after this response is read (matches v2_create_invite''s one-time-code pattern).';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_approve_signup_request'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Approving a signup request now actually provisions a real login (v2_clients CRM row + v2_portal_accounts buyer credential), not just a status flip. The generated password is returned exactly once in this call''s response -- there is nowhere it is stored in the clear, and no way to retrieve it again after this response is read (matches v2_create_invite''s one-time-code pattern).');
+  end loop;
+end $cmt$;
 -- See 022_v2_auth_schema.sql's matching comment: `from public` alone
 -- doesn't revoke Supabase's default anon grant, only `from public` does
 -- (found live during Batch 14's final security sweep, fixed in

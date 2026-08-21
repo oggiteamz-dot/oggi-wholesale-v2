@@ -273,8 +273,24 @@ $$;
 revoke all on function wholesale_v2.v2_create_client(text, text, text, text[], text, text, numeric, smallint, jsonb) from public, anon;
 grant execute on function wholesale_v2.v2_create_client(text, text, text, text[], text, text, numeric, smallint, jsonb) to authenticated;
 
-comment on function wholesale_v2.v2_create_client is
-  'Creates the CRM row AND the buyer login in one transaction, so neither can exist without the other. Returns a generated password exactly once, never stored readable. Refuses the six required fields server-side, and refuses a duplicate phone, username or company name.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_create_client'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Creates the CRM row AND the buyer login in one transaction, so neither can exist without the other. Returns a generated password exactly once, never stored readable. Refuses the six required fields server-side, and refuses a duplicate phone, username or company name.');
+  end loop;
+end $cmt$;
 
 -- ---------------------------------------------------------------------
 -- 6. Reset a password without deleting the person
@@ -331,5 +347,21 @@ $$;
 revoke all on function wholesale_v2.v2_reset_client_password(uuid) from public, anon;
 grant execute on function wholesale_v2.v2_reset_client_password(uuid) to authenticated;
 
-comment on function wholesale_v2.v2_reset_client_password is
-  'Generates a new one-time password for a client and forces a change on next sign-in. Also clears the login throttle, because resetting into a locked account looks identical to the reset having failed.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_reset_client_password'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Generates a new one-time password for a client and forces a change on next sign-in. Also clears the login throttle, because resetting into a locked account looks identical to the reset having failed.');
+  end loop;
+end $cmt$;

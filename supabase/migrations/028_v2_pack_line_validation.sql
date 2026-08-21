@@ -74,11 +74,23 @@
 --   behaviour, but the message is unhelpful to a buyer -- worth a friendlier
 --   "this pack changed, please review your cart" path in the UI.
 
+-- Batch 7 (21 Aug 2026): schema-qualified. A function's return type and its
+-- %rowtype declarations resolve against the SESSION search_path AT CREATION
+-- TIME -- not against the function's own `set search_path`. Migration 026
+-- moved every v2 object out of `public` into `wholesale_v2`, so from 026
+-- onward an unqualified `v2_orders` only resolves if whoever runs the
+-- migration happens to have wholesale_v2 on their path. The Supabase SQL
+-- editor does; a plain `psql -f` does not, which is why replaying this repo
+-- into an empty database stopped here with `type "v2_orders" does not exist`.
+-- The same references in migrations 001-024 are left UNQUALIFIED on purpose:
+-- they run before 026, when the tables genuinely are in `public`, and
+-- qualifying them would break the replay in the other direction.
+
 create or replace function wholesale_v2.v2_submit_order(
   p_wid text, p_buyer_label text, p_location_id uuid, p_lines jsonb,
   p_client_id uuid default null, p_account_id uuid default null
 )
-returns v2_orders
+returns wholesale_v2.v2_orders
 language plpgsql
 security definer
 set search_path = wholesale_v2
@@ -95,10 +107,10 @@ declare
   v_effective_moq int;
   v_total_qty int := 0;
   v_line_count int;
-  v_account v2_portal_accounts%rowtype;
+  v_account wholesale_v2.v2_portal_accounts%rowtype;
   -- New in 028: used by the pack-line validation block.
   v_pack_line record;
-  v_pack v2_pack_definitions%rowtype;
+  v_pack wholesale_v2.v2_pack_definitions%rowtype;
   v_mismatch int;
 begin
   if p_account_id is not null then
