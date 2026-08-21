@@ -179,8 +179,24 @@ begin
   return true;
 end;
 $$;
-comment on function v2_rate_limit_check is
-  'Generic sliding-window limiter: returns true and records a hit if the caller is under p_max hits per p_window_seconds for p_key, false (and records nothing further) once over. Callers choose their own key shape, e.g. ''signup_request|'' || p_wid || ''|'' || inet_client_addr()::text.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_rate_limit_check'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Generic sliding-window limiter: returns true and records a hit if the caller is under p_max hits per p_window_seconds for p_key, false (and records nothing further) once over. Callers choose their own key shape, e.g. ''signup_request|'' || p_wid || ''|'' || inet_client_addr()::text.');
+  end loop;
+end $cmt$;
 revoke all on function v2_rate_limit_check(text, integer, integer) from public;
 grant execute on function v2_rate_limit_check(text, integer, integer) to anon, authenticated;
 

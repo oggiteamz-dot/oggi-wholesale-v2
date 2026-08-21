@@ -10,7 +10,61 @@
 # Exit 0 = all assertions held. Exit 1 = something regressed.
 
 PSQL="psql $* -d wtest -v ON_ERROR_STOP=0 -tA"
+# Kept so the preflight can repeat them back in its "how to fix this" lines;
+# $* is not in scope inside a function.
+CONN_ARGS="$*"
 PASS=0; FAIL=0
+
+# ---------------------------------------------------------------------------
+# PREFLIGHT — added Batch 7, 21 Aug 2026, because this file lied.
+# ---------------------------------------------------------------------------
+# Run with no `wtest` database, every rejected_case below printed
+#
+#     FAIL  ...  expected rejection, order was ACCEPTED
+#
+# which says the MOQ rule has been broken. It had not; there was simply no
+# database to ask. psql reports a connection failure as "psql: error: ..." in
+# lower case, the assertions grep for upper-case "ERROR", so no match, so the
+# call looked like a success and the order looked accepted.
+#
+# That is a gate failing in the most dangerous direction there is: a false
+# alarm on the most alarming thing in the product. It is the same shape as the
+# bug this file was written to catch, and the same shape as the day this suite
+# reported 7 green while the function crashed on every call.
+#
+# So before asserting anything, prove the thing being asserted about can be
+# reached. A check that cannot tell "no database" from "the rule is broken"
+# must refuse to report either.
+preflight() {
+  local out
+  out=$($PSQL -c "select 1;" 2>&1)
+  if [ $? -ne 0 ] || ! echo "$out" | grep -q "^1$"; then
+    echo "  SETUP FAILED — cannot reach the 'wtest' database."
+    echo "                 $(echo "$out" | head -1)"
+    echo "                 This is NOT a finding about the MOQ rules. Nothing was tested."
+    echo "                 Create the fixture first:  psql $CONN_ARGS -d wtest -f checks/fixture.sql"
+    exit 2
+  fi
+  out=$($PSQL -c "select count(*) from wholesale_v2.v2_products where wid = 'WS-001';" 2>&1)
+  if ! echo "$out" | grep -qE "^[0-9]+$" || [ "$out" = "0" ]; then
+    echo "  SETUP FAILED — the 'wtest' database has no WS-001 fixture products."
+    echo "                 $(echo "$out" | head -1)"
+    echo "                 Nothing was tested. Load it:  psql $CONN_ARGS -d wtest -f checks/fixture.sql"
+    exit 2
+  fi
+  if ! $PSQL -c "select 'wholesale_v2.v2_submit_order'::regproc;" >/dev/null 2>&1; then
+    echo "  SETUP FAILED — wholesale_v2.v2_submit_order does not exist in 'wtest'."
+    echo "                 Nothing was tested. Replay the migrations first:"
+    echo "                 REPLAY_DB=wtest ./checks/replay_migrations.sh"
+    exit 2
+  fi
+}
+preflight
+
+# Exit code 2 above is deliberate and distinct from 1. 1 means "the rules are
+# broken"; 2 means "I could not check". A caller that treats every non-zero
+# exit the same still stops, but a human reading the output is told which of
+# the two very different things happened.
 
 # submit <json-lines> -> prints "OK" if the order was accepted, else "REJECTED"
 submit() {

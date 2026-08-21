@@ -33,19 +33,34 @@ Requires a local Postgres. Nothing here touches the live database.
 # 1. start a scratch Postgres (any local instance works)
 initdb -D /tmp/pgdata -U postgres --auth=trust
 pg_ctl -D /tmp/pgdata -o "-k /tmp/pgrun -p 5433" start
+C="-h /tmp/pgrun -p 5433 -U postgres"
 
 # 2. build the scratch database
-createdb -h /tmp/pgrun -p 5433 -U postgres wtest
-psql -h /tmp/pgrun -p 5433 -U postgres -d wtest -f checks/fixture.sql
-psql -h /tmp/pgrun -p 5433 -U postgres -d wtest -f checks/seed.sql
+#    The schema matters. Migration 026 moved every v2 object out of `public`
+#    into `wholesale_v2`, and 028 names that schema explicitly, so the fixture
+#    has to be loaded there too. Loading it into `public` -- as the recipe here
+#    said until 21 Aug 2026 -- fails with
+#        ERROR: schema "wholesale_v2" does not exist
+createdb $C wtest
+psql $C -d wtest -c "create schema wholesale_v2;
+                     alter database wtest set search_path = wholesale_v2, public;"
+psql $C -d wtest -c "set search_path = wholesale_v2, public" -f checks/fixture.sql
+psql $C -d wtest -f checks/seed.sql
 
 # 3. load the function under test
-psql -h /tmp/pgrun -p 5433 -U postgres -d wtest \
-     -f supabase/migrations/028_v2_pack_line_validation.sql
+psql $C -d wtest -f supabase/migrations/028_v2_pack_line_validation.sql
 
-# 4. run
-./checks/check_pack_moq.sh -h /tmp/pgrun -p 5433 -U postgres
+# 4. run  -- expect: passed: 11   failed: 0
+./checks/check_pack_moq.sh $C
 ```
+
+**This recipe was broken from migration 024 until 21 Aug 2026** and nobody
+noticed, because the gate could not reach a database and said so in a way that
+read like a finding. See the note at the top of `check_pack_moq.sh` and the two
+Batch 7 comments in `fixture.sql`. The lesson is the same one this directory
+already had written down and had not yet applied to itself: **a green suite and
+a suite that never ran look identical from a distance.** Run it, watch it fail
+on purpose, then trust it.
 
 Exit code 0 means every assertion held. Non-zero means something regressed.
 
@@ -223,6 +238,66 @@ It impersonates real `v2_user_profiles` rows via `request.jwt.claims`, because
 run as `postgres` `auth.uid()` is NULL and every guarded call would raise "not
 allowed" — the check would pass for the wrong reason, which is the worst kind
 of green.
+
+## `check_migration_chain.mjs` + `replay_migrations.sh` — the repo rebuilds the DB
+
+```bash
+node checks/check_migration_chain.mjs          # offline, always runnable
+PGHOST=/tmp PGPORT=5433 ./checks/replay_migrations.sh   # the real thing
+```
+
+"The repo cannot currently rebuild the product" had been written down since
+11 August and repeated in `FEATURE-MANIFEST.md` without anyone running it. On
+21 August it was run. The chain stopped **five** times, each for a different
+reason:
+
+1. **Three migration files did not exist** — 035, 036, 038, applied 17 Aug and
+   never committed. An earlier back-fill had fixed 028/030/031/032 and missed
+   these, so the gap persisted with nothing saying so. Recovered verbatim from
+   `supabase_migrations.schema_migrations`.
+2. **v2 reaches into v1 and no migration says so** — ten foreign keys point at
+   `public.wholesalers`; migration 002 reads `public.wholesale_state`. Added
+   `000_v1_prerequisites.sql`: minimum shape, `if not exists`, a no-op on the
+   real database.
+3. **Thirteen `comment on function NAME is` without an argument list** — fine
+   while the name is unique, fatal the moment `v2_submit_order` transiently has
+   two overloads mid-replay. The chain aborted on a *comment*.
+4. **Unqualified type references after migration 026** — a return type resolves
+   against the *session* search_path at creation time. 026 moved everything into
+   `wholesale_v2`; the Supabase editor has it on the path and `psql -f` does not.
+   The identical references in 001–024 are correct as they stand and were left
+   alone — they run before the move.
+5. **`create extension pg_cron` unguarded** — migration 065's own header says
+   "if this file fails, nothing breaks", and under `ON_ERROR_STOP` it took sixty
+   later migrations with it.
+
+After all five: **80 migrations, no errors**, and the rebuilt schema matches
+production exactly — tables 89, views 4, functions 91, policies 89, and a shape
+hash over every table, view and function signature identical on both sides.
+
+Negative-tested by deleting a migration file (the offline check names it) and by
+renaming a function a later migration depends on (the replay stops there).
+
+Worth knowing: **counts are a coarse instrument.** Deleting migration 035 changed
+none of the four numbers, because 034 creates the same two tables with
+`if not exists`. That is not the gate lying — the objects really are all there —
+but it is why the offline numbering check exists alongside it.
+
+## `check_manifest_is_honest.mjs` — the manifest still describes the repo
+
+```bash
+node checks/check_manifest_is_honest.mjs
+```
+
+`FEATURE-MANIFEST.md` is the answer to "how do we never lose a feature again",
+and on 21 August it was six days and seven batches out of date. Not through
+carelessness — **nothing failed when it went stale.** Every other promise here is
+held by a check that goes red; that one was held by remembering.
+
+Checks the document in both directions: every check it names must exist, every
+check that exists must be named, and the reconciliation table must match the
+rows above it. It found three real errors in the rewritten manifest on its very
+first run — six checks unmentioned and two counts off by one.
 
 ## Still to build
 

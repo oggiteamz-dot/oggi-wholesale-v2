@@ -209,8 +209,24 @@ $$;
 revoke all on function wholesale_v2.v2_is_client_banned(text, uuid) from public;
 grant execute on function wholesale_v2.v2_is_client_banned(text, uuid) to anon, authenticated;
 
-comment on function wholesale_v2.v2_is_client_banned is
-  'True if this wholesaler currently bans this client. Per-relationship by design: the same client may be banned by one wholesaler and welcome at another.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_is_client_banned'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'True if this wholesaler currently bans this client. Per-relationship by design: the same client may be banned by one wholesaler and welcome at another.');
+  end loop;
+end $cmt$;
 
 -- ---------------------------------------------------------------------
 -- 4. Ban / unban
@@ -425,8 +441,24 @@ $$;
 revoke all on function wholesale_v2.v2_buyer_login(text, text, text) from public;
 grant execute on function wholesale_v2.v2_buyer_login(text, text, text) to anon, authenticated;
 
-comment on function wholesale_v2.v2_buyer_login is
-  'Buyer login. Gained status(ok|banned|bad) + banned_by_name in migration 059 so a banned buyer is TOLD, by name, instead of being shown the same blank refusal as a wrong password. The ban is only ever revealed on a CORRECT password, so this leaks no information about which usernames exist.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_buyer_login'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Buyer login. Gained status(ok|banned|bad) + banned_by_name in migration 059 so a banned buyer is TOLD, by name, instead of being shown the same blank refusal as a wrong password. The ban is only ever revealed on a CORRECT password, so this leaks no information about which usernames exist.');
+  end loop;
+end $cmt$;
 
 -- ---------------------------------------------------------------------
 -- 6. Ban bites mid-session, not just at the door
@@ -460,5 +492,21 @@ $$;
 revoke all on function wholesale_v2.v2_account_can_act(uuid) from public;
 grant execute on function wholesale_v2.v2_account_can_act(uuid) to anon, authenticated;
 
-comment on function wholesale_v2.v2_account_can_act is
-  'One place that answers "may this portal account still do anything?". Checked by v2_get_buyer_orders and v2_submit_order so a buyer banned mid-session is stopped on their very next action.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_account_can_act'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'One place that answers "may this portal account still do anything?". Checked by v2_get_buyer_orders and v2_submit_order so a buyer banned mid-session is stopped on their very next action.');
+  end loop;
+end $cmt$;

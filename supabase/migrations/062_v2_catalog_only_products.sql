@@ -94,5 +94,21 @@ $$;
 revoke all on function wholesale_v2.v2_catalog_stock_state(text) from public, anon;
 grant execute on function wholesale_v2.v2_catalog_stock_state(text) to authenticated;
 
-comment on function wholesale_v2.v2_catalog_stock_state is
-  'Per-product stock state for a wholesaler: in / out / not_tracked. One query for a whole catalog screen, and one place that decides what "out of stock" means -- a catalog-only product is never "out", it is simply not tracked.';
+-- Batch 7 (21 Aug 2026): the argument list was missing here.
+-- "comment on function NAME is ..." only works while NAME is unique. During a
+-- REPLAY of this repo from empty, v2_submit_order transiently has two
+-- overloads (migration 025 exists precisely to drop a stale one), so an
+-- unqualified comment raises "function name is not unique" and the whole
+-- replay stops -- on a cosmetic statement. Resolving the oid at run time
+-- applies the comment to whatever is actually installed and can never be
+-- ambiguous. Behaviour is unchanged: a comment is a description, nothing
+-- reads it.
+do $cmt$
+declare r record;
+begin
+  for r in select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'wholesale_v2' and p.proname = 'v2_catalog_stock_state'
+  loop
+    execute format('comment on function %s is %L', r.oid::regprocedure, 'Per-product stock state for a wholesaler: in / out / not_tracked. One query for a whole catalog screen, and one place that decides what "out of stock" means -- a catalog-only product is never "out", it is simply not tracked.');
+  end loop;
+end $cmt$;

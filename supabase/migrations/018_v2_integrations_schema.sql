@@ -34,7 +34,26 @@
 -- authorization for who may configure a given wholesaler's integrations is
 -- still a Batch 14 item, same as everywhere else in this build.
 
-create extension if not exists pg_net;
+-- Batch 7 (21 Aug 2026): guarded, same reasoning as migration 065.
+--
+-- pg_net exists on Supabase and not in a plain Postgres. Bare, this statement
+-- raises there, and under `psql -v ON_ERROR_STOP=1` -- which is how a
+-- migration chain is replayed -- it takes EVERY LATER MIGRATION down with it.
+-- Sixty of them, for an extension used by exactly one dispatch function.
+--
+-- Skipping it is safe in a way worth being precise about: nothing in the
+-- schema below depends on pg_net existing. A plpgsql body is not resolved at
+-- creation time, so v2_dispatch_integration_event compiles either way; it
+-- only fails if it is actually CALLED without the extension, which is the
+-- honest failure -- loud, at the point of use, on a database that was never
+-- going to deliver a webhook anyway.
+do $pgnet_guard$
+begin
+  create extension if not exists pg_net;
+exception when others then
+  raise notice '018: pg_net is not available here (%). Integration dispatch will raise if called. Everything else in this migration applies normally.', sqlerrm;
+end;
+$pgnet_guard$;
 
 -- ---------------------------------------------------------------------
 -- Per-wholesaler, per-integration settings. Only NON-secret configuration
