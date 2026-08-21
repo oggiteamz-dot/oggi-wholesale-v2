@@ -265,3 +265,68 @@ body {
 @media print {
   .product-card .pc-photo { display: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Sub-tabs — Batch 6
+   ---------------------------------------------------------------------------
+   One screen, several views of the same thing (Inventory: Stock / Products /
+   Pricing rules). Deliberately quieter than the side navigation: these are not
+   places, they are lenses on the place you are already in, and styling them
+   like nav items makes a screen look like three screens.
+--------------------------------------------------------------------------- */
+
+.sub-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  /* A phone at 360px cannot fit three labelled tabs plus their icons, and
+     wrapping them onto a second line makes the underline stop meaning
+     anything. Scrolling sideways keeps one row and one baseline. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.sub-tabs::-webkit-scrollbar { display: none; }
+
+.sub-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  /* Sits ON the container's 1px border rather than above it, so the active
+     underline replaces that line instead of doubling it. */
+  margin-bottom: -1px;
+}
+
+.sub-tab:hover { color: var(--text-primary); }
+
+.sub-tab-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-500);
+}
+
+/* The selected tab is marked by colour AND by an underline, never by colour
+   alone -- WCAG 1.4.1, and the reason is practical rather than procedural:
+   the mint and the secondary grey are close enough in luminance that a
+   red-green colour vision deficiency can leave them nearly identical. */
+.sub-tab[aria-selected="true"] { border-bottom-width: 2px; }
+
+@media (pointer: coarse) {
+  /* Same 44px rule as every other control (see css/mobile.css). A tab that is
+     36px tall is a tab people miss and land on the one beside it. */
+  .sub-tab { min-height: 44px; }
+}
+
+@media print {
+  /* On paper there is no "other tab", so a row of them is just noise above
+     the thing being printed. */
+  .sub-tabs { display: none; }
+}
