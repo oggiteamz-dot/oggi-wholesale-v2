@@ -36,6 +36,9 @@ import { renderProductPicker } from "../components/product-picker.js";
 import { renderBillboard } from "../components/billboard.js";
 import { uploadCatalogBillboard } from "../data/uploads.js";
 import { renderCardFactsPicker } from "../components/card-facts-picker.js";
+// Batch 6: Inventory holds three panes now -- Stock, Products, Pricing rules.
+import { renderSubTabs } from "../components/sub-tabs.js";
+import { previewBulkPrice, applyBulkPrice, revertPriceBatch, recentPriceBatches, formatPct } from "../data/pricing-bulk.js";
 import { factsFor, normaliseFacts } from "../lib/card-facts.js";
 import { listSuppliers, createSupplier, updateSupplier, archiveSupplier, restoreSupplier, supplierProductCounts } from "../data/suppliers.js";
 import { listLocations, locationStockTotals, createLocation, renameLocation,
@@ -340,7 +343,7 @@ async function ordersView(outlet) {
 
 // One product panel opener, shared by Products and Catalogs.
 //
-// Lifted out of productsView on 20 Aug 2026 when the ratio editor was
+// Lifted out of the products pane on 20 Aug 2026 when the ratio editor was
 // added to Catalogs as well. Copying the closure into the second view
 // would have worked on the day and rotted the moment one of the two got
 // fixed -- the same duplicate-helper failure this repo keeps a table of.
@@ -373,10 +376,24 @@ function openProductPanel(panelHost, title, product, painter) {
 
 // ---------- Products ----------
 
-async function productsView(outlet) {
+/**
+ * The PRODUCTS pane of the Inventory screen. Batch 6.
+ *
+ * Was its own top-level screen at /wholesaler/products until 21 Aug 2026. Hadi
+ * asked for it to become a sub-tab of Inventory, and he was right: both screens
+ * listed the same products, from the same tile component, with the same card
+ * facts, differing only in which figures they showed and which buttons the card
+ * offered. Two doors into one room.
+ *
+ * The two wholesaler-wide controls that used to sit at the bottom of this
+ * screen -- bulk price update and the order-level minimum -- moved to the
+ * Pricing rules pane. They are not properties of any product, and a bulk
+ * reprice of the entire catalogue does not belong at the foot of a list you
+ * scroll past forty times a day.
+ */
+async function productsPane(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
-  outlet.appendChild(pageHeader("Products", "View or edit any product, set pricing and packs, archive, or apply a bulk price change."));
 
   const [products, prodLocations, prodSettings] = await Promise.all([
     listProductsForAdmin(wid), getLocations(wid), getWholesalerSettings(wid),
@@ -396,7 +413,7 @@ async function productsView(outlet) {
   // Pricing and Packs stayed as panels that open UNDER the grid rather than
   // living inside the card: a card with its panels inline would push every
   // other card down the page, and the grid is the thing being scanned.
-  const reload = () => { outlet.innerHTML = ""; productsView(outlet); };
+  const reload = () => { outlet.innerHTML = ""; productsPane(outlet); };
   const grid = productGrid();
   const panelHost = document.createElement("div");
 
@@ -439,55 +456,6 @@ async function productsView(outlet) {
 
   outlet.appendChild(grid);
   outlet.appendChild(panelHost);
-
-  // Bulk price update
-  const bulkCard = document.createElement("div");
-  bulkCard.className = "card";
-  bulkCard.style.cssText = "margin-top:16px;padding:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;";
-  bulkCard.innerHTML = `<strong style="font-size:13px;">Bulk price update (all products):</strong>`;
-  const pctInput = document.createElement("input");
-  pctInput.className = "input"; pctInput.type = "number"; pctInput.placeholder = "e.g. 10 or -15"; pctInput.style.width = "120px";
-  const applyBtn = document.createElement("button");
-  applyBtn.className = "btn btn-primary btn-sm";
-  applyBtn.textContent = "Apply %";
-  applyBtn.addEventListener("click", async () => {
-    const pct = parseFloat(pctInput.value);
-    if (isNaN(pct)) { toast("Enter a percentage first", { type: "danger" }); return; }
-    const allVariantIds = products.flatMap((p) => p.variants.map((v) => v.id));
-    applyBtn.disabled = true;
-    const result = await bulkUpdatePrice(allVariantIds, pct);
-    applyBtn.disabled = false;
-    toast(result.ok ? `Updated ${result.count} variant prices by ${pct}%` : "Bulk update failed", { type: result.ok ? "success" : "danger" });
-    if (result.ok) { outlet.innerHTML = ""; productsView(outlet); }
-  });
-  bulkCard.appendChild(pctInput);
-  bulkCard.appendChild(applyBtn);
-  outlet.appendChild(bulkCard);
-
-  // Order-level minimums (Batch 6) -- wholesaler-wide, not per-product.
-  const orderMinCard = document.createElement("div");
-  orderMinCard.className = "card";
-  orderMinCard.style.cssText = "margin-top:12px;padding:16px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;";
-  const mins = await getOrderMinimums(wid);
-  orderMinCard.innerHTML = `
-    <strong style="font-size:13px;width:100%;">Order-level minimum (applies to every order placed with you):</strong>
-    <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Min units total</label><input class="input" id="order-min-qty" type="number" min="1" value="${mins.orderMinQty ?? ""}" placeholder="none" style="width:110px;" /></div>
-    <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Min order value</label><input class="input" id="order-min-value" type="number" min="0" step="0.01" value="${mins.orderMinValue ?? ""}" placeholder="none" style="width:110px;" /></div>
-  `;
-  const saveOrderMinBtn = document.createElement("button");
-  saveOrderMinBtn.className = "btn btn-primary btn-sm";
-  saveOrderMinBtn.textContent = "Save";
-  saveOrderMinBtn.addEventListener("click", async () => {
-    const orderMinQty = orderMinCard.querySelector("#order-min-qty").value;
-    const orderMinValue = orderMinCard.querySelector("#order-min-value").value;
-    const { error } = await setOrderMinimums(wid, {
-      orderMinQty: orderMinQty === "" ? null : parseInt(orderMinQty, 10),
-      orderMinValue: orderMinValue === "" ? null : parseFloat(orderMinValue),
-    });
-    toast(error ? "Failed to save" : "Order minimum saved", { type: error ? "danger" : "success" });
-  });
-  orderMinCard.appendChild(saveOrderMinBtn);
-  outlet.appendChild(orderMinCard);
 }
 
 // ---------- Pricing & MOQ panel (Batch 6, per-product) ----------
@@ -1057,10 +1025,16 @@ async function renderPacksPanel(panel, wid, product) {
 
 // ---------- Inventory ----------
 
-async function inventoryView(outlet) {
+/**
+ * The STOCK pane of the Inventory screen. Batch 6.
+ *
+ * Unchanged in behaviour -- it simply lost its own page header, which the
+ * shell now owns, so the three panes cannot each announce the screen
+ * differently.
+ */
+async function stockPane(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
-  outlet.appendChild(pageHeader("Inventory", "Live stock by variant and location — lowest available first."));
 
   const [stock, locations, suppliers, settings] = await Promise.all([
     getStockTable(wid), getLocations(wid), listSuppliers(wid), getWholesalerSettings(wid),
@@ -1113,7 +1087,7 @@ async function inventoryView(outlet) {
         if (res.ok) {
           toast(res.message, { type: res.variantsFailed?.length ? "warning" : "success" });
           outlet.innerHTML = "";
-          inventoryView(outlet);
+          stockPane(outlet);
         }
         return res;
       },
@@ -1136,7 +1110,7 @@ async function inventoryView(outlet) {
   // needs to find a garment is a catalogue.
   const [products, invStatusByVariant] = await Promise.all([getStockByProduct(wid), getVariantStatuses(wid)]);
   const grid = productGrid();
-  const reload = () => { outlet.innerHTML = ""; inventoryView(outlet); };
+  const reload = () => { outlet.innerHTML = ""; stockPane(outlet); };
 
   const factsCard = renderCardFactsPicker({
     selected: cardFacts,
@@ -1271,7 +1245,7 @@ async function inventoryView(outlet) {
         }
         toast(`Received ${qty} units`, { type: "success" });
         outlet.innerHTML = "";
-        inventoryView(outlet);
+        stockPane(outlet);
       });
       r.appendChild(receiveBtn);
 
@@ -1283,7 +1257,7 @@ async function inventoryView(outlet) {
         moveBtn.className = "btn btn-secondary btn-sm";
         moveBtn.textContent = "Transfer";
         moveBtn.addEventListener("click", () => {
-          openTransfer(row, locations, () => { outlet.innerHTML = ""; inventoryView(outlet); });
+          openTransfer(row, locations, () => { outlet.innerHTML = ""; stockPane(outlet); });
         });
         r.appendChild(moveBtn);
       }
@@ -3958,14 +3932,236 @@ async function suppliersView(outlet) {
   await paint();
 }
 
+
+// =============================================================================
+// INVENTORY — the shell, and the pane that holds the wholesaler-wide rules
+// =============================================================================
+// Batch 6. Hadi asked for Products to become a sub-tab of Inventory. Doing it
+// required somewhere for six things to live that existed ONLY on the Products
+// screen, which is why this was the last batch and not the first:
+//
+//   pricing tiers          -> Products pane, "Pricing & MOQ" on each card
+//   product MOQ            -> the same panel
+//   archive / unarchive    -> Products pane, on each card
+//   duplicate as template  -> Products pane, on each card
+//   bulk price update      -> Pricing rules pane, rebuilt safe (migration 078)
+//   order-level minimum    -> Pricing rules pane
+//
+// checks/check_inventory_panes.mjs asserts each of those six is reachable, so
+// "we moved the screen and quietly lost a feature" cannot pass review. That is
+// the whole reason the fold waited for its own batch.
+//
+// The last two are on their own pane rather than at the foot of the product
+// list, where they used to sit. Neither is a property of any product, and a
+// control that reprices an entire catalogue does not belong under a grid
+// somebody scrolls past forty times a day.
+
+const INVENTORY_TABS = [
+  { key: "stock",    icon: "📊", label: "Stock",         path: "/wholesaler/inventory",          render: (host) => stockPane(host) },
+  { key: "products", icon: "📦", label: "Products",      path: "/wholesaler/inventory/products", render: (host) => productsPane(host) },
+  { key: "pricing",  icon: "💲", label: "Pricing rules", path: "/wholesaler/inventory/pricing",  render: (host) => pricingRulesPane(host) },
+];
+
+async function inventoryView(outlet, { tab = "stock" } = {}) {
+  outlet.appendChild(pageHeader(
+    "Inventory",
+    "Your stock, your products and the rules that price them — one screen."
+  ));
+  const tabs = renderSubTabs({ tabs: INVENTORY_TABS, active: tab });
+  outlet.appendChild(tabs.el);
+  await tabs.paint();
+}
+
+/**
+ * PRICING RULES — the two things that apply to every product at once.
+ */
+async function pricingRulesPane(outlet) {
+  const session = devAuth.getSession();
+  const wid = session.wid;
+  const reload = () => { outlet.innerHTML = ""; pricingRulesPane(outlet); };
+
+  // ---- Bulk price update, rebuilt ----------------------------------------
+  // The old version was one number and one button that repriced every variant
+  // this wholesaler owned, archived ones included, with no confirmation and no
+  // record of the previous price. See migration 078 and
+  // js/data/products-admin.js's retired bulkUpdatePrice for the full account.
+  const bulkCard = document.createElement("div");
+  bulkCard.className = "card";
+  bulkCard.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
+  bulkCard.innerHTML = `
+    <strong style="font-size:13px;">Change every price at once</strong>
+    <div style="font-size:11px;color:var(--text-tertiary);">
+      Enter a percentage, see exactly what it would do, then apply. Every change is
+      recorded and can be undone.
+    </div>`;
+
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;";
+  const pctInput = document.createElement("input");
+  pctInput.className = "input"; pctInput.type = "number"; pctInput.step = "0.1";
+  pctInput.placeholder = "e.g. 10 or -15"; pctInput.style.width = "120px";
+  pctInput.setAttribute("aria-label", "Percentage change to apply to every price");
+
+  const archLabel = document.createElement("label");
+  archLabel.style.cssText = "display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);";
+  const archBox = document.createElement("input");
+  archBox.type = "checkbox";
+  archLabel.appendChild(archBox);
+  archLabel.appendChild(document.createTextNode("Include archived products"));
+
+  const previewBtn = document.createElement("button");
+  previewBtn.className = "btn btn-secondary btn-sm";
+  previewBtn.textContent = "Preview";
+
+  row.appendChild(pctInput); row.appendChild(archLabel); row.appendChild(previewBtn);
+  bulkCard.appendChild(row);
+
+  // The preview and the confirm live in the same box, and the Apply button
+  // only exists once a preview has been read. A destructive control that can
+  // be reached without passing the description of what it will do is a
+  // control people press by accident.
+  const previewBox = document.createElement("div");
+  previewBox.style.cssText = "font-size:12px;";
+  bulkCard.appendChild(previewBox);
+
+  previewBtn.addEventListener("click", async () => {
+    const pct = parseFloat(pctInput.value);
+    previewBox.innerHTML = "";
+    if (!Number.isFinite(pct) || pct === 0) {
+      toast("Enter a percentage first — 0 would do nothing", { type: "danger" });
+      return;
+    }
+    previewBtn.disabled = true;
+    const p = await previewBulkPrice(wid, pct, { includeArchived: archBox.checked });
+    previewBtn.disabled = false;
+    if (!p) { toast("Could not work out what that would do", { type: "danger" }); return; }
+    if (!p.variantCount) {
+      previewBox.innerHTML = `<div style="color:var(--warning-600,#a15c00);">Nothing to reprice — no priced products match.</div>`;
+      return;
+    }
+
+    const summary = document.createElement("div");
+    summary.style.cssText = "background:var(--surface-2,rgba(0,0,0,.03));border-radius:8px;padding:10px;margin-top:4px;";
+    // The extremes, not just the count. "482 prices" tells you nothing about
+    // whether you typed 10 or 100; "your dearest goes 228.00 to 250.80" does.
+    summary.innerHTML = `
+      <div><strong>${p.variantCount}</strong> price${p.variantCount === 1 ? "" : "s"} would change by <strong>${formatPct(pct)}</strong>.</div>
+      <div style="color:var(--text-secondary);margin-top:4px;">
+        Cheapest ${money(p.minBefore, "$")} → <strong>${money(p.minAfter, "$")}</strong> ·
+        dearest ${money(p.maxBefore, "$")} → <strong>${money(p.maxAfter, "$")}</strong>
+      </div>
+      ${p.skippedArchived ? `<div style="color:var(--text-tertiary);margin-top:4px;">${p.skippedArchived} archived ${p.skippedArchived === 1 ? "price is" : "prices are"} being left alone.</div>` : ""}
+    `;
+    const applyBtn = document.createElement("button");
+    applyBtn.className = "btn btn-primary btn-sm";
+    applyBtn.style.marginTop = "8px";
+    applyBtn.textContent = `Apply ${formatPct(pct)} to ${p.variantCount} price${p.variantCount === 1 ? "" : "s"}`;
+    applyBtn.addEventListener("click", async () => {
+      applyBtn.disabled = true;
+      const res = await applyBulkPrice(wid, pct, { includeArchived: archBox.checked });
+      applyBtn.disabled = false;
+      if (!res.ok) {
+        toast(res.error?.message || "Could not apply the change", { type: "danger" });
+        return;
+      }
+      toast(`${res.variantCount} prices changed by ${formatPct(pct)} — you can undo this below`, { type: "success" });
+      reload();
+    });
+    summary.appendChild(applyBtn);
+    previewBox.appendChild(summary);
+  });
+
+  outlet.appendChild(bulkCard);
+
+  // ---- What was changed, and the undo ------------------------------------
+  const history = document.createElement("div");
+  history.className = "card";
+  history.style.cssText = "margin-top:12px;padding:16px;";
+  const batches = await recentPriceBatches(wid, 5);
+  if (!batches.length) {
+    history.innerHTML = `<strong style="font-size:13px;">Recent price changes</strong>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">None yet. Once you make one it appears here, with an undo.</div>`;
+  } else {
+    history.innerHTML = `<strong style="font-size:13px;">Recent price changes</strong>`;
+    batches.forEach((b) => {
+      const r = document.createElement("div");
+      r.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:12px;flex-wrap:wrap;";
+      r.innerHTML = `<div style="flex:1;min-width:0;">
+          <strong>${esc(formatPct(b.pctDelta))}</strong> on ${b.variantCount} price${b.variantCount === 1 ? "" : "s"}
+          <span style="color:var(--text-tertiary);">· ${new Date(b.changedAt).toLocaleString()}</span>
+          ${b.reverted ? ` <span class="badge badge-neutral">undone</span>` : ""}
+        </div>`;
+      if (!b.reverted) {
+        const undo = document.createElement("button");
+        undo.className = "btn btn-secondary btn-sm";
+        undo.textContent = "Undo";
+        undo.addEventListener("click", async () => {
+          undo.disabled = true;
+          const res = await revertPriceBatch(b.batchId);
+          undo.disabled = false;
+          if (!res.ok) { toast(res.error?.message || "Could not undo", { type: "danger" }); return; }
+          // `skipped` is said out loud rather than swallowed. It is the count
+          // of prices edited by hand since this batch ran, which the undo
+          // deliberately left alone -- an undo that silently declines to undo
+          // part of what it did is as misleading as one that clobbers work.
+          toast(
+            res.skipped
+              ? `${res.restored} price${res.restored === 1 ? "" : "s"} put back. ${res.skipped} left alone — you had edited ${res.skipped === 1 ? "it" : "them"} since.`
+              : `${res.restored} price${res.restored === 1 ? "" : "s"} put back`,
+            { type: "success" }
+          );
+          reload();
+        });
+        r.appendChild(undo);
+      }
+      history.appendChild(r);
+    });
+  }
+  outlet.appendChild(history);
+
+  // ---- Order-level minimums ----------------------------------------------
+  const orderMinCard = document.createElement("div");
+  orderMinCard.className = "card";
+  orderMinCard.style.cssText = "margin-top:12px;padding:16px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;";
+  const mins = await getOrderMinimums(wid);
+  orderMinCard.innerHTML = `
+    <strong style="font-size:13px;width:100%;">Order-level minimum (applies to every order placed with you)</strong>
+    <div style="font-size:11px;color:var(--text-tertiary);width:100%;margin-top:-4px;">
+      Enforced by the server at checkout, not just shown — a buyer cannot submit under it.
+    </div>
+    <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Min units total</label><input class="input" id="order-min-qty" type="number" min="1" value="${mins.orderMinQty ?? ""}" placeholder="none" style="width:110px;" /></div>
+    <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Min order value</label><input class="input" id="order-min-value" type="number" min="0" step="0.01" value="${mins.orderMinValue ?? ""}" placeholder="none" style="width:110px;" /></div>
+  `;
+  const saveOrderMinBtn = document.createElement("button");
+  saveOrderMinBtn.className = "btn btn-primary btn-sm";
+  saveOrderMinBtn.textContent = "Save";
+  saveOrderMinBtn.addEventListener("click", async () => {
+    const orderMinQty = orderMinCard.querySelector("#order-min-qty").value;
+    const orderMinValue = orderMinCard.querySelector("#order-min-value").value;
+    const { error } = await setOrderMinimums(wid, {
+      orderMinQty: orderMinQty === "" ? null : parseInt(orderMinQty, 10),
+      orderMinValue: orderMinValue === "" ? null : parseFloat(orderMinValue),
+    });
+    toast(error ? "Failed to save" : "Order minimum saved", { type: error ? "danger" : "success" });
+  });
+  orderMinCard.appendChild(saveOrderMinBtn);
+  outlet.appendChild(orderMinCard);
+}
+
 export function registerWholesalerRoutes(router) {
   router.register("/wholesaler", (outlet) => dashboard(outlet));
-  router.register("/wholesaler/products", (outlet) => productsView(outlet));
+  // Batch 6: Products folded into Inventory. This route is KEPT and lands on
+  // the Products pane, because an installed PWA can hold the old navigation in
+  // its cache and a bookmark can outlive any refactor -- a link that used to
+  // work must not start returning nothing.
+  router.register("/wholesaler/products", (outlet) => inventoryView(outlet, { tab: "products" }));
   router.register("/wholesaler/orders", (outlet) => ordersView(outlet));
   router.register("/wholesaler/clients", (outlet) => clientsView(outlet));
   router.register("/wholesaler/team", (outlet) => teamView(outlet));
   router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));
-  router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet));
+  router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet, { tab: "stock" }));
+  router.register("/wholesaler/inventory/products", (outlet) => inventoryView(outlet, { tab: "products" }));
+  router.register("/wholesaler/inventory/pricing", (outlet) => inventoryView(outlet, { tab: "pricing" }));
   router.register("/wholesaler/movements", (outlet) => movementsView(outlet));
   router.register("/wholesaler/labels", (outlet) => labelsView(outlet));
   router.register("/wholesaler/labels/:productId", (outlet, params) => labelsView(outlet, params));
