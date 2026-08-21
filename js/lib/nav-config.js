@@ -14,7 +14,15 @@ export const NAV_BY_ROLE = {
   ],
   wholesaler: [
     { icon: "◆", label: "Dashboard", path: "/wholesaler" },
-    { icon: "📦", label: "Products", path: "/wholesaler/products" },
+    // "Products" removed 21 Aug 2026 (Batch 6). Hadi asked for it to become a
+    // sub-tab of Inventory, and the two screens were already listing the same
+    // products from the same component -- they differed only in which figures
+    // were shown and which buttons each card offered. Two doors into one room.
+    //
+    // The /wholesaler/products ROUTE still exists and lands on the Products
+    // pane (see js/views/wholesaler.js), so an installed PWA holding the old
+    // navigation in its cache, or anyone's bookmark, still arrives somewhere
+    // real rather than at nothing. It simply has no entry in the navigation.
     { icon: "📥", label: "Orders", path: "/wholesaler/orders" },
     { icon: "👥", label: "Clients", path: "/wholesaler/clients" },
     { icon: "🗂", label: "Catalogs", path: "/wholesaler/catalogs" },
