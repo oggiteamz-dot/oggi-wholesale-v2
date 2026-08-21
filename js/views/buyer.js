@@ -4,13 +4,16 @@ import { renderProductCard } from "../components/product-card.js";
 import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { supabase, sbCall } from "../lib/supabase-client.js";
-import { getCatalog, getWholesaler, listWholesalers } from "../data/catalog.js";
+import { getCatalog, getWholesaler, listWholesalers, getVariantListPrices } from "../data/catalog.js";
 import { buyerCatalogs, buyerCatalogProductIds, catalogByToken, catalogProductsByToken } from "../data/catalogs.js";
 import { renderBillboard, sectionHeader } from "../components/billboard.js";
 import { cart } from "../data/cart.js";
 import { getBuyerOrders, orderedTimesCount, getBuyerOrderedProductIds } from "../data/orders.js";
 import { getPricingContext, resolveClientId, tierForQty, nextTier, effectivePrice, productMoqStatus, marginPct } from "../data/pricing.js";
 import { listPacksForProducts, getPackById } from "../data/prepacks.js";
+// Batch 5: the one place a cart total is calculated. See js/data/line-pricing.js
+// for why the buyer app previously had two.
+import { priceCart, aggregateQtyByProduct } from "../data/line-pricing.js";
 import { renderCatalogToolbar } from "../components/catalog-toolbar.js";
 import { filterAndSortCatalog, defaultCatalogFilters } from "../data/catalog-filter.js";
 import { renderTrustBadges } from "../components/trust-badges.js";
@@ -264,13 +267,21 @@ async function cartView(outlet) {
 
   // Batch 8: quantity-tiered price nudge in the cart itself (not just the
   // product card) -- a buyer editing quantities directly in the cart should
-  // see the same "add N more to unlock $X/ea" feedback they'd have seen on
-  // the catalog grid. Fetched once for the distinct set of products already
-  // in the cart; pack lines don't carry a single product's tiers (a pack
-  // can span multiple sizes of one product but is sold as a flat unit) so
-  // they're excluded, matching Batch 7's pack-lines-are-exempt precedent.
-  const cartProductIds = [...new Set(lines.filter((l) => !l.isPack && l.productId).map((l) => l.productId))];
-  const { tiersByProduct, discountPct: cartDiscountPct } = cartProductIds.length
+  // see the same "add N more" feedback they'd have seen on the catalog grid.
+  // Fetched once for the distinct set of products already in the cart.
+  //
+  // BATCH 5 CORRECTION. This line used to end with
+  //     .filter((l) => !l.isPack && l.productId)
+  // and a comment explaining that pack lines are exempt from tiered pricing,
+  // "matching Batch 7's pack-lines-are-exempt precedent". There is no such
+  // precedent in the database: v2_submit_order prices pack lines through
+  // exactly the same v2_effective_unit_price as every other line, and counts
+  // their pieces in the aggregate that chooses the quantity break. The
+  // exemption existed only in this file, and writing it down as intent is how
+  // it survived three batches -- the same way the missing size axis survived
+  // the 2.0 rewrite by being recorded in a PRD as the design.
+  const cartProductIds = [...new Set(lines.map((l) => l.productId).filter(Boolean))];
+  const { tiersByProduct, overridesByVariant, discountPct: cartDiscountPct } = cartProductIds.length
     ? await getPricingContext(cartProductIds, session.accountId, {
         clientId: session.clientId || null,
         // Same catalog the buyer was shopping, so the cart shows what the
@@ -278,7 +289,29 @@ async function cartView(outlet) {
         // arrives discounted, which looks like a pricing bug to everyone.
         catalogId: activeCatalogId,
       })
-    : { tiersByProduct: new Map(), discountPct: 0 };
+    : { tiersByProduct: new Map(), overridesByVariant: new Map(), discountPct: 0 };
+
+  // The customer's own share of the discount -- the only part that may appear
+  // as a struck-through "before" price. Same rule as the catalog grid.
+  const cartCustomerPct = Number(session.discountPct) || 0;
+
+  // Authoritative list prices for the loose lines. A cart line's stored
+  // `price` is already effective, so it cannot be re-priced from; see
+  // getVariantListPrices in js/data/catalog.js.
+  const listPriceByVariant = await getVariantListPrices(lines.filter((l) => !l.isPack).map((l) => l.variantId));
+
+  /** Everything priceCart needs, rebuilt per render because the cart changes. */
+  function pricingCtx() {
+    return {
+      basePriceFor: (vid) => {
+        if (listPriceByVariant.has(vid)) return listPriceByVariant.get(vid);
+        const l = cart.get(wid).find((x) => !x.isPack && x.variantId === vid);
+        return l?.listPrice != null ? l.listPrice : (l?.price ?? 0);
+      },
+      tiersByProduct, overridesByVariant,
+      discountPct: cartDiscountPct, customerPct: cartCustomerPct,
+    };
+  }
 
   const list = document.createElement("div");
   list.className = "card";
@@ -287,7 +320,14 @@ async function cartView(outlet) {
   function renderLines() {
     list.innerHTML = "";
     const current = cart.get(wid);
-    current.forEach((line) => {
+    // ONE arithmetic for the whole cart, the same one the product card quotes
+    // and checks/check_line_pricing.mjs pins against the real SQL. Every
+    // number printed below comes out of this call -- nothing is multiplied a
+    // second time locally, because a second multiplication is a second chance
+    // to disagree with the invoice.
+    const pricedByIndex = priceCart(current, pricingCtx()).lines;
+    current.forEach((line, lineIndex) => {
+      const priced = pricedByIndex[lineIndex];
       const row = document.createElement("div");
       row.style.cssText = "display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-subtle);";
 
@@ -300,7 +340,8 @@ async function cartView(outlet) {
           <span class="badge badge-info" style="flex:none;">Pack</span>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:600;font-size:14px;">${esc(line.packName)}${line.packColor ? ` — ${esc(line.packColor)}` : ""}</div>
-            <div style="font-size:12px;color:var(--text-secondary);">${breakdown} · ${currency}${line.price.toFixed(2)} each pack</div>
+            <div style="font-size:12px;color:var(--text-secondary);">${breakdown}</div>
+            <div style="font-size:12px;">${currency}${priced.unitPrice.toFixed(2)}${priced.isBlended ? " avg" : ""} per piece <span class="badge badge-neutral pc-multiplier">×${line.unitCount || priced.units / Math.max(line.packQty, 1)}</span> <span style="color:var(--text-secondary);">= ${priced.units} pieces</span></div>
           </div>
         `;
         const qtyInput = document.createElement("input");
@@ -330,7 +371,7 @@ async function cartView(outlet) {
         });
         const lineTotal = document.createElement("div");
         lineTotal.style.cssText = "font-weight:600;width:80px;text-align:right;";
-        lineTotal.textContent = `${currency}${(line.packQty * line.price).toFixed(2)}`;
+        lineTotal.textContent = `${currency}${priced.lineTotal.toFixed(2)}`;
         row.appendChild(qtyInput);
         row.appendChild(lineTotal);
         row.appendChild(removeBtn);
@@ -342,7 +383,7 @@ async function cartView(outlet) {
         <span class="dot" style="width:18px;height:18px;border-radius:5px;background:${line.colorHex};flex:none;"></span>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:600;font-size:14px;">${esc(line.productName)}</div>
-          <div style="font-size:12px;color:var(--text-secondary);">${esc(line.color)} · ${esc(line.size)} · ${currency}${line.price.toFixed(2)} each</div>
+          <div style="font-size:12px;color:var(--text-secondary);">${esc(line.color)} · ${esc(line.size)} · ${currency}${priced.unitPrice.toFixed(2)} per piece × ${priced.units}</div>
         </div>
       `;
       const qtyInput = document.createElement("input");
@@ -375,7 +416,7 @@ async function cartView(outlet) {
       });
       const lineTotal = document.createElement("div");
       lineTotal.style.cssText = "font-weight:600;width:80px;text-align:right;";
-      lineTotal.textContent = `${currency}${(line.qty * line.price).toFixed(2)}`;
+      lineTotal.textContent = `${currency}${priced.lineTotal.toFixed(2)}`;
 
       row.appendChild(qtyInput);
       row.appendChild(lineTotal);
@@ -386,13 +427,20 @@ async function cartView(outlet) {
       // cross-colourway aggregate basis Batch 6 established (every cart
       // line for this product, any colour/size, summed together).
       const tiers = line.productId ? tiersByProduct.get(line.productId) || [] : [];
-      if (tiers.length) {
-        const aggQty = current.filter((l) => !l.isPack && l.productId === line.productId).reduce((s, l) => s + l.qty, 0);
+      // One nudge per product, not one per line: with packs now carrying a
+      // productId, a cart holding two lines of the same product would
+      // otherwise print the identical sentence twice.
+      const firstLineOfProduct = current.findIndex((l) => l.productId === line.productId) === lineIndex;
+      if (tiers.length && firstLineOfProduct) {
+        // Pack pieces count here now (aggregateQtyByProduct expands them), so
+        // a cart of packs is told about the break it has actually reached
+        // instead of being told it has ordered nothing.
+        const aggQty = aggregateQtyByProduct(current).get(line.productId) || 0;
         const nt = nextTier(tiers, aggQty);
         if (nt) {
           const nudge = document.createElement("div");
           nudge.style.cssText = "font-size:11px;color:var(--accent-600,#2f6b4f);padding:0 12px 10px 42px;border-bottom:1px solid var(--border-subtle);margin-top:-1px;";
-          nudge.textContent = `Add ${nt.minQty - aggQty} more of this product (any colour/size) to unlock ${currency}${nt.unitPrice.toFixed(2)}/ea`;
+          nudge.textContent = `Add ${nt.minQty - aggQty} more pieces of this product (any colour/size) to reach ${currency}${nt.unitPrice.toFixed(2)} each`;
           list.appendChild(nudge);
         }
       }
@@ -409,8 +457,12 @@ async function cartView(outlet) {
 
   function renderSummary() {
     const current = cart.get(wid);
-    const total = current.reduce((s, l) => s + (l.isPack ? l.packQty * l.price : l.qty * l.price), 0);
-    summary.innerHTML = `<div><div style="font-size:12px;color:var(--text-tertiary);">Subtotal</div><div style="font-size:22px;font-weight:700;">${currency}${total.toFixed(2)}</div></div>`;
+    // The same priceCart() the lines above were printed from, so the subtotal
+    // is the sum of the numbers on screen by construction rather than by a
+    // second calculation that happens to agree.
+    const { subtotal, lines: pricedLines } = priceCart(current, pricingCtx());
+    const totalPieces = pricedLines.reduce((s2, p) => s2 + p.units, 0);
+    summary.innerHTML = `<div><div style="font-size:12px;color:var(--text-tertiary);">Subtotal · ${totalPieces} piece${totalPieces === 1 ? "" : "s"}</div><div style="font-size:22px;font-weight:700;">${currency}${subtotal.toFixed(2)}</div></div>`;
     const submitBtn = document.createElement("button");
     submitBtn.className = "btn btn-primary";
     submitBtn.textContent = "Submit order";
@@ -515,7 +567,10 @@ async function ordersView(outlet) {
           // have been edited (or archived) since.
           const pack = await getPackById(item.packId);
           if (!pack) { failures++; continue; }
-          const r = await cart.addPack(wid, pack, item.packQty, location.id);
+          // productId comes off the live pack definition (prepacks.js exposes it
+          // as of Batch 5), so a reordered pack is counted toward this
+          // product's quantity break exactly like a freshly added one.
+          const r = await cart.addPack(wid, pack, item.packQty, location.id, undefined, { productId: pack.productId });
           if (!r.ok) failures++;
           continue;
         }

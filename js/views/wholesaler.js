@@ -967,7 +967,17 @@ async function renderPacksPanel(panel, wid, product) {
     const row = document.createElement("div");
     row.style.cssText = "display:flex;align-items:center;gap:10px;font-size:13px;padding:6px 0;";
     const breakdown = pack.components.map((c) => `${c.qtyPerPack}×${c.size || c.sku}`).join("/");
-    row.innerHTML = `<div style="flex:1;">${esc(pack.name)}${pack.color ? ` — ${esc(pack.color)}` : ""} <span style="color:var(--text-tertiary);">(${breakdown}) · $${pack.price.toFixed(2)}/pack${pack.isFlatPrice ? "" : " (sum of components)"}</span></div>`;
+    // Batch 5 / decision D4. `pack.price` is now ALWAYS the sum of the pieces,
+    // because that is what the server charges. When a flat price is also
+    // stored, BOTH numbers are shown and the flat one is labelled as not
+    // charged -- a wholesaler who typed 50 into that box has been believing
+    // something untrue since Batch 7, and silently dropping the number they
+    // typed would be a second way of not telling them.
+    row.innerHTML = `<div style="flex:1;">${esc(pack.name)}${pack.color ? ` — ${esc(pack.color)}` : ""} <span style="color:var(--text-tertiary);">(${breakdown}) · ${pack.unitCount} pcs · $${pack.price.toFixed(2)}/pack (the pieces at your list price)</span>${
+      pack.isFlatPrice
+        ? `<div style="font-size:11px;color:var(--warning-600,#a15c00);margin-top:2px;">Flat price $${pack.flatPackPrice.toFixed(2)} is saved but <strong>not charged</strong> — buyers are billed per piece. Change your piece prices to change what they pay.</div>`
+        : ""
+    }</div>`;
     const archiveBtn = document.createElement("button");
     archiveBtn.className = "btn btn-ghost btn-sm";
     archiveBtn.textContent = "Archive";
@@ -991,7 +1001,7 @@ async function renderPacksPanel(panel, wid, product) {
   topRow.innerHTML = `
     <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Pack name</label><input class="input" id="pack-name" placeholder="Boutique Pack" style="width:160px;" /></div>
     <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Colour (optional)</label><input class="input" id="pack-color" placeholder="e.g. Midnight Blue" style="width:150px;" /></div>
-    <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Flat price (optional)</label><input class="input" id="pack-price" type="number" min="0" step="0.01" placeholder="sum of components" style="width:140px;" /></div>
+    <div><label style="font-size:11px;color:var(--text-tertiary);display:block;">Flat price (a note, not charged)</label><input class="input" id="pack-price" type="number" min="0" step="0.01" placeholder="leave blank" style="width:140px;" title="Saved against the pack for your own reference. Buyers are billed per piece — see the note under each pack." /></div>
   `;
   const suggestBtn = document.createElement("button");
   suggestBtn.className = "btn btn-secondary btn-sm";

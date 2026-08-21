@@ -222,3 +222,46 @@ body {
   .label-cell svg rect[fill="#000"] { fill: #000 !important; }
   .label-sheet { gap: 6px !important; }
 }
+
+/* ---------------------------------------------------------------------------
+   Buyer product card — Batch 5
+   ---------------------------------------------------------------------------
+   The photo box and the ×N multiplier badge. Both are set inline in
+   js/components/product-card.js where the value is dynamic (the placeholder is
+   tinted with the selected colour, so it cannot live in a stylesheet); what is
+   here is the part that is the same on every card and belongs with the theme.
+--------------------------------------------------------------------------- */
+
+/* The multiplier reads as a unit of measure, not as a discount or a warning,
+   so it is deliberately quiet: the price beside it is the loud thing. */
+.pc-multiplier {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* A bare <span class="pc-multiplier"> (the one in the stepper's feedback line,
+   which sits inside running text rather than in a badge row) still needs to
+   look deliberate. Scoped with :not(.badge) so it never fights the badge
+   styling where the class is used on one. */
+.pc-multiplier:not(.badge) {
+  color: var(--text-tertiary);
+}
+
+/* The photo frame. The aspect ratio and the background are set inline so the
+   box exists before any CSS loads -- a card that reflows when the stylesheet
+   arrives has the same problem as one that reflows when the image arrives.
+   What belongs here is how it sits against the rest of the card. */
+.product-card .pc-photo {
+  margin-bottom: 2px;
+  /* Isolates the image's own paint so a very tall photo cannot bleed over the
+     rounded corner on Safari, which ignores overflow:hidden on a transformed
+     child. */
+  isolation: isolate;
+}
+
+/* The photo is decoration in print — the label sheet and the order printout
+   both want the words, not a page of ink. */
+@media print {
+  .product-card .pc-photo { display: none; }
+}

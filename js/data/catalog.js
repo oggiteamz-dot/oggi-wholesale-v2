@@ -67,7 +67,10 @@ export async function listWholesalers() {
   return [];
 }
 
-/** Returns [{ id, name, description, createdAt, isNew, sellingModel, variants: [{id, sku, price, cost, compareAtPrice, color, colorHex, size, sellMode, available, onHand, reserved}] }] */
+/** Returns [{ id, name, description, createdAt, isNew, sellingModel, baseUnit,
+ *   moqPerColour, imagesByColor, primaryImage,
+ *   variants: [{id, sku, price, cost, compareAtPrice, color, colorHex, size,
+ *               sellMode, available, onHand, reserved, imageUrl, images}] }] */
 export async function getCatalog(wid) {
   const { data: products } = await sbCall(
     supabase.from("v2_products").select("*").eq("wid", wid).eq("archived", false).order("created_at", { ascending: false })
@@ -163,8 +166,66 @@ export async function getCatalog(wid) {
       // this product), with a separate reorder threshold when set.
       moqQty: p.moq_qty || 1,
       moqReorderQty: p.moq_reorder_qty != null ? Number(p.moq_reorder_qty) : null,
+      // Batch 5. How many pieces ONE orderable unit of this product is.
+      //
+      // Hadi, 20 Aug 2026: "Let's say the MOQ is 20 -- every single time they
+      // click plus on the colour red they get 20 ... they see that there's a
+      // x12 or x20 next to it, which will be multiplied in the final total."
+      //
+      // The column has existed since migration 061 and the wholesaler has been
+      // able to set it since the same day, but nothing on the buyer side has
+      // ever read it -- so the stepper counted single pieces and the x N the
+      // buyer was promised did not exist anywhere. Blank/1 means the product
+      // is sold by the single piece, which is every product on production
+      // today, so this is additive for all of them.
+      baseUnit: p.base_unit != null && Number(p.base_unit) > 1 ? Number(p.base_unit) : 1,
+      // Minimum pieces per COLOUR (migration 063). The server enforces it in
+      // v2_enforce_selling_model; the card needs it to say so before the
+      // buyer reaches checkout and is refused.
+      moqPerColour: p.moq_per_colour != null ? Number(p.moq_per_colour) : null,
+      // Batch 5. Photography, grouped by colour, so the card can show the
+      // picture for whichever swatch is selected.
+      //
+      // This data has been fetched on every catalog request since Batch 13 and
+      // thrown away on every one of them: the buyer product card rendered no
+      // <img> at all, and the only thing that touched these urls was the 360
+      // viewer's modal. A wholesaler who had uploaded 46 photos saw a
+      // text-only catalog. Grouping happens here rather than in the card
+      // because it is a property of the data, and two cards computing it
+      // twice is how two cards end up disagreeing.
+      imagesByColor: imagesByColor(vs),
+      primaryImage: firstImageOf(vs),
     };
   });
+}
+
+/** Every distinct photo for each colour of a product, in variant order and
+ *  de-duplicated -- the same photo attached to S, M and L of one colour is one
+ *  photo of that colour, not three. */
+function imagesByColor(variants) {
+  const byColor = new Map();
+  variants.forEach((v) => {
+    if (!v.color) return;
+    const urls = byColor.get(v.color) || [];
+    [v.imageUrl, ...(v.images || [])].forEach((u) => {
+      if (u && !urls.includes(u)) urls.push(u);
+    });
+    byColor.set(v.color, urls);
+  });
+  return byColor;
+}
+
+/** The card's fallback when the selected colour has no photo of its own: the
+ *  first photo anywhere on the product, so a partly-photographed range still
+ *  shows a picture instead of an empty box. Returns null when there is
+ *  genuinely no photography, which the card renders as an honest placeholder
+ *  rather than a broken image. */
+function firstImageOf(variants) {
+  for (const v of variants) {
+    if (v.imageUrl) return v.imageUrl;
+    if (v.images && v.images.length) return v.images[0];
+  }
+  return null;
 }
 
 export function findVariant(catalog, variantId) {
@@ -173,4 +234,28 @@ export function findVariant(catalog, variantId) {
     if (v) return { product, variant: v };
   }
   return null;
+}
+
+/**
+ * List prices for a set of variants. Batch 5.
+ *
+ * The cart screen needs these because a cart line stores the price it was
+ * priced AT -- discount and quantity break already applied -- and re-pricing
+ * from that number would apply them a second time. The list price is the only
+ * correct input to effectivePrice(), and the only authoritative copy of it is
+ * the variant row, so the cart fetches it rather than trusting a value that
+ * has been sitting in localStorage since before the wholesaler last edited
+ * their prices.
+ *
+ * Returns a Map(variantId -> Number). Variants that come back missing are
+ * simply absent from the map; the caller falls back to the line's own stored
+ * listPrice, which is why cart lines carry one.
+ */
+export async function getVariantListPrices(variantIds) {
+  const ids = [...new Set((variantIds || []).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const { data } = await sbCall(
+    supabase.from("v2_product_variants").select("id,price").in("id", ids)
+  );
+  return new Map((data || []).map((v) => [v.id, Number(v.price ?? 0)]));
 }
