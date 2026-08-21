@@ -27,6 +27,10 @@ export const NAV_BY_ROLE = {
     // nowhere to be seen. Sits directly under Inventory because it answers the
     // question Inventory provokes: "why is this number what it is?"
     { icon: "🕓", label: "Stock Movements", path: "/wholesaler/movements" },
+    // Batch 4. v1 printed barcodes; the 2.0 rewrite kept only the reader, so
+    // the camera scanner had nothing to scan. Sits by Stock Movements because
+    // both are about the physical goods rather than the catalogue.
+    { icon: "🏷", label: "Barcode Labels", path: "/wholesaler/labels" },
     { icon: "🏬", label: "Locations", path: "/wholesaler/locations" },
     // Batch 17. Sits next to Locations because both answer "where does stock
     // come from and go" -- Locations is inside the business, Suppliers is the
