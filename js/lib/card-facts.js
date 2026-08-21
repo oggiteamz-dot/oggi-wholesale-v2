@@ -20,6 +20,7 @@
 // data says so plainly instead of rendering a confident "0".
 
 import { money } from "./utils.js";
+import { INVENTORY_SETTING_DEFAULTS } from "./inventory-defaults.js";
 
 /** Every fact a wholesaler can choose from.
  *
@@ -37,9 +38,16 @@ export const CARD_FACTS = [
       return { value: lo === hi ? money(lo) : `${money(lo)}–${money(hi)}` };
     } },
   { key: "available", label: "Available", group: "Commercial", needs: "stock",
-    get: (p) => (p.available == null ? null : {
+    // Batch 1: the amber threshold is the wholesaler's own setting when the
+    // caller passes one, and otherwise the single platform default. It used
+    // to be the literal 15, which was the sixth copy of that number in the
+    // codebase. This is a product-level colour hint, not the alerting
+    // surface -- per-SKU "low" is decided by days of cover in
+    // js/data/inventory-signals.js.
+    get: (p, ctx) => (p.available == null ? null : {
       value: String(p.available),
-      tone: p.available <= 0 ? "danger" : p.available <= 15 ? "warning" : "",
+      tone: p.available <= 0 ? "danger"
+          : p.available <= (ctx?.lowStockThreshold ?? INVENTORY_SETTING_DEFAULTS.lowStockThreshold) ? "warning" : "",
     }) },
   { key: "onHand", label: "On hand", group: "Commercial", needs: "stock",
     get: (p) => (p.onHand == null ? null : { value: String(p.onHand) }) },
@@ -141,7 +149,8 @@ export function factsFor(p, keys = DEFAULT_FACTS, ctx = {}) {
       out.push({
         label: name,
         value: row ? String(row.available) : "0",
-        tone: !row || row.available <= 0 ? "danger" : row.available <= 15 ? "warning" : "",
+        tone: !row || row.available <= 0 ? "danger"
+            : row.available <= (ctx?.lowStockThreshold ?? INVENTORY_SETTING_DEFAULTS.lowStockThreshold) ? "warning" : "",
       });
       continue;
     }

@@ -3,6 +3,7 @@
 // never a direct UPDATE on v2_inventory_balances, per the architecture's
 // own rule (see 001_v2_inventory_core.sql header).
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { getVariantStatuses } from "./inventory-signals.js";
 
 export async function getLocations(wid) {
   // An EXPLICIT column list, not select("*").
@@ -222,6 +223,12 @@ export async function adjustStock(variantId, locationId, qty, note) {
  *  breakdown, Receive and Transfer all still work on the exact rows they
  *  always did. This is a regrouping, not a second source of truth. */
 export async function getStockByProduct(wid) {
+  // Batch 1: "low" is no longer a flat 15 units held privately by this file.
+  // 15 units of a slow mover is six months of cover; 15 of a fast mover is a
+  // week. The status comes from js/data/inventory-signals.js, which is the
+  // same definition the dashboard and the intelligence screen use, so the
+  // three cannot disagree about the same SKU.
+  const statusByVariant = await getVariantStatuses(wid);
   const rows = await getStockTable(wid);
   const byProduct = new Map();
 
@@ -255,9 +262,18 @@ export async function getStockByProduct(wid) {
     p.variants.forEach((v) => {
       const cur = byVariant.get(v.variantId);
       if (cur) { cur.available += v.available; cur.neverStocked = cur.neverStocked && v.neverStocked; }
-      else byVariant.set(v.variantId, { available: v.available, neverStocked: v.neverStocked });
+      else byVariant.set(v.variantId, { variantId: v.variantId, available: v.available, neverStocked: v.neverStocked });
     });
     const list = [...byVariant.values()];
+
+    // One SKU, one verdict. Prefers the server-computed status; falls back to
+    // the quantity only for a variant the signal has not seen yet.
+    const statusOf = (v) => {
+      const known = v.variantId != null ? statusByVariant.get(v.variantId) : null;
+      if (known) return known.status;
+      if (v.neverStocked) return "not_tracked";
+      return v.available <= 0 ? "out" : "ok";
+    };
 
     // Per-warehouse totals, for the "stock in each warehouse" and "stock at
     // <name>" card facts. Summed across variants, because the question the
@@ -277,9 +293,13 @@ export async function getStockByProduct(wid) {
       ...p,
       byLocation: [...byLoc.values()].sort((a, b) => a.locationName.localeCompare(b.locationName)),
       variantCount: list.length,
-      outCount: list.filter((v) => !v.neverStocked && v.available <= 0).length,
-      lowCount: list.filter((v) => !v.neverStocked && v.available > 0 && v.available <= 15).length,
-      neverStockedCount: list.filter((v) => v.neverStocked).length,
+      // Derived from the shared signal where it knows this variant, and from
+      // the raw quantity where it does not (a variant created since the last
+      // signal fetch). Falling back to the quantity keeps the count honest
+      // instead of silently dropping a SKU out of the totals.
+      outCount: list.filter((v) => statusOf(v) === "out").length,
+      lowCount: list.filter((v) => { const st = statusOf(v); return st === "low" || st === "reorder"; }).length,
+      neverStockedCount: list.filter((v) => statusOf(v) === "not_tracked").length,
     };
   }).sort((a, b) => {
     // Anything needing attention first -- out of stock, then low, then the
