@@ -366,6 +366,30 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
       packQtyInput.style.width = "56px";
       packQtyInput.setAttribute("aria-label", `How many of ${pack.name}`);
       packQtyInput.addEventListener("input", renderPackInfo);
+
+      // Batch 5 follow-up. The plan sketched this row as
+      //     [ − ]   1 pack   [ + ]         = $54.00
+      // and it shipped with a bare number field. The open-stock stepper got
+      // real buttons and this did not, which left the two ways of buying
+      // behaving differently for no reason a buyer could see -- and left the
+      // pack row without a 44px tap target on a phone.
+      function stepPack(delta) {
+        const now = parseInt(packQtyInput.value, 10) || 0;
+        packQtyInput.value = String(Math.max(0, now + delta));
+        renderPackInfo();
+      }
+      const packMinus = document.createElement("button");
+      packMinus.type = "button";
+      packMinus.className = "btn btn-secondary btn-sm pc-step pc-step-pack";
+      packMinus.textContent = "−";
+      packMinus.setAttribute("aria-label", `One less ${pack.name}`);
+      packMinus.addEventListener("click", () => stepPack(-1));
+      const packPlus = document.createElement("button");
+      packPlus.type = "button";
+      packPlus.className = "btn btn-secondary btn-sm pc-step pc-step-pack";
+      packPlus.textContent = "+";
+      packPlus.setAttribute("aria-label", `One more ${pack.name}`);
+      packPlus.addEventListener("click", () => stepPack(1));
       const addPackBtn = document.createElement("button");
       addPackBtn.className = "btn btn-primary btn-sm";
       addPackBtn.textContent = "Add pack";
@@ -391,7 +415,9 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
         if (onCartChange) onCartChange();
       });
       renderPackInfo();
+      row.appendChild(packMinus);
       row.appendChild(packQtyInput);
+      row.appendChild(packPlus);
       row.appendChild(addPackBtn);
       packSection.appendChild(row);
     });

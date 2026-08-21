@@ -179,6 +179,51 @@ Negative-tested against the pre-Batch-5 card: **27 of 44 assertions fail**, and
 the 17 that pass are the features that genuinely were already there — which is
 the point of reading a negative test rather than just its exit code.
 
+## `check_inventory_panes.mjs` — the fold did not lose anything
+
+```bash
+node checks/check_inventory_panes.mjs
+```
+
+Products became a sub-tab of Inventory in Batch 6. Six things lived **only** on
+the Products screen, and moving a screen is exactly when they vanish quietly —
+the batch plan said so before the work started: *"Deleting Products loses a
+feature → Batch 6 is last and gated on new homes existing."*
+
+Checks three different kinds of thing. The routes are asked of the **real
+router**, with the real `registerWholesalerRoutes()` — a resolution, not a
+string search. The tab bar is rendered in a real DOM. And the six features are
+anchored to the **byte range of the pane they must live in**, not searched for
+across a 200KB file: a feature that survived the move but landed in the wrong
+pane fails, and so does one that ended up in *both*.
+
+That distinction is the lesson of 15 Aug, when one check reported a feature
+PRESENT because the string matched inside `.git/hooks/*.sample`.
+
+Negative-tested against the pre-Batch-6 tree: **18 of 22 assertions fail**.
+
+## `check_bulk_price_safety.sql` — the undo does not eat your work
+
+```bash
+psql <conn> -f checks/check_bulk_price_safety.sql
+```
+
+The old "Bulk price update (all products)" was one number and one button that
+repriced every variant the wholesaler owned — archived ones included — with no
+confirmation and no record of the previous price. Measured on production: for
+wid `sq`, 64 variants, one click, no undo.
+
+Nine assertions, of which **5 is the one that matters**: if a wholesaler
+bulk-updates, hand-corrects one product, then presses undo, the hand correction
+must survive. Proven red against the obvious implementation — an unconditional
+restore — which silently turned a hand-typed 99.99 back into 42.00 and reported
+`skipped=0` as though nothing had been lost.
+
+It impersonates real `v2_user_profiles` rows via `request.jwt.claims`, because
+run as `postgres` `auth.uid()` is NULL and every guarded call would raise "not
+allowed" — the check would pass for the wrong reason, which is the worst kind
+of green.
+
 ## Still to build
 
 The ⚠️ rows in `FEATURE-MANIFEST.md` are the backlog, in rough priority order:
