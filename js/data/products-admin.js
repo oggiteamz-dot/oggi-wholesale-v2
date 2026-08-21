@@ -80,19 +80,40 @@ export async function toggleArchived(productId, archived) {
 
 /** Bulk price update: applies a percentage delta to every variant of the
  * given products (e.g. +10 for a 10% increase, -15 for a 15% markdown). */
-export async function bulkUpdatePrice(variantIds, percentDelta) {
-  const { data: variants } = await sbCall(
-    supabase.from("v2_product_variants").select("id, price").in("id", variantIds)
-  );
-  if (!variants) return { ok: false };
-  const updates = variants.map((v) => ({
-    id: v.id,
-    price: Math.round(Number(v.price) * (1 + percentDelta / 100) * 100) / 100,
-  }));
-  for (const u of updates) {
-    await sbCall(supabase.from("v2_product_variants").update({ price: u.price, updated_at: new Date().toISOString() }).eq("id", u.id));
-  }
-  return { ok: true, count: updates.length };
+/**
+ * RETIRED AS A CAPABILITY, KEPT AS A FUNCTION. Always refuses. (Batch 6)
+ *
+ * This did the bulk reprice in the browser: fetch N variants, then N sequential
+ * UPDATEs. Everything about it was dangerous.
+ *
+ *   * It recorded nothing. The previous price was overwritten and stored
+ *     nowhere, so there was no undo and no way to answer "what was this
+ *     before". One mistyped percentage repriced a whole catalogue,
+ *     permanently, with no confirmation step in front of it.
+ *   * N round trips from a browser is not atomic. Close the laptop at variant
+ *     30 of 64 and the catalogue is half repriced, with nothing anywhere
+ *     recording which half.
+ *   * It applied no archived filter, to products or to variants, so goods
+ *     deliberately withdrawn from sale were repriced along with everything
+ *     else.
+ *
+ * Replaced by js/data/pricing-bulk.js, which previews first, does the whole
+ * change in one server-side statement, and writes v2_price_changes so it can
+ * be undone (migration 078).
+ *
+ * It refuses rather than forwarding to the new path because the signatures
+ * mean different things -- this one took a caller-chosen list of variant ids,
+ * the new one takes a wid and derives the list on the server, which is what
+ * makes the preview and the apply agree. Silently reinterpreting one as the
+ * other would be a worse failure than a loud one. It is not deleted, so a
+ * caller added later fails visibly here instead of failing to resolve and
+ * getting "fixed" by someone pasting the old loop back in.
+ */
+export async function bulkUpdatePrice() {
+  return {
+    ok: false,
+    error: "bulkUpdatePrice was retired in Batch 6 -- it could not be undone. Use applyBulkPrice() from js/data/pricing-bulk.js, which previews, runs atomically and records every old price.",
+  };
 }
 
 /** Duplicate-as-template: clones a product's full shell -- name (suffixed
