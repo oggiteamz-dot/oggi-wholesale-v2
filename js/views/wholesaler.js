@@ -11,7 +11,9 @@ import { listPacksForProduct, createPack, archivePack, suggestPackRatio } from "
 import { listRatios, createRatio, applyRatio, ratioUsage, archiveRatio, ratioTotal, ratioShorthand,
          productSizes, productColors, setBaseUnit, STARTER_RATIOS } from "../data/size-ratios.js";
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
-import { getReorderSuggestions, getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
+import { getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
+import { getInventorySignals, getVariantStatuses } from "../data/inventory-signals.js";
+import { getInventorySettings, saveInventorySettings, resetInventorySettings, INVENTORY_SETTING_DEFAULTS, INVENTORY_SETTING_HELP, INVENTORY_SETTING_BOUNDS } from "../data/inventory-settings.js";
 import { recordReceiptCost } from "../data/landed-cost.js";
 import { listKits, createKit, archiveKit, assembleKit } from "../data/kits.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
@@ -210,10 +212,18 @@ async function paintCommercial(host, wid, range, session) {
  *  the original dashboard -- these counts were already correct and already
  *  scoped to this wholesaler. */
 async function paintOperational(outlet, wid) {
-  const [orders, stock] = await Promise.all([getWholesalerOrders(wid), getStockTable(wid)]);
+  const [orders, stock, statusByVariant] = await Promise.all([
+    getWholesalerOrders(wid), getStockTable(wid), getVariantStatuses(wid),
+  ]);
   const openOrders = orders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
-  const lowStockCount = stock.filter((s) => s.available > 0 && s.available <= 15).length;
-  const outOfStockCount = stock.filter((s) => s.available <= 0).length;
+  // Batch 1: counted per VARIANT from the shared signal, not per stock row
+  // against a flat 15. Two things changed and both were wrong before:
+  // "low" now means less cover than the wholesaler's target rather than a
+  // unit count that means something different for every SKU, and a variant
+  // stocked in two warehouses is counted once rather than twice.
+  const variantStatuses = [...statusByVariant.values()];
+  const lowStockCount = variantStatuses.filter((s) => s.status === "low" || s.status === "reorder").length;
+  const outOfStockCount = variantStatuses.filter((s) => s.status === "out").length;
 
   const wrap = document.createElement("section");
   wrap.className = "card detail-card";
@@ -1110,7 +1120,7 @@ async function inventoryView(outlet) {
   // layout was a row per colour+size+location, so a seven-variant product
   // filled seven near-identical text rows -- a ledger, when what a wholesaler
   // needs to find a garment is a catalogue.
-  const products = await getStockByProduct(wid);
+  const [products, invStatusByVariant] = await Promise.all([getStockByProduct(wid), getVariantStatuses(wid)]);
   const grid = productGrid();
   const reload = () => { outlet.innerHTML = ""; inventoryView(outlet); };
 
@@ -1177,10 +1187,17 @@ async function inventoryView(outlet) {
     p.variants.forEach((row) => {
       const r = document.createElement("div");
       r.className = "inv-row";
-      const badge = row.neverStocked
+      // Batch 1: same shared verdict as the dashboard and the intelligence
+      // screen, with the days of cover shown so the badge is checkable rather
+      // than something the wholesaler has to take on trust.
+      const sig = invStatusByVariant.get(row.variantId);
+      const coverHint = sig && sig.daysOfCover != null ? ` title="${esc(sig.daysOfCover.toFixed(1))} days of cover left"` : "";
+      const st = sig ? sig.status : (row.neverStocked ? "not_tracked" : row.available <= 0 ? "out" : "ok");
+      const badge = st === "not_tracked"
         ? '<span class="badge badge-neutral">Not stocked yet</span>'
-        : row.available <= 0 ? '<span class="badge badge-danger">Out</span>'
-        : row.available <= 15 ? '<span class="badge badge-warning">Low</span>' : "";
+        : st === "out" ? '<span class="badge badge-danger">Out</span>'
+        : st === "reorder" ? `<span class="badge badge-warning"${coverHint}>Reorder</span>`
+        : st === "low" ? `<span class="badge badge-warning"${coverHint}>Low</span>` : "";
       const main = document.createElement("div");
       main.innerHTML = `
         <div class="inv-row-main">
@@ -1369,33 +1386,115 @@ async function intelligenceView(outlet) {
   const wid = session.wid;
   outlet.appendChild(pageHeader("Inventory Intelligence", "Reorder suggestions, GMROI/aging/sell-through, ABC cycle counts, and kit assembly."));
 
-  const [reorderSuggestions, report, cycleSchedule, kits, stock, locations] = await Promise.all([
-    getReorderSuggestions(wid), getInventoryIntelligenceReport(wid), getCycleCountSchedule(wid), listKits(wid), getStockTable(wid), getLocations(wid),
+  // One signal fetch feeds the summary, the reorder list and the breakout
+  // alert, so the three can never disagree with each other on screen.
+  const [signals, report, cycleSchedule, kits, stock, locations, settingsResult] = await Promise.all([
+    getInventorySignals(wid), getInventoryIntelligenceReport(wid), getCycleCountSchedule(wid),
+    listKits(wid), getStockTable(wid), getLocations(wid), getInventorySettings(wid),
   ]);
+  const reorderSuggestions = signals
+    .filter((sig) => (sig.status === "reorder" || sig.status === "out") && sig.suggestedQty > 0)
+    .sort((a, b) => {
+      const aCover = a.status === "out" ? -1 : (a.daysOfCover ?? Infinity);
+      const bCover = b.status === "out" ? -1 : (b.daysOfCover ?? Infinity);
+      return aCover - bCover;
+    });
+  const breakouts = signals.filter((sig) => sig.isBreakout)
+    .sort((a, b) => (b.breakoutRatio ?? 0) - (a.breakoutRatio ?? 0));
   const defaultLocation = locations.find((l) => l.is_default) || locations[0];
   const variantOptions = dedupeVariants(stock);
+
+  // --- Stock health at a glance (Batch 1) ---
+  // Five counts, not one. "Never stocked" and "sold out" look identical as a
+  // number and mean completely different things -- one is a catalogue entry,
+  // the other is money not being taken. Merging them is what put 43 false
+  // OUT alarms on one wholesaler's screen and taught them to stop looking.
+  const STATUS_META = {
+    out:         { label: "Sold out",     tone: "danger",  blurb: "was stocked, now at zero" },
+    reorder:     { label: "Reorder now",  tone: "warning", blurb: "at or below the reorder point" },
+    low:         { label: "Running low",  tone: "warning", blurb: "under your cover target" },
+    ok:          { label: "Healthy",      tone: "success", blurb: "comfortable" },
+    no_data:     { label: "No sales yet", tone: "muted",   blurb: "in stock, nothing sold in the window" },
+    not_tracked: { label: "Not stocked",  tone: "muted",   blurb: "never received into stock" },
+  };
+  const counts = {};
+  signals.forEach((sig) => { counts[sig.status] = (counts[sig.status] || 0) + 1; });
+
+  const healthSection = document.createElement("div");
+  healthSection.className = "card";
+  healthSection.style.cssText = "padding:16px;margin-bottom:16px;";
+  const cfg = settingsResult.settings;
+  healthSection.innerHTML =
+    `<h4 style="margin-bottom:4px;">Stock health</h4>
+     <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;">
+       Worked out from your own sales history over the last ${cfg.velocityWindowDays} days.
+       No setup needed &mdash; ${settingsResult.isDefault ? "these are the starting settings" : "using your saved settings"}, adjustable below.
+     </div>`;
+  const chipRow = document.createElement("div");
+  chipRow.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;";
+  ["out", "reorder", "low", "ok", "no_data", "not_tracked"].forEach((key) => {
+    if (!counts[key]) return;
+    const meta = STATUS_META[key];
+    const chip = document.createElement("div");
+    chip.title = meta.blurb;
+    chip.style.cssText =
+      "display:flex;align-items:baseline;gap:6px;padding:8px 12px;border-radius:10px;" +
+      "background:var(--surface-2);border:1px solid var(--border-subtle);min-height:44px;box-sizing:border-box;";
+    chip.innerHTML =
+      `<span style="font-weight:700;font-size:16px;">${counts[key]}</span>` +
+      `<span style="font-size:12px;color:var(--text-secondary);">${esc(meta.label)}</span>`;
+    chipRow.appendChild(chip);
+  });
+  if (!chipRow.children.length) {
+    chipRow.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);">No active products yet.</div>`;
+  }
+  healthSection.appendChild(chipRow);
+  outlet.appendChild(healthSection);
 
   // --- Reorder suggestions ---
   const reorderSection = document.createElement("div");
   reorderSection.className = "card";
   reorderSection.style.cssText = "padding:16px;margin-bottom:16px;";
-  reorderSection.innerHTML = `<h4 style="margin-bottom:8px;">Reorder suggestions</h4>`;
+  reorderSection.innerHTML = `<h4 style="margin-bottom:8px;">Needs reordering</h4>`;
   if (!reorderSuggestions.length) {
-    reorderSection.innerHTML += `<div style="font-size:12px;color:var(--text-tertiary);">Nothing needs reordering right now (or no SKUs have a reorder point configured yet — set one from Products → Pricing & MOQ).</div>`;
+    // An honest empty state. It says which of the two reasons applies, rather
+    // than the old text which implied the wholesaler had homework to do
+    // ("no SKUs have a reorder point configured yet") -- that sentence was
+    // the bug describing itself.
+    const sellable = signals.filter((sig) => sig.status !== "not_tracked").length;
+    const withSales = signals.filter((sig) => sig.velocityPerDay > 0).length;
+    let message;
+    if (!sellable) {
+      message = "Nothing has been received into stock yet, so there is nothing to reorder.";
+    } else if (!withSales) {
+      message = `Nothing has sold in the last ${cfg.velocityWindowDays} days, so there is no demand to work a reorder point from. This fills in on its own as orders come in &mdash; no setup needed.`;
+    } else {
+      message = "Nothing needs reordering right now. Every SKU with sales history has more cover than your target.";
+    }
+    reorderSection.innerHTML += `<div style="font-size:12px;color:var(--text-tertiary);">${message}</div>`;
   } else {
     reorderSuggestions.forEach((v) => {
       const row = document.createElement("div");
-      row.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:12px;";
+      row.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:12px;flex-wrap:wrap;";
+      // Provenance is shown deliberately. A reorder point the wholesaler
+      // cannot trace is a reorder point they will not act on.
+      const sourceNote = v.reorderPointSource === "manual"
+        ? `reorder point ${v.reorderPoint} (yours)`
+        : `reorder point ${v.reorderPoint} (worked out from ${v.velocityPerDay.toFixed(2)}/day over ${cfg.velocityWindowDays}d)`;
+      const coverNote = v.status === "out"
+        ? `<span class="badge badge-danger">Sold out</span>`
+        : `${v.daysOfCover != null ? `${v.daysOfCover.toFixed(1)} days of cover` : ""}`;
       row.innerHTML = `
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;">${esc(v.sku)} <span style="color:var(--text-tertiary);font-weight:400;">${esc(v.productName)} (${esc(v.color)}/${esc(v.size)})</span></div>
-          <div style="color:var(--text-tertiary);">${v.available} available · reorder point ${v.reorderPoint}${v.leadTimeDays != null ? ` · ${v.leadTimeDays}d lead time` : ""}</div>
+        <div style="flex:1;min-width:180px;">
+          <div style="font-weight:600;">${esc(v.sku)} <span style="color:var(--text-tertiary);font-weight:400;">${esc(v.productName)} (${esc(v.color || "—")}/${esc(v.size || "—")})</span></div>
+          <div style="color:var(--text-tertiary);">${v.available} available · ${coverNote} · ${sourceNote}${v.leadTimeDays != null ? ` · ${v.leadTimeDays}d lead time` : ""}</div>
         </div>
         <div style="font-weight:700;">Suggest: ${v.suggestedQty}</div>
       `;
       const receiveBtn = document.createElement("button");
       receiveBtn.className = "btn btn-primary btn-sm";
       receiveBtn.textContent = "Receive suggested qty";
+      receiveBtn.style.minHeight = "44px";
       receiveBtn.disabled = !defaultLocation;
       receiveBtn.addEventListener("click", async () => {
         receiveBtn.disabled = true;
@@ -1409,6 +1508,157 @@ async function intelligenceView(outlet) {
     });
   }
   outlet.appendChild(reorderSection);
+
+  // --- Breakout colourways (restored from v1) ---
+  // "The blue tee flying off the shelf": one colour outselling its siblings.
+  // Needs no configuration at all -- it reads order history directly.
+  const breakoutSection = document.createElement("div");
+  breakoutSection.className = "card";
+  breakoutSection.style.cssText = "padding:16px;margin-bottom:16px;";
+  breakoutSection.innerHTML = `<h4 style="margin-bottom:8px;">Selling faster than its other colours</h4>`;
+  if (breakouts.length) {
+    breakouts.forEach((v) => {
+      const row = document.createElement("div");
+      row.style.cssText = "padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:12px;";
+      const urgency = (v.status === "reorder" || v.status === "out" || v.status === "low")
+        ? ` <span class="badge badge-warning">${esc(STATUS_META[v.status].label)}</span>` : "";
+      row.innerHTML = `
+        <div style="font-weight:600;">${esc(v.color || v.sku)} — ${esc(v.productName)}${v.size ? ` (${esc(v.size)})` : ""}${urgency}</div>
+        <div style="color:var(--text-tertiary);">
+          Selling ${v.breakoutRatio != null ? `${v.breakoutRatio.toFixed(1)}×` : "well above"} the middle of its ${v.siblingCount} other colour${v.siblingCount === 1 ? "" : "s"}
+          · ${v.velocityPerDay.toFixed(2)}/day · ${v.unitsSold} sold${v.daysOfCover != null ? ` · ${v.daysOfCover.toFixed(1)} days of cover left` : ""}
+        </div>`;
+      breakoutSection.appendChild(row);
+    });
+  } else {
+    // Explain the silence. "Nothing stood out" and "nothing was comparable"
+    // look identical on screen and mean different things -- and only one of
+    // them is something the wholesaler can do anything about.
+    const comparable = signals.filter((sig) => sig.siblingCount >= cfg.breakoutMinSiblings).length;
+    const message = comparable
+      ? `No colour is currently outselling the others by ${cfg.breakoutMultiple}× or more.`
+      : `Nothing to compare yet. This alert looks across the colours of the same product in the same size, and needs at least ${cfg.breakoutMinSiblings} other colours to compare against. If you list each colour as its own product, add them as colour options on one product instead and this starts working.`;
+    breakoutSection.innerHTML += `<div style="font-size:12px;color:var(--text-tertiary);">${message}</div>`;
+  }
+  outlet.appendChild(breakoutSection);
+
+  // --- Tuning (Batch 1, L3) ---
+  // These are the knobs behind every number above. Collapsed by default: the
+  // screen has to be useful before it is configurable, or the wholesaler
+  // concludes it needs setting up and closes it. Nothing here is required --
+  // with no row saved at all, the defaults shown are exactly what the server
+  // uses.
+  const tuningSection = document.createElement("details");
+  tuningSection.className = "card";
+  tuningSection.style.cssText = "padding:16px;margin-bottom:16px;";
+  const summary = document.createElement("summary");
+  summary.style.cssText = "cursor:pointer;font-weight:650;font-size:14px;min-height:44px;display:flex;align-items:center;";
+  summary.textContent = settingsResult.isDefault
+    ? "Tune these numbers (currently using the starting settings)"
+    : "Tune these numbers (using your saved settings)";
+  tuningSection.appendChild(summary);
+
+  const tuningBody = document.createElement("div");
+  tuningBody.style.cssText = "margin-top:12px;display:grid;gap:14px;";
+  const intro = document.createElement("div");
+  intro.style.cssText = "font-size:11px;color:var(--text-tertiary);";
+  intro.textContent = "Every SKU already has a working reorder point without any of this. Changing a number here changes how the figures above are worked out, for every product at once.";
+  tuningBody.appendChild(intro);
+
+  const SETTING_LABELS = {
+    velocityWindowDays: "Sales history window (days)",
+    leadTimeDays: "Typical restock lead time (days)",
+    coverTargetDays: "Stock cover target (days)",
+    safetyDays: "Safety buffer (days)",
+    lowStockThreshold: "Flat low-stock threshold (units)",
+    breakoutMultiple: "Breakout multiple",
+    breakoutMinSiblings: "Breakout: minimum colours to compare",
+    breakoutMinUnits: "Breakout: minimum units sold",
+  };
+  const inputs = {};
+  Object.keys(SETTING_LABELS).forEach((key) => {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+    const label = document.createElement("label");
+    label.textContent = SETTING_LABELS[key];
+    label.style.cssText = "font-size:13px;font-weight:600;";
+    const help = document.createElement("div");
+    help.textContent = INVENTORY_SETTING_HELP[key];
+    help.style.cssText = "font-size:11px;color:var(--text-tertiary);";
+    const input = document.createElement("input");
+    input.className = "input";
+    input.type = "number";
+    input.step = key === "breakoutMultiple" ? "0.1" : "1";
+    input.min = String(INVENTORY_SETTING_BOUNDS[key][0]);
+    input.max = String(INVENTORY_SETTING_BOUNDS[key][1]);
+    input.value = String(cfg[key]);
+    input.style.minHeight = "44px";
+    const err = document.createElement("div");
+    err.style.cssText = "font-size:11px;color:var(--danger,#c33);display:none;";
+    input.addEventListener("input", () => {
+      const [lo, hi] = INVENTORY_SETTING_BOUNDS[key];
+      const n = Number(input.value);
+      const bad = input.value === "" || Number.isNaN(n) || n < lo || n > hi;
+      err.textContent = bad ? `Must be a number between ${lo} and ${hi}` : "";
+      err.style.display = bad ? "block" : "none";
+    });
+    inputs[key] = input;
+    wrap.append(label, help, input, err);
+    tuningBody.appendChild(wrap);
+  });
+
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;";
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "btn btn-primary";
+  saveBtn.textContent = "Save and recalculate";
+  saveBtn.style.minHeight = "44px";
+  saveBtn.addEventListener("click", async () => {
+    const partial = {};
+    for (const [key, input] of Object.entries(inputs)) {
+      const [lo, hi] = INVENTORY_SETTING_BOUNDS[key];
+      const n = Number(input.value);
+      if (input.value === "" || Number.isNaN(n) || n < lo || n > hi) {
+        toast(`${SETTING_LABELS[key]} must be between ${lo} and ${hi}`, { type: "danger" });
+        input.focus();
+        return;
+      }
+      partial[key] = n;
+    }
+    saveBtn.disabled = true;
+    const { error } = await saveInventorySettings(wid, partial);
+    if (error) {
+      toast("Could not save those settings", { type: "danger" });
+      saveBtn.disabled = false;
+      return;
+    }
+    // Re-render rather than patching numbers in place, so what is on screen
+    // is always what the server just computed -- never a local guess at what
+    // the change did.
+    toast("Settings saved — figures recalculated", { type: "success" });
+    outlet.innerHTML = "";
+    intelligenceView(outlet);
+  });
+  btnRow.appendChild(saveBtn);
+
+  if (!settingsResult.isDefault) {
+    const resetBtn = document.createElement("button");
+    resetBtn.className = "btn btn-secondary";
+    resetBtn.textContent = "Back to the starting settings";
+    resetBtn.style.minHeight = "44px";
+    resetBtn.addEventListener("click", async () => {
+      resetBtn.disabled = true;
+      const { error } = await resetInventorySettings(wid);
+      toast(error ? "Could not reset" : "Back to the starting settings", { type: error ? "danger" : "success" });
+      if (error) { resetBtn.disabled = false; return; }
+      outlet.innerHTML = "";
+      intelligenceView(outlet);
+    });
+    btnRow.appendChild(resetBtn);
+  }
+  tuningBody.appendChild(btnRow);
+  tuningSection.appendChild(tuningBody);
+  outlet.appendChild(tuningSection);
 
   // --- GMROI / aging / sell-through report ---
   const reportSection = document.createElement("div");
