@@ -62,7 +62,7 @@ export const cart = {
    * NEW ABSOLUTE quantity (not a delta) -- this is the in-place edit path.
    * Returns { ok:true } or { ok:false, reason, maxAvailable } so the UI can
    * show "only N left" instead of a generic failure. */
-  async setLineQty(wid, { variantId, productId, locationId, productName, color, colorHex, size, price }, qty, scopeSuffix) {
+  async setLineQty(wid, { variantId, productId, locationId, productName, color, colorHex, size, price, listPrice }, qty, scopeSuffix) {
     const scope = scopeOf(wid, scopeSuffix);
     const lines = readCart(scope);
     const existing = lines.find((l) => l.variantId === variantId);
@@ -102,6 +102,16 @@ export const cart = {
       // call sites that don't pass it just don't get a nudge on that line,
       // never a broken cart.
       variantId, productId: productId || null, locationId, productName, color, colorHex, size, price,
+      // Batch 5: the variant's LIST price, kept alongside the effective one.
+      //
+      // `price` is what this line was priced AT -- discount and quantity break
+      // already applied. Re-pricing the cart from it would apply them a second
+      // time. The cart screen re-fetches the real list prices, so this is only
+      // the fallback for when that fetch fails; without it the fallback would
+      // have to be `price`, and a failed lookup would quietly halve a
+      // discounted line. Optional, so a line written by an older build (which
+      // has no listPrice) still works.
+      listPrice: listPrice != null ? Number(listPrice) : null,
       qty, reservationId: reservation.id,
       expiresAt: reservation.expires_at,
     };
@@ -135,7 +145,7 @@ export const cart = {
    * each) and stores them as one pack line. If ANY component's stock
    * can't be reserved, every reservation made so far for this call is
    * released and the whole add fails -- never a partially-reserved pack. */
-  async addPack(wid, pack, packQty, locationId, scopeSuffix) {
+  async addPack(wid, pack, packQty, locationId, scopeSuffix, { productId = null } = {}) {
     const scope = scopeOf(wid, scopeSuffix);
     if (packQty <= 0) return { ok: false, reason: "invalid_qty" };
 
@@ -162,6 +172,20 @@ export const cart = {
     const newLine = {
       isPack: true, packLineId: crypto.randomUUID(), packId: pack.id,
       packName: pack.name, packColor: pack.color, price: pack.price, locationId,
+      // Batch 5: which product this pack belongs to.
+      //
+      // Without it a pack line was invisible to the quantity-break aggregate,
+      // because every aggregate in the app filtered on `variantId` and a pack
+      // line has `components` instead. A buyer ordering 120 pieces as ten
+      // packs was counted as ordering ZERO, so the break they had earned was
+      // never shown -- while v2_submit_order applied it anyway and invoiced
+      // them less than the cart they had approved.
+      //
+      // `productId` falls back to the pack's own product when the caller does
+      // not pass one, so this is correct even for the reorder path.
+      productId: productId || pack.productId || null,
+      // Pieces per pack, so a screen can say "x12" without walking components.
+      unitCount: pack.unitCount != null ? pack.unitCount : (pack.components || []).reduce((s2, c) => s2 + c.qtyPerPack, 0),
       packQty, components: reserved,
     };
     writeCart(scope, [...lines, newLine]);

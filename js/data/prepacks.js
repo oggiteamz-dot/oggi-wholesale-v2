@@ -8,6 +8,33 @@
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
 
+// ---------------------------------------------------------------------------
+// DECISION D4, taken 21 Aug 2026: a flat pack price is STORED, never CHARGED.
+// ---------------------------------------------------------------------------
+// v2_pack_definitions.pack_price has existed since Batch 7 and v2_submit_order
+// has never read it. The server prices every line -- pack lines included -- as
+// qty x v2_effective_unit_price(...), which is the negotiated price, else the
+// quantity break, else list, and then the catalog/customer discount. Verified
+// against the live function body on 21 Aug 2026 and pinned by
+// checks/check_line_pricing.sql, which sets pack_price to 50.00 on its fixture
+// and asserts the order still comes to 96.00.
+//
+// This module used to fold that number into `price`, so a wholesaler who set
+// a flat price produced a card showing one number and an invoice showing
+// another, with nothing anywhere to say which was real.
+//
+// Hadi, 20 Aug 2026: "we will not be pricing per pack or per ratio. The price
+// they will read in the thumbnail is going to be the per unit price."
+//
+// So: `price` is now ALWAYS the honest sum of the pieces at list. The stored
+// flat price is still returned, as `flatPackPrice`, because nothing is deleted
+// and a wholesaler's data is not ours to discard -- but it is a note about
+// intent, not a price, and no buyer-facing screen may render it as one. If it
+// is ever to become real, that is a change to v2_submit_order and to this
+// comment, made deliberately, not a field quietly starting to mean something.
+// ---------------------------------------------------------------------------
+
+
 export async function listPacksForProduct(productId) {
   const { data: packs } = await sbCall(
     supabase.from("v2_pack_definitions").select("*").eq("product_id", productId).eq("archived", false).order("created_at", { ascending: false })
@@ -34,7 +61,10 @@ export async function listPacksForProduct(productId) {
     const sumPrice = components.reduce((s, c) => s + c.qtyPerPack * c.price, 0);
     return {
       id: p.id, name: p.name, color: p.color, source: p.source,
-      price: p.pack_price != null ? Number(p.pack_price) : sumPrice,
+      productId: p.product_id,
+      // See D4 above: always the sum of the pieces, never the stored flat price.
+      price: sumPrice,
+      flatPackPrice: p.pack_price != null ? Number(p.pack_price) : null,
       isFlatPrice: p.pack_price != null,
       unitCount, components,
     };
@@ -73,7 +103,10 @@ export async function listPacksForProducts(productIds) {
     const list = byProduct.get(p.product_id) || [];
     list.push({
       id: p.id, name: p.name, color: p.color, source: p.source,
-      price: p.pack_price != null ? Number(p.pack_price) : sumPrice,
+      productId: p.product_id,
+      // See D4 above: always the sum of the pieces, never the stored flat price.
+      price: sumPrice,
+      flatPackPrice: p.pack_price != null ? Number(p.pack_price) : null,
       isFlatPrice: p.pack_price != null,
       unitCount, components,
     });
@@ -101,7 +134,11 @@ export async function getPackById(packId) {
   const sumPrice = comps.reduce((s, c) => s + c.qtyPerPack * c.price, 0);
   return {
     id: pack.id, name: pack.name, color: pack.color,
-    price: pack.pack_price != null ? Number(pack.pack_price) : sumPrice,
+    productId: pack.product_id,
+    // See D4 above: always the sum of the pieces, never the stored flat price.
+    price: sumPrice,
+    flatPackPrice: pack.pack_price != null ? Number(pack.pack_price) : null,
+    isFlatPrice: pack.pack_price != null,
     unitCount: comps.reduce((s, c) => s + c.qtyPerPack, 0),
     components: comps,
   };
