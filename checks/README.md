@@ -131,6 +131,54 @@ Renders real components in a real DOM with a hostile payload. Negative-tested
 against the old unescaped `pageHeader`, which reports "injected 1 <img>
 element(s)".
 
+## `check_line_pricing.mjs` + `.sql` — the cart total is the invoice total
+
+```bash
+node checks/check_line_pricing.mjs                 # the cart's arithmetic
+psql <conn> -f checks/check_line_pricing.sql       # the server's, rolled back
+```
+
+Two halves of one rule: **the unit price on screen, times the pieces, is what
+the buyer is charged.** The `.mjs` half runs eight worked examples through
+`js/data/line-pricing.js`; the `.sql` half submits the same orders through the
+real `v2_submit_order` inside a transaction it rolls back, and each file greps
+the other for the shared case ids so neither can be edited alone.
+
+Written against a live defect. The buyer app priced a PACK line by the pack's
+own price field — no negotiated price, no quantity break, no catalog discount —
+and counted its pieces as **zero** toward the aggregate that chooses the
+quantity break. The server has never done either. Proven against production on
+21 Aug 2026: the same 12-piece pack in a 25%-off catalog is charged **72.00**
+while the card displayed **96.00**. Negative-tested by restoring the old
+behaviour, which fails 28 of 46 assertions, and by asserting the wrong expected
+number in SQL, which fires.
+
+It also found migration 077's bug: `v2_submit_order` creates its working table
+`on commit drop`, so a **second** call in one transaction died with
+`relation "tmp_order_lines" already exists` — which is why the order path had
+never had an end-to-end test.
+
+## `check_buyer_product_card.mjs` — the card a customer actually shops from
+
+```bash
+node checks/check_buyer_product_card.mjs
+```
+
+Renders the real `renderProductCard()` in jsdom and asks what a buyer would
+see: a photo that follows the colour swatch, an honest placeholder when there
+is none, the *effective* per-piece price rather than the list price, the ×N
+multiplier, and a `+` that adds a whole base unit.
+
+This component had **no gate at all** — `check_product_cards_and_detail.mjs`
+covers the wholesaler's tile — which is how it went from Batch 2 to Batch 19
+rendering no `<img>` while `catalog.js` fetched the photos on every request and
+discarded them. A missing picture is not something a source-text check can
+find: there is no wrong line, only an absent one.
+
+Negative-tested against the pre-Batch-5 card: **27 of 44 assertions fail**, and
+the 17 that pass are the features that genuinely were already there — which is
+the point of reading a negative test rather than just its exit code.
+
 ## Still to build
 
 The ⚠️ rows in `FEATURE-MANIFEST.md` are the backlog, in rough priority order:
