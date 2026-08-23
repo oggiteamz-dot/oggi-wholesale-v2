@@ -83,8 +83,16 @@ ok(!!body && !/panelHost\.appendChild\s*\(/.test(body),
    "the panel is NOT appended into panelHost — that div sits after the entire product grid, which is what put it 1608px down the page");
 
 // -- 2. it is attached to the document, not to the scrolling page content ----
-ok(!!body && /document\.body\.appendChild\s*\(/.test(body),
-   "the panel is attached to document.body, so its position cannot depend on how tall the grid above it is");
+// UPDATED Batch 8A. The append moved into js/lib/modal-stack.js, so asserting
+// on this function's own source would now read "missing" for a property that
+// is still true. Weakening the assertion would be the wrong repair: it is
+// checked in TWO steps instead, so the chain is complete and neither half can
+// quietly stop being true.
+ok(!!body && /openModal\s*\(/.test(body),
+   "the panel is mounted through the modal stack rather than by hand");
+const stackSrc = readFileSync(new URL("../js/lib/modal-stack.js", import.meta.url), "utf8");
+ok(/document\.body\.appendChild\s*\(/.test(stackSrc),
+   "…and the modal stack attaches to document.body, so the panel's position cannot depend on how tall the grid above it is");
 
 // -- 3. it does not depend on a scroll call landing correctly ----------------
 ok(!!body && !/scrollIntoView/.test(body),
@@ -118,9 +126,14 @@ ok(/@media\s*\(max-width:\s*720px\)[\s\S]{0,600}\.pdrawer\s*\{/.test(css),
 // A drawer on document.body is NOT removed when the view underneath repaints.
 // That is precisely the orphaned product-edit dialog found sitting over the
 // dashboard on 23 Aug, and the fix for one bug must not install the other.
-ok(!!body && /v2:navigated/.test(body),
-   "the drawer closes on navigation — it lives on document.body, so a repaint underneath would otherwise leave it floating over an unrelated screen");
-ok(!!body && /Escape/.test(body),
+// UPDATED Batch 8A, same two-step reasoning as assertion 2. Closing on
+// navigation used to be four lines inside this function; it is now a property
+// of the stack, which means the three OTHER dialogs that never had it now do.
+// The behavioural proof — open two, navigate, assert the DOM is empty — lives
+// in checks/check_route_state.mjs.
+ok(/v2:navigated/.test(stackSrc),
+   "the drawer closes on navigation — every dialog lives on document.body, so a repaint underneath would otherwise leave it floating over an unrelated screen");
+ok(/Escape/.test(stackSrc),
    "Escape closes the drawer");
 
 // -- 7. the dead end behind it is gone --------------------------------------
