@@ -2098,3 +2098,41 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 @media (prefers-reduced-motion: reduce) {
   .pdrawer, .pdrawer-backdrop { animation: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   "How it sells" -> what you have to do about it   — Batch 8D, 23 Aug 2026
+   ---------------------------------------------------------------------------
+   Sits at the foot of the product form, under Supplier and above Save.
+
+   Hadi: "create a button at the end of the product creation page. So if I
+   pick ratio, then at the end, it automatically generates a button that says
+   set ratios."
+
+   The warning inside it is the load-bearing part, not the button. A ratio or
+   prepack product with no pack is refused BOTH ways at checkout -- loose
+   orders are rejected by v2_enforce_selling_model and there is no pack to
+   choose instead. Two of Hadi's own products were in that state for days.
+--------------------------------------------------------------------------- */
+.pf-selling-setup {
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+}
+.pf-selling-setup .pf-section-head { margin-top: 0; }
+.pf-selling-setup .btn { margin-top: var(--space-2); }
+
+/* Amber, not red. Nothing is broken yet -- this is the consequence of a
+   choice that has just been made, and red would read as an error in a form
+   the person has filled in correctly. */
+.pf-setup-warn {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--warning-500);
+  background: var(--warning-50);
+  color: var(--warning-700);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
