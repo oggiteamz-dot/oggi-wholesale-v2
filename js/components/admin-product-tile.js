@@ -78,8 +78,12 @@ export function renderProductTile({ id, name, images = [], facts = [], badges = 
   if (badges.length) {
     const badgeRow = document.createElement("div");
     badgeRow.className = "pcard-badges";
+    // `title` added 23 Aug 2026 (Batch 8, C4). A selling-model badge that
+    // says "Ratio" tells you what it is; the hover says what it does to the
+    // buyer, which is the part that actually changes how an order must be
+    // placed. Optional, so every existing badge renders exactly as before.
     badgeRow.innerHTML = badges
-      .map((b) => `<span class="badge ${esc(b.kind || "badge-neutral")}">${esc(b.text)}</span>`)
+      .map((b) => `<span class="badge ${esc(b.kind || "badge-neutral")}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.text)}</span>`)
       .join("");
     body.appendChild(badgeRow);
   }

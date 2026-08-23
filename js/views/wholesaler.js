@@ -29,6 +29,7 @@ import { updateCatalogSettings, addProductsToCatalog, DISCOUNT_MODES,
          listCatalogs, getCatalogProducts, createCatalog, getDefaultCatalog,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
 import { createProduct, getProductForEdit, getProductDetail, updateProduct } from "../data/products-admin.js";
+import { sellingModelBadge } from "../lib/selling-model.js";
 import { renderProductForm } from "../components/product-form.js";
 import { renderProductTile, productGrid } from "../components/admin-product-tile.js";
 import { renderProductDetail } from "../components/product-detail.js";
@@ -349,17 +350,72 @@ async function ordersView(outlet) {
 // fixed -- the same duplicate-helper failure this repo keeps a table of.
 // The only thing that differs between callers is where the panel lands,
 // so that is the only thing passed in.
+// CHANGED 23 Aug 2026 (Batch 8, C1/C2). It used to append the panel into
+// `panelHost` -- a div that sits AFTER the entire product grid -- and then
+// call card.scrollIntoView({ block: "nearest" }) to bring it into view.
+//
+// Measured on Hadi's live catalog before the change:
+//
+//     panel top   1608px
+//     viewport     911px
+//     page scrolled  0px
+//
+// The scroll call resolved against a scrolling container that was not the
+// one actually scrolling, so it silently did nothing. Clicking "Packs &
+// ratios" moved nothing on screen and produced no error. Hadi's report was
+// "I can't see how to use the different ratio in the pre-pack" -- the
+// feature was there and had been unreachable since the day it shipped.
+//
+// The fix is not a better scrollIntoView. A panel whose visibility depends
+// on a scroll call landing correctly is a panel that will break again the
+// next time anything about the page's scroll structure changes. This is now
+// a DRAWER: fixed to the viewport, so where it appears cannot depend on how
+// long the grid above it is, how far down the page you are, or which
+// element owns the scrollbar. There is no measurement left to get wrong.
+//
+// `panelHost` is still accepted and still identifies the owner, so both
+// callers (Products pane, Catalogs) are unchanged.
+let openDrawer = null;
+
+function closeProductPanel() {
+  if (!openDrawer) return;
+  document.removeEventListener("keydown", openDrawer.onKey);
+  document.removeEventListener("v2:navigated", openDrawer.onNav);
+  openDrawer.root.remove();
+  document.body.style.overflow = openDrawer.prevOverflow;
+  if (openDrawer.returnFocus && document.contains(openDrawer.returnFocus)) {
+    openDrawer.returnFocus.focus();
+  }
+  openDrawer = null;
+}
+
 function openProductPanel(panelHost, title, product, painter) {
-  panelHost.innerHTML = "";
+  // Only one drawer at a time, and a second click replaces the first rather
+  // than stacking two fixed elements on top of each other.
+  closeProductPanel();
+  const returnFocus = document.activeElement;
+
+  const root = document.createElement("div");
+  root.className = "pdrawer-root";
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "pdrawer-backdrop";
+  backdrop.addEventListener("click", closeProductPanel);
+  root.appendChild(backdrop);
+
   const card = document.createElement("div");
-  card.className = "card pdet";
+  card.className = "pdrawer card pdet";
+  card.setAttribute("role", "dialog");
+  card.setAttribute("aria-modal", "true");
+  card.setAttribute("aria-label", `${product.name} — ${title}`);
+
   const head = document.createElement("div");
-  head.className = "pdet-head";
+  head.className = "pdet-head pdrawer-head";
   head.innerHTML = `<div><h4>${esc(product.name)}</h4><p>${esc(title)}</p></div>`;
   const closeBtn = document.createElement("button");
   closeBtn.className = "btn btn-ghost btn-sm";
   closeBtn.textContent = "Close";
-  closeBtn.addEventListener("click", () => { panelHost.innerHTML = ""; });
+  closeBtn.addEventListener("click", closeProductPanel);
   const headActions = document.createElement("div");
   headActions.className = "pdet-head-actions";
   headActions.appendChild(closeBtn);
@@ -367,10 +423,26 @@ function openProductPanel(panelHost, title, product, painter) {
   card.appendChild(head);
 
   const body = document.createElement("div");
+  body.className = "pdrawer-body";
   body.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);">Loading…</div>`;
   card.appendChild(body);
-  panelHost.appendChild(card);
-  card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  root.appendChild(card);
+  document.body.appendChild(root);
+
+  const prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+
+  const onKey = (ev) => { if (ev.key === "Escape") closeProductPanel(); };
+  // A drawer lives on document.body, so a re-render of the view underneath
+  // it does NOT remove it -- it would be left floating over an unrelated
+  // screen. That is precisely the orphaned-dialog bug found on 23 Aug, and
+  // it is not going to be reintroduced by the fix for it.
+  const onNav = () => closeProductPanel();
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("v2:navigated", onNav);
+
+  openDrawer = { root, onKey, onNav, prevOverflow, returnFocus };
+  closeBtn.focus();
   painter(body);
 }
 
@@ -426,6 +498,11 @@ async function productsPane(outlet) {
   products.forEach((p) => {
     const badges = [];
     if (p.archived) badges.push({ text: "Archived", kind: "badge-neutral" });
+    // Batch 8, C4. Enforced by the server since migrations 029/030 and never
+    // once said on screen. Null for open stock -- see js/lib/selling-model.js
+    // for why the default deliberately does not get a badge.
+    const smA = sellingModelBadge(p.selling_model);
+    if (smA) badges.push(smA);
 
     grid.appendChild(renderProductTile({
       id: p.id,
@@ -712,10 +789,56 @@ async function renderRatioSection(host, wid, product, reload) {
   host.appendChild(sub);
 
   if (!sizes.length || !colors.length) {
+    // CHANGED 23 Aug 2026 (Batch 8, C3). This used to be the end of the road:
+    // a red sentence saying "Add variants first" and nothing to press. It is
+    // the same shape of mistake as the "N on hand" box that accepted a number
+    // and dropped it -- the screen states a rule and then refuses to say
+    // where the rule is satisfied. A product created straight into a catalog
+    // has no variants yet, which is exactly when someone opens this panel, so
+    // the dead end was on the most likely path rather than an edge case.
+    //
+    // Same rule, no dead end: colours and sizes are still added in the
+    // product editor (one editor, not a second half-copy of it that drifts),
+    // but you get there from here, and you come back to this panel with the
+    // ratio builder already populated.
     const warn = document.createElement("div");
-    warn.style.cssText = "font-size:12px;color:var(--danger,#b42318);margin-bottom:12px;";
-    warn.textContent = "This product has no colours or sizes yet, so there is nothing to build a ratio over. Add variants first.";
+    warn.style.cssText = "font-size:12px;color:var(--text-secondary);margin-bottom:10px;";
+    warn.textContent = sizes.length
+      ? "This product has sizes but no colours yet. A ratio is a size curve applied across colours, so it needs both."
+      : "A ratio is a size curve — how many of each size go in one pack. This product has no colours or sizes yet, so there is nothing to write the curve over.";
     host.appendChild(warn);
+
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "btn btn-primary btn-sm";
+    add.textContent = "Add colours & sizes";
+    add.style.marginBottom = "12px";
+    add.addEventListener("click", () => {
+      // The drawer closes first. Leaving it open behind the editor is how
+      // the orphaned-dialog bug of 23 Aug happened, and the editor is itself
+      // a modal -- two stacked modals is not a state worth supporting.
+      closeProductPanel();
+      openProductEditor(product.id, async () => {
+        // Come BACK to the ratio builder, with the variants that were just
+        // added. Dropping the person on the product list after they went to
+        // add sizes *in order to write a ratio* makes them find their way
+        // here a second time, which is the same dead end wearing a hat.
+        //
+        // Refetched rather than patched from the editor's draft: the editor
+        // is allowed to reject or alter what it was given, and a ratio built
+        // over sizes the database did not actually accept would be wrong in
+        // a way nothing downstream would catch.
+        const fresh = await getProductForEdit(product.id);
+        const next = fresh.ok ? { ...fresh.product, variants: fresh.variants } : product;
+        // NOTE: deliberately not calling `reload` here. It closes over the
+        // drawer body that has just been removed from the document, so it
+        // would paint into a detached node -- no error, no effect, and a
+        // confusing thing to find later.
+        openProductPanel(null, "Prepacks and ratios", next,
+                         (body) => renderPacksPanel(body, wid, next));
+      });
+    });
+    host.appendChild(add);
     return;
   }
 
@@ -3272,6 +3395,12 @@ async function catalogsView(outlet) {
     products.forEach((p) => {
       const badges = [];
       if (p.archived) badges.push({ text: "Archived", kind: "badge-neutral" });
+      // Batch 8, C4. The catalog is where you decide how a thing is sold, so
+      // it is the screen that most needs to show it. NOTE the field is
+      // camelCase here and snake_case in the Products pane -- two different
+      // queries, one shared badge helper, which is the point of the helper.
+      const smB = sellingModelBadge(p.sellingModel);
+      if (smB) badges.push(smB);
 
       // Stock state, migration 062. THREE states, not two: a catalog-only
       // product is never "out of stock" -- it is not stock-controlled at
