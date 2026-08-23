@@ -2023,7 +2023,14 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
                 0 0 30px 4px rgba(10, 125, 90, .58);
   }
 }
-}
+/* A stray `}` stood on this line. It had been harmless only because nothing
+   followed it -- it was the last thing in the file. The moment Batch 8C
+   appended the drawer rules, CSS error recovery consumed the FIRST rule after
+   it, which was `.pdrawer-root { position: fixed; inset: 0 }`. Everything from
+   `.pdrawer-backdrop` onward parsed fine, so the drawer rendered -- unpinned
+   from the viewport, in normal document flow, exactly as Hadi photographed it
+   on 23 Aug. One character, one rule eaten, and no error anywhere.
+   checks/check_css_parses.mjs now fails on any unbalanced brace. */
 
 /* ---------------------------------------------------------------------------
    Product drawer — Batch 8, 23 Aug 2026 (C1/C2)
