@@ -35,6 +35,7 @@
 //   node checks/check_selling_model_setup.mjs
 // =============================================================================
 import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
 
 const dom = new JSDOM("<!doctype html><html><body><div id='app-root'></div></body></html>",
                       { url: "https://check.local/" });
@@ -46,6 +47,12 @@ globalThis.localStorage = dom.window.localStorage;
 dom.window.supabase = { createClient: () => ({ from: () => ({}), rpc: () => ({}) }) };
 if (!dom.window.URL.createObjectURL) dom.window.URL.createObjectURL = () => "blob:x";
 globalThis.URL = dom.window.URL;
+// jsdom does not implement scrollIntoView -- it does not lay out, so there is
+// nothing to scroll. Every browser has it. Polyfilled as a no-op so the
+// post-save path can be exercised here; without this the gate dies with
+// "scrollIntoView is not a function" and reports nothing, which is the trap
+// this file already carries a note about.
+dom.window.HTMLElement.prototype.scrollIntoView = function () {};
 
 const pass = [], fail = [];
 const ok = (c, m) => (c ? pass : fail).push(m);
@@ -124,22 +131,71 @@ if (renderProductForm) {
        "…and it says so, rather than leaving someone hunting for a setup step that does not exist");
   }
 
-  // ------------------- 5. create mode: honest about ordering ---------------
+  // ------- 5. create mode: the button WORKS, it does not refuse ------------
+  // CHANGED 23 Aug 2026 (Batch 8E). This block used to assert the opposite --
+  // that the button is `disabled` on a new product. That assertion was green,
+  // and it was guarding the bug:
+  //
+  //   Hadi: "the button to set a ratio is broken and doesn't allow me to do
+  //   anything. Like, it's faded out, and whenever I hover over it, it gives
+  //   me the stop sign."
+  //
+  // A gate can be perfectly correct about behaviour that should never have
+  // shipped. Worth recording, because the temptation on seeing it go red was
+  // to "fix the test" -- when the test was the thing describing the defect.
   {
+    // Null-safe on purpose. Run against a form with no section at all this
+    // file used to die here with "Cannot read properties of null", reporting
+    // NONE of its other findings.
     const { host, setModel, opened } = build();
     setModel("ratio");
-    // Null-safe on purpose. Run against the pre-Batch-8D form this file used
-    // to die here with "Cannot read properties of null", reporting NONE of its
-    // other findings -- the same "a gate that only throws tells you nothing"
-    // trap check_inventory_panes.mjs and the Batch 5 card gate both hit.
     const btn = host()?.querySelector("#pb-open-selling-setup") || null;
-    ok(btn?.disabled === true,
-       "on a NEW product the button is disabled — a ratio has to belong to a product row, and there is not one yet");
-    ok(/create the product first/i.test(btn?.title || "") ||
-       /create the product first/i.test(host()?.textContent || ""),
-       "…and says why, instead of being a live-looking button that does nothing when pressed");
-    btn?.click();
-    ok(opened.length === 0, "pressing it while disabled does nothing rather than calling back with a null id");
+    ok(btn?.disabled === false,
+       "on a NEW product the button is NOT disabled — a greyed button with a no-entry cursor reads as broken, whatever the caption underneath says");
+    ok(/saves the product first/i.test(host()?.textContent || ""),
+       "…and it says what pressing it will do: save the product, then open the builder");
+    ok(!/create the product first/i.test(host()?.textContent || ""),
+       "…and no longer tells the person to go and do the step themselves");
+  }
+
+  // ------- 5b. pressing it on a new product ATTEMPTS the save --------------
+  // Not asserted by faking a successful save: validate() legitimately requires
+  // a name, a named colour and at least one size, and a gate that drove all of
+  // that through the DOM would be testing the colour grid, not this button.
+  //
+  // What is asserted is the thing that actually changed. BEFORE the fix the
+  // handler opened with
+  //
+  //     if (!savedProductId) return;
+  //
+  // so a click on a new product did NOTHING -- no save, no validation, no
+  // message, which is exactly why it read as broken. Now the click reaches
+  // doSave(), and doSave() runs validate(), and validate() puts a reason on
+  // screen. A visible validation error is therefore proof the click got
+  // through, and its absence is proof it did not.
+  {
+    const { el, host, setModel } = build();
+    setModel("ratio");
+    const before = [...el.querySelectorAll(".pf-error")].filter((n) => !n.hidden).length;
+    host()?.querySelector("#pb-open-selling-setup")?.click();
+    await new Promise((r) => setTimeout(r, 60));
+    const after = [...el.querySelectorAll(".pf-error")].filter((n) => !n.hidden).length;
+    ok(after > before,
+       "pressing it on an empty new product runs the real save path and says what is missing — before this fix the click returned immediately and nothing happened at all");
+  }
+
+  // The ordering matters: save FIRST, then open, and open with the id the save
+  // returned rather than the stale one the closure captured.
+  {
+    const src = readFileSync(new URL("../js/components/product-form.js", import.meta.url), "utf8");
+    const i = src.indexOf('btn.id = "pb-open-selling-setup"');
+    const handler = i >= 0 ? src.slice(i, i + 1800) : "";
+    ok(/const res = await doSave\(\);/.test(handler),
+       "the button awaits the same doSave() the Save button uses — one save path, not a second half-copy of it");
+    ok(/if \(res\?\.ok && res\.productId\) onOpenSellingSetup\(res\.productId, model\)/.test(handler),
+       "…and opens the builder only if that save actually succeeded, using the id it returned");
+    ok(!/if \(!savedProductId\) return;/.test(handler),
+       "…and no longer returns silently when there is no product yet, which is what made it look broken");
   }
 
   // ------------------- 6. edit mode: live immediately ----------------------
@@ -159,7 +215,6 @@ if (renderProductForm) {
 }
 
 // ---------------------------------------------------- 7. the wiring holds --
-import { readFileSync } from "node:fs";
 const view = readFileSync(new URL("../js/views/wholesaler.js", import.meta.url), "utf8");
 ok(/async function openSellingSetup\(/.test(view),
    "the view exposes one opener for the builder, rather than three copies of the same closure");
@@ -167,6 +222,38 @@ ok((view.match(/onOpenSellingSetup:/g) || []).length === 3,
    "all THREE product-form call sites pass it — Stock pane, Catalogs, and the editor; one missed site is one screen where the button is dead");
 ok(/id: loaded\.product\.id/.test(view),
    "the editor hands the product id to the form, without which edit mode could never enable the button");
+
+// ---------------- 8. every pane that lists products can make one ----------
+// Batch 8E. Hadi: "I can't create a product anymore in the products tab."
+// True since Batch 6 folded the standalone Products screen into Inventory:
+// the create button lived only on the STOCK pane. The tab actually named
+// "Products" had none -- and with zero products it returned early on an empty
+// state, so the one moment you most need to create one was the one moment
+// nothing offered to.
+ok(/function mountNewProductBar\(/.test(view),
+   'there is ONE "+ New product" bar, shared — two inline copies of a form this size is how one of them quietly stops passing onOpenSellingSetup');
+// Lookbehind excludes the FUNCTION DECLARATION, which also reads
+// "mountNewProductBar(outlet". Without it this assertion counted the
+// definition as a call site and stayed green with only ONE pane wired --
+// caught while proving this very gate red, and precisely the kind of false
+// green that let two of this batch's bugs ship.
+ok((view.match(/(?<!function )mountNewProductBar\(outlet/g) || []).length >= 2,
+   "…mounted by BOTH the Stock pane and the Products pane, counting real call sites and not the declaration");
+
+const prodPane = (() => {
+  const i = view.indexOf("async function productsPane(");
+  if (i < 0) return "";
+  let j = view.indexOf("{", i), d = 0;
+  for (let k = j; k < view.length; k++) {
+    if (view[k] === "{") d++;
+    else if (view[k] === "}") { d--; if (d === 0) return view.slice(i, k + 1); }
+  }
+  return "";
+})();
+ok(/mountNewProductBar\(outlet/.test(prodPane),
+   "the Products pane mounts it — anchored to that function's byte range, so a match elsewhere in a 200KB file cannot pass this");
+ok(prodPane.indexOf("mountNewProductBar(outlet") < prodPane.indexOf("if (!products.length)"),
+   "…BEFORE the empty-state return, because no products at all is exactly when you need to add one");
 
 // The Stock pane used to repaint itself on save, destroying the form and the
 // button that had just appeared on it.
