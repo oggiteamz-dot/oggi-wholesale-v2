@@ -65,6 +65,8 @@
 // =============================================================================
 
 import { esc } from "../lib/utils.js";
+import { toast } from "./toast.js";
+import { openModal, closeModal } from "../lib/modal-stack.js";
 import { renderScanBar } from "./scan-bar.js";
 import { uniqueNameForHex } from "../lib/colour-names.js";
 
@@ -123,6 +125,23 @@ export function renderProductForm({
   // this component must not reach into a view, and the ratio/prepack builder
   // lives in js/views/wholesaler.js. Signature: (productId, model) => void.
   onOpenSellingSetup = null,
+  // Batch 8A, 23 Aug 2026. The "N on hand" figure on an existing product used
+  // to be a button that changed the page route straight to Inventory. It was
+  // added in good faith -- the form said "you cannot change stock here" and
+  // gave nowhere to go, so someone gave it somewhere to go.
+  //
+  // But this form is a DIALOG. Navigating from inside a dialog changes the
+  // route out from under it and leaves it hanging over whatever loads next,
+  // because it lives on document.body and not in the view. That is exactly
+  // the orphaned edit form found sitting over the dashboard on the morning of
+  // 23 Aug: a fix for one dead end that opened a trapdoor.
+  //
+  // The rule it was enforcing is still right -- stock only moves through
+  // receive/adjust/transfer so every change is dated and explained. So the
+  // answer is not to navigate but to open the receive dialog OVER this one.
+  // The host supplies it, for the same reason it supplies onOpenSellingSetup:
+  // a component must not reach into a view. Signature: (variant) => void.
+  onOpenStock = null,
   onSubmit = async () => ({ ok: true }), onCancel = () => {},
 } = {}) {
   const isEdit = !!initial;
@@ -514,20 +533,17 @@ export function renderProductForm({
     canvas.addEventListener("pointermove", preview);
     canvas.addEventListener("pointerdown", (ev) => { ev.preventDefault(); preview(ev); commit(ev); });
 
-    function close() {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-      overlay.remove();
-      paintPhotos(); paintColours(); paintGrid();
-    }
-    function onKey(ev) { if (ev.key === "Escape") close(); }
+    // Batch 8A. Escape and the scroll lock come from the modal stack now.
+    // The repaint that used to live at the end of close() is the onClose
+    // hook, so it runs however this closes -- including when a route change
+    // closes it, which previously left the form showing stale swatches.
+    const close = () => closeModal(overlay);
 
     overlay.querySelector("[data-done]").addEventListener("click", close);
-    document.addEventListener("keydown", onKey);
-
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";   // the page must not scroll under the picker
-    document.body.appendChild(overlay);
+    openModal(overlay, {
+      label: "Pick a colour from the photo",
+      onClose: () => { paintPhotos(); paintColours(); paintGrid(); },
+    });
     drawPhoto(); paintStrip(); paintPicked();
     return overlay;
   }
@@ -1228,15 +1244,32 @@ export function renderProductForm({
           held.className = "pb-cell-onhand";
           const n = c.cells[size]?.qty ?? 0;
           held.textContent = `${n} on hand`;
-          held.title = "Stock changes through Receive & transfer so every movement is dated and explained. Tap to go there.";
+          held.title = onOpenStock
+            ? "Stock changes through Receive & transfer so every movement is dated and explained. Tap to receive stock into this size without leaving this form."
+            : "Stock changes through Receive & transfer so every movement is dated and explained. Close this form and open Inventory to change it.";
           held.style.cssText = "background:none;border:0;padding:2px 4px;font:inherit;color:inherit;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;";
           held.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            // Hash routing (js/app.js), so this is a normal in-app move and
-            // not a page load -- nothing typed elsewhere in the form is lost
-            // to a reload, because the form is a modal over the same page.
-            location.hash = "#/wholesaler/inventory";
+            // NEVER navigate from inside this form. See onOpenStock above.
+            //
+            // The host opens the receive dialog on top of this one -- the modal
+            // stack handles two dialogs deep, so the form is still underneath,
+            // still holding everything typed into it, when the receipt is done.
+            if (onOpenStock) {
+              onOpenStock({
+                colourName: c.name,
+                hex: c.hex,
+                size,
+                sku: c.cells[size]?.sku || "",
+                onHand: n,
+              });
+              return;
+            }
+            // No host handler (an older caller). Explain rather than move --
+            // an unhandled click is annoying, a silent navigation that
+            // strands this dialog is a bug.
+            toast("Stock is changed in Inventory → Stock, so every movement is dated and explained. Close this form to go there.", { type: "info" });
           });
           cell.appendChild(held);
         } else {
