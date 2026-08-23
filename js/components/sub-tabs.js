@@ -32,7 +32,7 @@ import { router } from "../lib/router.js";
  * @param {string}  opts.active   key of the tab to show
  * @returns {{ el: HTMLElement, paint: Function }}
  */
-export function renderSubTabs({ tabs, active }) {
+export function renderSubTabs({ tabs, active, params = {} }) {
   const wrap = document.createElement("div");
   wrap.className = "sub-tabs-wrap";
 
@@ -65,8 +65,39 @@ export function renderSubTabs({ tabs, active }) {
 
   async function paint() {
     host.innerHTML = "";
-    await current.render(host);
+    // params are the ROUTE's params (a product id, say). Passed through rather
+    // than closed over, so a pane that wants them gets them and one that does
+    // not can keep its one-argument signature.
+    await current.render(host, params);
   }
 
-  return { el: wrap, paint, activeKey: current.key };
+  // ---- the phone problem, Batch 8B ---------------------------------------
+  //
+  // Three tabs fitted. NINE do not: roughly 900px of labels on a 360px screen,
+  // which is the narrow end of the phones actually in use. The strip has always
+  // scrolled sideways, but two things were missing and both are the difference
+  // between "organised" and "hidden":
+  //
+  //   1. Nothing said it scrolled. A row that ends flush at the screen edge
+  //      looks finished. The ::after fade in css/brand.css says otherwise.
+  //   2. The ACTIVE tab could be off-screen. Land on /wholesaler/intelligence
+  //      -- the ninth tab -- and the ninth pane paints while the strip still
+  //      shows tabs one to four, none of them selected. The reader sees a
+  //      screen with no indication of where they are.
+  //
+  // scrollIntoView with `inline: "center"` rather than a scrollLeft assignment:
+  // the offsets are not known until layout, and reading them here forces one.
+  function revealActive() {
+    const el = bar.querySelector(".sub-tab-active");
+    if (!el || typeof el.scrollIntoView !== "function") return;
+    // `block: "nearest"` so bringing a tab into view horizontally never scrolls
+    // the PAGE vertically -- which would jump the reader away from the content
+    // they just navigated to.
+    el.scrollIntoView({ inline: "center", block: "nearest" });
+  }
+  // After the element is in the document and has been laid out. Called by the
+  // caller's append order in practice, so a microtask is enough.
+  queueMicrotask(revealActive);
+
+  return { el: wrap, paint, activeKey: current.key, revealActive };
 }
