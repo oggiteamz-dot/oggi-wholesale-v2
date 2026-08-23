@@ -155,12 +155,12 @@ echo "   shape=$shape"
 # `shape` is the sharper half: an md5 over every table, view and function
 # SIGNATURE in the schema. A substitution that happens to preserve the counts
 # still moves it.
-EXP_T=89 EXP_V=4 EXP_F=91 EXP_P=89
-EXP_SHAPE=cda9046cd410a2b39eb57ea7923b623d   # production, 21 Aug 2026
+EXP_T=89 EXP_V=4 EXP_F=94 EXP_P=89
+EXP_SHAPE=7378e64d507190e6890803032ce52fbf   # production, 23 Aug 2026 (migration 079 added three functions)
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
-  echo "   MATCHES the 21 Aug 2026 production baseline exactly, shape included."
+  echo "   MATCHES the 23 Aug 2026 production baseline exactly, shape included."
 else
-  echo "   !! differs from the 21 Aug 2026 production baseline"
+  echo "   !! differs from the 23 Aug 2026 production baseline"
   echo "      expected tables=$EXP_T views=$EXP_V functions=$EXP_F policies=$EXP_P"
   echo "      Either a migration was applied to production without a file (check"
   echo "      supabase_migrations.schema_migrations against supabase/migrations/),"
