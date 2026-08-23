@@ -346,23 +346,38 @@ body {
   position: relative;
 }
 
-@media (max-width: 880px) {
-  .sub-tabs-wrap::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 28px;
-    /* The strip's own height, not the pane's — the fade belongs to the tabs. */
-    height: 44px;
-    pointer-events: none;   /* never eats a tap meant for the tab underneath */
-    background: linear-gradient(to right, transparent, var(--bg-page));
-  }
+.sub-tabs-wrap::before,
+.sub-tabs-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 28px;
+  /* The strip's own height, not the pane's — the fade belongs to the tabs. */
+  height: 44px;
+  pointer-events: none;   /* never eats a tap meant for the tab underneath */
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+.sub-tabs-wrap::before {
+  left: 0;
+  background: linear-gradient(to left, transparent, var(--bg-page));
+}
+.sub-tabs-wrap::after {
+  right: 0;
+  background: linear-gradient(to right, transparent, var(--bg-page));
+}
+/* Toggled by js/components/sub-tabs.js, so a fade only ever appears when there
+   really is something in that direction. */
+.sub-tabs-wrap.has-more-left::before  { opacity: 1; }
+.sub-tabs-wrap.has-more-right::after  { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sub-tabs-wrap::before, .sub-tabs-wrap::after { transition: none; }
 }
 
 @media print {
   /* On paper there is no "other tab", so a row of them is just noise above
      the thing being printed. */
   .sub-tabs { display: none; }
-  .sub-tabs-wrap::after { display: none; }
+  .sub-tabs-wrap::before, .sub-tabs-wrap::after { display: none; }
 }
