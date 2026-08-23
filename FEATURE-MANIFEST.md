@@ -160,6 +160,9 @@ broke · ❌ not built
 | 73 | **A route change closes every open dialog** — one modal stack, so no dialog can be orphaned over an unrelated screen, and none of the next ones written has to remember | `js/lib/modal-stack.js` + 6 call sites | `check_route_state.mjs` — opens two dialogs, navigates, asserts the DOM is empty and both scroll locks released | ✅ |
 | 74 | **No native browser dialogs** — every question is asked in the app, so it can be styled, used on a phone, and tested | `js/components/ask.js`, `js/components/receive-dialog.js` | `check_no_undeclared_identifiers.mjs` — `prompt`/`confirm`/`alert` are banned globals | ✅ |
 | 75 | **Nothing is used that was never declared** — a name used without an import is a ReferenceError that only fires when someone clicks the thing | `js/**` | `check_no_undeclared_identifiers.mjs` — real parse, real scope walk, 97 files | ✅ |
+| 76 | **Inventory is one module** — nav 15 → 9; Movements, Labels, Locations, Suppliers, Scan and Insights are sub-tabs, not separate places | `js/lib/nav-config.js`, `js/views/wholesaler.js` | `check_inventory_module.mjs` (32) | ✅ |
+| 77 | **Every retired route still resolves** — the six absorbed screens keep their ORIGINAL paths, so bookmarks and cached PWA navigation work by construction rather than through a redirect layer | `js/views/wholesaler.js` | `check_inventory_module.mjs` — asked of the real router | ✅ |
+| 78 | **Nine tabs survive a phone** — the strip scrolls, says it scrolls, and scrolls the active tab into view | `css/brand.css`, `js/components/sub-tabs.js` | `check_inventory_module.mjs` — asserts the fade and the reveal | ⚠️ |
 
 ---
 
@@ -167,9 +170,9 @@ broke · ❌ not built
 
 | | |
 |---|---|
-| Features listed | **75** |
-| Enforced and proven (✅) | **67** |
-| Present but unproven (⚠️) | **8** |
+| Features listed | **78** |
+| Enforced and proven (✅) | **69** |
+| Present but unproven (⚠️) | **9** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
 
@@ -185,6 +188,13 @@ paths of imports that exist, and this was an import that did not. At runtime
 the catalog tab would have thrown ReferenceError and done nothing — the exact
 symptom the batch was fixing. Row 75 is the gate written for it, red-proven by
 deleting the import and watching it name both lines.
+
+Batch 8B added rows 76–78. Row 78 is marked ⚠️ **deliberately**: the gate can
+assert that the fade rule exists and that the reveal is called, and it cannot
+assert that nine tabs are usable with a thumb. That is a judgement only a
+person holding the phone can make, and it is Hadi's to make before this is
+called finished. A green gate on row 78 means the mechanism is present, not
+that the design works.
 
 Batch 8 (23 Aug) added rows 15–21. None of the three is a new capability:
 the selling models have been enforced since 15 August and the ratio editor has
