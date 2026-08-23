@@ -1531,33 +1531,72 @@ export function renderProductForm({
     btn.className = "btn btn-primary";
     btn.id = "pb-open-selling-setup";
     btn.textContent = cfg.btn;
-    if (!savedProductId) {
-      // Ratios and packs hang off a product row, so there is genuinely nothing
-      // to attach one to yet. Disabled and SAYING WHY beats a button that
-      // looks live and does nothing -- which is the failure this whole batch
-      // has been about.
+    // CHANGED 23 Aug 2026 (Batch 8E). This used to be `disabled` on a new
+    // product, with a caption explaining that a ratio has to belong to a
+    // product row. The reasoning was right; the button was still wrong.
+    //
+    // Hadi: "the button to set a ratio is broken and doesn't allow me to do
+    // anything. Like, it's faded out, and whenever I hover over it, it gives
+    // me the stop sign."
+    //
+    // A greyed button with a no-entry cursor reads as BROKEN. Nobody reads the
+    // caption underneath to discover it is merely early. The button now does
+    // the missing step instead of refusing: it saves the product, then opens
+    // the builder.
+    btn.addEventListener("click", async () => {
+      if (typeof onOpenSellingSetup !== "function") return;
+      if (savedProductId) { onOpenSellingSetup(savedProductId, model); return; }
+
+      // No product row yet -- make one. Same save path as the Save button, so
+      // the same validation, the same photo upload, the same error handling.
       btn.disabled = true;
-      btn.title = "Create the product first — a ratio has to belong to something.";
-    }
-    btn.addEventListener("click", () => {
-      if (!savedProductId) return;
-      if (typeof onOpenSellingSetup === "function") onOpenSellingSetup(savedProductId, model);
+      const was = btn.textContent;
+      btn.textContent = "Saving the product first\u2026";
+      const res = await doSave();
+      btn.disabled = false;
+      btn.textContent = was;
+      // doSave() has already put the reason on screen if it failed, and
+      // validate() has already marked the offending field. Saying nothing more
+      // here is deliberate: two messages for one problem is worse than one,
+      // and the second would be the vaguer of the two.
+      if (res?.ok && res.productId) onOpenSellingSetup(res.productId, model);
     });
     setupHost.appendChild(btn);
 
     if (!savedProductId) {
       const note = document.createElement("p");
       note.className = "pf-hint";
-      note.textContent = "Create the product first — this turns on the moment it exists.";
+      note.textContent = "This saves the product first, then opens the builder.";
       setupHost.appendChild(note);
     }
   }
 
   el.querySelector(`#${ids.model}`).addEventListener("change", paintSellingSetup);
 
-  $("#pb-save").addEventListener("click", async () => {
+  /**
+   * Save the form. Extracted from the Save button's listener on 23 Aug 2026
+   * (Batch 8E) so that "Set ratios" can ALSO reach it.
+   *
+   * Hadi: "the button to set a ratio is broken and doesn't allow me to do
+   * anything. Like, it's faded out, and whenever I hover over it, it gives me
+   * the stop sign."
+   *
+   * It was disabled on purpose, because a ratio has to belong to a product row
+   * and on a NEW product there is not one yet. That reasoning is sound and the
+   * result was still wrong: a greyed-out button with a no-entry cursor reads
+   * as BROKEN, not as "not yet". The explanation underneath it does not help,
+   * because nobody reads a caption to find out why a button is dead.
+   *
+   * So the button no longer refuses. It does the missing step itself: saves
+   * the product, then opens the builder. That is what "Set ratios" says it
+   * will do, and a button should do what it says rather than explain why it
+   * cannot.
+   *
+   * @returns {Promise<{ok:boolean, productId?:string}>}
+   */
+  async function doSave() {
     const draft = readDraft();
-    if (!validate(draft)) return;
+    if (!validate(draft)) return { ok: false };
 
     const save = $("#pb-save");
     save.disabled = true;
@@ -1583,7 +1622,7 @@ export function renderProductForm({
     if (!result?.ok) {
       status.className = "pf-status pf-status-error";
       status.textContent = result?.error || (isEdit ? "Could not save the changes." : "Could not create the product.");
-      return;
+      return { ok: false };
     }
     status.className = "pf-status pf-status-ok";
     status.textContent = result.message || (isEdit ? "Saved." : "Created.");
@@ -1603,7 +1642,10 @@ export function renderProductForm({
         openBtn.focus();
       }
     }
-  });
+    return { ok: true, productId: savedProductId };
+  }
+
+  $("#pb-save").addEventListener("click", () => { doSave(); });
 
   el.querySelector("[data-scan-product]")?.addEventListener("click", () => {
     aimProductScanner();
