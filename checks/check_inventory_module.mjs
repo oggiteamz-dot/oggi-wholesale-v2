@@ -144,8 +144,19 @@ const stripRule = css.match(/\.sub-tabs\s*\{[^}]*\}/);
 ok(!!stripRule && /overflow-x:\s*auto/.test(stripRule[0]),
    ".sub-tabs scrolls sideways — nine labelled tabs are roughly 900px, and a 360px phone is the narrow end of the devices your buyers actually hold");
 
-ok(/\.sub-tabs-wrap[^{]*\{[^}]*\}/.test(css) && /sub-tabs-wrap[\s\S]{0,400}(mask-image|::after)/.test(css),
-   "the strip has an edge fade — a row that scrolls with no visual hint that it scrolls has hidden six screens rather than organised them");
+// TIGHTENED after a screenshot of the real strip. The first version of this
+// assertion only asked for "an edge fade", and a RIGHT-ONLY fade passed it.
+// That fade is worse than none at the moment it matters most: landing on the
+// ninth tab auto-scrolls to the end, the right fade correctly vanishes, and
+// nothing at all suggests that tabs one to five are behind you. Four tabs, one
+// selected, no reason to think there are five more.
+ok(/\.sub-tabs-wrap::before/.test(css) && /\.sub-tabs-wrap::after/.test(css),
+   "the strip fades at BOTH edges — a right-only fade says nothing once you are scrolled to the end, which is exactly where a deep link puts you");
+ok(/has-more-left/.test(css) && /has-more-right/.test(css),
+   "each fade is conditional — a fade that is always on is decoration; one that appears only when there is more that way is an affordance");
+const subTabsSrcEarly = readFileSync(new URL("../js/components/sub-tabs.js", import.meta.url), "utf8");
+ok(/has-more-left/.test(subTabsSrcEarly) && /addEventListener\("scroll"/.test(subTabsSrcEarly),
+   "…and something actually toggles them as the strip scrolls, rather than the classes existing in CSS and never being set");
 
 const subTabsSrc = readFileSync(new URL("../js/components/sub-tabs.js", import.meta.url), "utf8");
 ok(/scrollIntoView|scrollLeft\s*=/.test(subTabsSrc),
