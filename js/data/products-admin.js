@@ -456,7 +456,12 @@ export async function createProduct(wid, draft = {}) {
 export async function getProductForEdit(productId) {
   const [{ data: product }, { data: variants }, { data: colourBarcodes }] = await Promise.all([
     sbCall(supabase.from("v2_products")
-      .select("id, wid, name, description, category, selling_model, moq_qty, barcode, supplier_id, archived")
+      // base_unit added 23 Aug 2026 (Batch 8, C3). The ratio builder reads
+      // product.base_unit, and reopening that panel after adding variants
+      // refetches through here -- without the column the base-unit box came
+      // back blank and would have silently reset a product sold in 12s to
+      // being sold by the single piece.
+      .select("id, wid, name, description, category, selling_model, base_unit, moq_qty, barcode, supplier_id, archived")
       .eq("id", productId).maybeSingle()),
     sbCall(supabase.from("v2_product_variants")
       .select("id, sku, price, cost, retail_price, moq_qty, barcode, extra_attrs, image_url, images, archived")
