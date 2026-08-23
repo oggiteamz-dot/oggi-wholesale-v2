@@ -38,9 +38,9 @@ Delivered as batches 0–6 across the night of 20–21 August. What that involve
 Migrations 064–078a. Every batch merged through its own PR with its own gates,
 each proven red before green.
 
-**What the revamp did NOT cover, and is therefore still open:** rows 4, 39, 40,
-41 and 42 of `FEATURE-MANIFEST.md` (renumbered from 36–39 on 23 Aug when Batch 8
-inserted three rows at 15–17) — reorder minimums, kit assembly, landed
+**What the revamp did NOT cover, and is therefore still open:** rows 4, 40, 41,
+42 and 43 of `FEATURE-MANIFEST.md` (renumbered on 23 Aug when Batch 8 inserted
+four rows at 15–18) — reorder minimums, kit assembly, landed
 cost, cycle counts and suppliers all exist and none of them has a gate. They
 work today. Nothing would tell you if they stopped.
 
@@ -138,12 +138,12 @@ silently. In rough order of what it would cost if it broke:
 
 1. **Reorder minimums** (row 4) — a buyer's second order is allowed to be
    smaller than their first. Nothing asserts the distinction survives.
-2. **Landed cost** (row 40) — feeds the valuation numbers a wholesaler might
+2. **Landed cost** (row 41) — feeds the valuation numbers a wholesaler might
    take to a bank, and is still two unreconciled numbers with `variants.cost`.
-3. **CSV import/export** (row 54) — already caused one silent loss, when the
+3. **CSV import/export** (row 55) — already caused one silent loss, when the
    importer hardcoded `sellMode: "open"` over every wholesaler's selling model.
-4. **Kit assembly, cycle counts, suppliers, AI import, integrations** (39, 41,
-   42, 55, 56).
+4. **Kit assembly, cycle counts, suppliers, AI import, integrations** (40, 42,
+   43, 56, 57).
 
 ---
 
