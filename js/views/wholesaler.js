@@ -488,6 +488,73 @@ function openProductPanel(panelHost, title, product, painter) {
  * reprice of the entire catalogue does not belong at the foot of a list you
  * scroll past forty times a day.
  */
+/**
+ * The "+ New product" bar, shared by the Stock pane and the Products pane.
+ *
+ * Batch 8E, 23 Aug 2026. Hadi: "I can't create a product anymore in the
+ * products tab."
+ *
+ * He was right, and it had been true since Batch 6 folded the standalone
+ * Products screen into Inventory: the create button lives on the STOCK pane,
+ * and the PRODUCTS pane — the one actually called "Products" — had none. If
+ * you had no products at all it was worse: that pane returned early on an
+ * empty state, so the tab named after products offered no way to make one.
+ *
+ * Extracted rather than copied. Two inline copies of a form this size is how
+ * one of them quietly stops passing onOpenSellingSetup, and then the ratio
+ * button is dead on exactly one screen -- which is the shape of the bug this
+ * batch already fixed once.
+ */
+function mountNewProductBar(outlet, { wid, locations = [], suppliers = [], location = null,
+                                      catalogName = "your main catalog", reload = () => {} }) {
+  const bar = document.createElement("div");
+  bar.className = "pf-actions";
+  bar.style.marginTop = "0";
+  const newBtn = document.createElement("button");
+  newBtn.type = "button";
+  newBtn.className = "btn btn-primary";
+  newBtn.textContent = "+ New product";
+  bar.appendChild(newBtn);
+  outlet.appendChild(bar);
+
+  const formHost = document.createElement("div");
+  outlet.appendChild(formHost);
+
+  newBtn.addEventListener("click", () => {
+    if (formHost.firstChild) { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; return; }
+    newBtn.textContent = "Close the form";
+    const form = renderProductForm({
+      catalogName,
+      locations,
+      hasLocation: !!location,
+      locationName: location?.name || "",
+      suppliers,
+      // Creating a supplier without leaving a half-built product: this form
+      // holds unsaved photos and a stock grid, neither of which survives a
+      // navigation, so "go and make one first" would mean losing the work.
+      onCreateSupplier: (draft) => createSupplier(wid, draft),
+      onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
+      onOpenSellingSetup: (pid, model) => openSellingSetup(pid, model),
+      onSubmit: async (draft) => {
+        const res = await createProduct(wid, { ...draft, locationId: draft.locationId || location?.id || null });
+        if (res.ok) {
+          toast(res.message, { type: res.variantsFailed?.length ? "warning" : "success" });
+          // Batch 8D. Repainting here destroys the form -- and with it the
+          // "Set ratios" button that has just appeared on it. For a model that
+          // CANNOT be sold until it has a pack, throwing the person back to a
+          // list is how the product stays unsellable. The pane repaints when
+          // they close the form instead.
+          const needsSetup = draft.sellingModel === "ratio" || draft.sellingModel === "prepack";
+          if (!needsSetup) reload();
+        }
+        return res;
+      },
+    });
+    formHost.appendChild(form.el);
+    form.focus();
+  });
+}
+
 async function productsPane(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
@@ -498,8 +565,29 @@ async function productsPane(outlet) {
   const prodFacts = normaliseFacts(prodSettings.card_facts, prodLocations);
   const prodSales = prodFacts.some((k) => ["unitsSold", "orderCount", "lastSold"].includes(k))
     ? await getSalesByProduct(wid) : new Map();
+
+  // Batch 8E. Hadi: "I can't create a product anymore in the products tab."
+  // Since Batch 6 folded the standalone Products screen into Inventory, the
+  // only create button was on the STOCK pane. Same bar, same form, same
+  // createProduct() -- mounted BEFORE the empty-state return below, because
+  // the state with no products is precisely when you most need to make one.
+  const [prodSuppliers, prodDefaultCatalog] = await Promise.all([
+    listSuppliers(wid), getDefaultCatalog(wid),
+  ]);
+  mountNewProductBar(outlet, {
+    wid,
+    locations: prodLocations,
+    suppliers: prodSuppliers,
+    location: prodLocations[0] || null,
+    catalogName: prodDefaultCatalog?.name || "your main catalog",
+    reload: () => { outlet.innerHTML = ""; productsPane(outlet); },
+  });
+
   if (!products.length) {
-    outlet.appendChild(emptyState({ icon: "📦", title: "No products yet", body: "Products migrated from your existing catalog, or added later, will appear here." }));
+    outlet.appendChild(emptyState({
+      icon: "📦", title: "No products yet",
+      body: "Add one with the button above, or import a catalog. Anything migrated from your existing catalog appears here too.",
+    }));
     return;
   }
 
@@ -1203,55 +1291,10 @@ async function stockPane(outlet) {
   // product inside the actual catalogs".
   const defaultCatalog = await getDefaultCatalog(wid);
 
-  const bar = document.createElement("div");
-  bar.className = "pf-actions";
-  bar.style.marginTop = "0";
-  const newBtn = document.createElement("button");
-  newBtn.type = "button";
-  newBtn.className = "btn btn-primary";
-  newBtn.textContent = "+ New product";
-  bar.appendChild(newBtn);
-  outlet.appendChild(bar);
-
-  const formHost = document.createElement("div");
-  outlet.appendChild(formHost);
-
-  newBtn.addEventListener("click", () => {
-    if (formHost.firstChild) { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; return; }
-    newBtn.textContent = "Close the form";
-    const form = renderProductForm({
-      catalogName: defaultCatalog?.name || "your main catalog",
-      locations,
-      hasLocation: !!location,
-      locationName: location?.name || "",
-      suppliers,
-      // Creating a supplier without leaving a half-built product: this form
-      // holds unsaved photos and a stock grid, neither of which survives a
-      // navigation, so "go and make one first" would mean losing the work.
-      onCreateSupplier: (draft) => createSupplier(wid, draft),
-      onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
-      onOpenSellingSetup: (pid, model) => openSellingSetup(pid, model),
-      onSubmit: async (draft) => {
-        const res = await createProduct(wid, { ...draft, locationId: draft.locationId || location?.id || null });
-        if (res.ok) {
-          toast(res.message, { type: res.variantsFailed?.length ? "warning" : "success" });
-          // Batch 8D. This used to repaint the pane unconditionally, which
-          // destroys the form -- and with it the "Set ratios" button that has
-          // just appeared on it. For a model that CANNOT be sold until it has
-          // a pack, throwing the person back to a list is how the product
-          // stays unsellable: the one thing they still have to do is now three
-          // screens away. The pane repaints when they close the form instead.
-          const needsSetup = draft.sellingModel === "ratio" || draft.sellingModel === "prepack";
-          if (!needsSetup) {
-            outlet.innerHTML = "";
-            stockPane(outlet);
-          }
-        }
-        return res;
-      },
-    });
-    formHost.appendChild(form.el);
-    form.focus();
+  mountNewProductBar(outlet, {
+    wid, locations, suppliers, location,
+    catalogName: defaultCatalog?.name || "your main catalog",
+    reload: () => { outlet.innerHTML = ""; stockPane(outlet); },
   });
 
   if (!stock.length) {
