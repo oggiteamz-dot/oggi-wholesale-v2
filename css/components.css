@@ -2024,3 +2024,77 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   }
 }
 }
+
+/* ---------------------------------------------------------------------------
+   Product drawer — Batch 8, 23 Aug 2026 (C1/C2)
+   ---------------------------------------------------------------------------
+   Replaces the inline panel that was appended after the product grid. That
+   panel opened 1608px down a 911px viewport and the page did not scroll,
+   so "Packs & ratios" appeared to do nothing at all.
+
+   Fixed to the viewport on purpose. Where this appears must not depend on
+   how many products are above it, how far the page is scrolled, or which
+   element owns the scrollbar -- all three of which the old panel depended
+   on, and one of which silently changed.
+
+   Desktop: a right-hand drawer, so the grid stays visible beside it.
+   Phone:   a bottom sheet, which is where a thumb already is.
+--------------------------------------------------------------------------- */
+.pdrawer-root { position: fixed; inset: 0; z-index: 1200; }
+
+.pdrawer-backdrop {
+  position: absolute; inset: 0;
+  /* The app's own overlay token, not a hand-mixed grey: it is ink-based to
+     match every other overlay in the product, and it follows the theme. */
+  background: var(--bg-overlay);
+  animation: pdrawer-fade 140ms ease-out;
+}
+
+.pdrawer {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: min(560px, 100vw);
+  border-radius: 0;
+  display: flex; flex-direction: column;
+  gap: 0;
+  padding: 0;
+  box-shadow: -8px 0 28px rgba(15, 18, 17, 0.18);
+  animation: pdrawer-in-right 180ms cubic-bezier(.22,.61,.36,1);
+}
+
+/* The head must not scroll away -- Close is the way out and it stays put. */
+.pdrawer-head {
+  position: sticky; top: 0; z-index: 1;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pdrawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-4);
+}
+
+@keyframes pdrawer-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pdrawer-in-right { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes pdrawer-in-up    { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+@media (max-width: 720px) {
+  .pdrawer {
+    top: auto; right: 0; left: 0; bottom: 0;
+    width: auto;
+    max-height: 88vh;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 28px rgba(15, 18, 17, 0.22);
+    animation: pdrawer-in-up 180ms cubic-bezier(.22,.61,.36,1);
+    /* Clears the phone's bottom nav bar and the home indicator. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdrawer, .pdrawer-backdrop { animation: none; }
+}
