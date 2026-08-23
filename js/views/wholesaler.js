@@ -30,6 +30,10 @@ import { updateCatalogSettings, addProductsToCatalog, DISCOUNT_MODES,
          addProductToCatalog, removeProductFromCatalog } from "../data/catalogs.js";
 import { createProduct, getProductForEdit, getProductDetail, updateProduct } from "../data/products-admin.js";
 import { sellingModelBadge } from "../lib/selling-model.js";
+import { openModal, closeModal, closeAllModals, modalDepth } from "../lib/modal-stack.js";
+import { openReceiveDialog } from "../components/receive-dialog.js";
+import { ask, confirmAction } from "../components/ask.js";
+import { router } from "../lib/router.js";
 import { renderProductForm } from "../components/product-form.js";
 import { renderProductTile, productGrid } from "../components/admin-product-tile.js";
 import { renderProductDetail } from "../components/product-detail.js";
@@ -378,15 +382,15 @@ async function ordersView(outlet) {
 let openDrawer = null;
 
 function closeProductPanel() {
+  // Batch 8A. This drawer was the ONE dialog in the app that already defended
+  // itself against navigation -- it hand-rolled a "v2:navigated" listener, an
+  // Escape listener, a scroll lock and focus return. All four are now the
+  // modal stack's job, so this is the same behaviour with one owner instead
+  // of four copies, and the three dialogs that had none of it get all of it.
   if (!openDrawer) return;
-  document.removeEventListener("keydown", openDrawer.onKey);
-  document.removeEventListener("v2:navigated", openDrawer.onNav);
-  openDrawer.root.remove();
-  document.body.style.overflow = openDrawer.prevOverflow;
-  if (openDrawer.returnFocus && document.contains(openDrawer.returnFocus)) {
-    openDrawer.returnFocus.focus();
-  }
-  openDrawer = null;
+  const { root } = openDrawer;
+  openDrawer = null;          // cleared FIRST: closeModal() runs onClose, and
+  closeModal(root);           // a re-entrant call must not close twice.
 }
 
 /**
@@ -452,21 +456,18 @@ function openProductPanel(panelHost, title, product, painter) {
   body.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);">Loading…</div>`;
   card.appendChild(body);
   root.appendChild(card);
-  document.body.appendChild(root);
 
-  const prevOverflow = document.body.style.overflow;
-  document.body.style.overflow = "hidden";
+  // Escape, the scroll lock, focus return and closing-on-navigation all come
+  // from the stack now. The onClose hook clears this module's own handle so
+  // that a close triggered from anywhere -- Escape, a route change, another
+  // drawer opening -- leaves openDrawer in step with what is actually on
+  // screen. A stale handle here is how a second click does nothing.
+  openDrawer = { root, returnFocus };
+  openModal(root, {
+    label: `${product.name} — ${title}`,
+    onClose: () => { openDrawer = null; },
+  });
 
-  const onKey = (ev) => { if (ev.key === "Escape") closeProductPanel(); };
-  // A drawer lives on document.body, so a re-render of the view underneath
-  // it does NOT remove it -- it would be left floating over an unrelated
-  // screen. That is precisely the orphaned-dialog bug found on 23 Aug, and
-  // it is not going to be reintroduced by the fix for it.
-  const onNav = () => closeProductPanel();
-  document.addEventListener("keydown", onKey);
-  document.addEventListener("v2:navigated", onNav);
-
-  openDrawer = { root, onKey, onNav, prevOverflow, returnFocus };
   closeBtn.focus();
   painter(body);
 }
@@ -1423,30 +1424,32 @@ async function stockPane(outlet) {
           toast("There is no stock location set up to receive into. Tell OGGI — every wholesaler should have one.", { type: "danger" });
           return;
         }
-        const qty = parseInt(prompt(`Receive how many units of ${row.productName} (${row.color}/${row.size})?`, "10"), 10);
-        if (!qty || qty <= 0) return;
-        const { error } = await receiveStock(row.variantId, row.locationId, qty);
-        if (error) { toast("Receive failed", { type: "danger" }); return; }
+        // Batch 8A, 23 Aug 2026. This was four consecutive native prompt()
+        // boxes, and the sequence had a real defect on top of being ugly:
+        // the stock was written to the database after box 1, so cancelling
+        // box 2 -- which read "Cancel to skip landed-cost tracking" -- looked
+        // like cancelling the receipt and was not. The units were already in.
+        // Cancelling also silently threw away boxes 3 and 4 together, so
+        // recording freight without duty meant typing a 0 you did not mean.
+        //
+        // One form now, validated BEFORE anything is written, so Cancel means
+        // cancel. See js/components/receive-dialog.js.
+        openReceiveDialog(row, async ({ qty, freight, duty, other, recordCost }) => {
+          const { error } = await receiveStock(row.variantId, row.locationId, qty);
+          if (error) return { ok: false, error: "That receipt could not be saved. Nothing was changed." };
 
-        // Batch 9: optional landed-cost detail for this receipt (freight/
-        // duty/other) -- entirely skippable (Cancel on the first prompt opts
-        // out of all three) since most receipts won't have extra cost detail
-        // worth recording.
-        const freightRaw = prompt(`Optional: freight cost for this receipt of ${qty} units? (Cancel to skip landed-cost tracking)`, "0");
-        if (freightRaw !== null) {
-          const dutyRaw = prompt("Duty/customs cost for this receipt?", "0");
-          const otherRaw = prompt("Any other landed cost (handling, inspection, etc.)?", "0");
-          await recordReceiptCost({
-            variantId: row.variantId, locationId: row.locationId, qty,
-            baseCost: row.cost,
-            freightCost: parseFloat(freightRaw) || 0,
-            dutyCost: parseFloat(dutyRaw) || 0,
-            otherCost: parseFloat(otherRaw) || 0,
-          });
-        }
-        toast(`Received ${qty} units`, { type: "success" });
-        outlet.innerHTML = "";
-        stockPane(outlet);
+          if (recordCost && (freight || duty || other)) {
+            await recordReceiptCost({
+              variantId: row.variantId, locationId: row.locationId, qty,
+              baseCost: row.cost,
+              freightCost: freight, dutyCost: duty, otherCost: other,
+            });
+          }
+          toast(`Received ${qty} units`, { type: "success" });
+          outlet.innerHTML = "";
+          stockPane(outlet);
+          return { ok: true };
+        });
       });
       r.appendChild(receiveBtn);
 
@@ -2327,10 +2330,24 @@ async function intelligenceView(outlet) {
       logBtn.textContent = "Log count";
       logBtn.disabled = !defaultLocation;
       logBtn.addEventListener("click", async () => {
-        const countedRaw = prompt(`Physical count for ${c.sku} (system expects ${c.onHand})?`, String(c.onHand));
+        // Batch 8A. The validation used to happen AFTER the box closed, so a
+        // typo meant retyping the whole count from memory; now the dialog
+        // refuses it and keeps what was typed.
+        const countedRaw = await ask({
+          title: `Physical count for ${c.sku}`,
+          body: `The system expects ${c.onHand}. Enter what you actually counted — if they differ, the difference is logged as a correction with your name on it.`,
+          label: "Counted quantity",
+          type: "number",
+          value: String(c.onHand),
+          confirmLabel: "Log count",
+          validate: (v) => {
+            const n = parseInt(v, 10);
+            if (!Number.isFinite(n) || n < 0) return "Enter the number you counted — a whole number, 0 or more.";
+            return null;
+          },
+        });
         if (countedRaw === null) return;
         const countedQty = parseInt(countedRaw, 10);
-        if (isNaN(countedQty) || countedQty < 0) { toast("Enter a valid count", { type: "danger" }); return; }
         const result = await logCycleCount(wid, {
           variantId: c.variantId, locationId: defaultLocation.id,
           expectedQty: c.onHand, countedQty, countedBy: session.actorLabel,
@@ -2645,9 +2662,14 @@ async function clientsView(outlet) {
       ${isBanned ? "" : `<button class="btn btn-ghost btn-sm" data-action="deactivate">Deactivate</button>`}
     `;
 
-    row.querySelector('[data-action="ban"]').addEventListener("click", () => {
+    row.querySelector('[data-action="ban"]').addEventListener("click", async () => {
       if (isBanned) {
-        if (!confirm(`Lift the ban on ${c.shop_name}? They will be able to sign in and order again. The record of this ban is kept.`)) return;
+        const yes = await confirmAction({
+          title: `Lift the ban on ${c.shop_name}?`,
+          body: "They will be able to sign in and order again. The record of this ban is kept.",
+          confirmLabel: "Lift the ban",
+        });
+        if (!yes) return;
         unbanClient(c.id, null).then((r) => {
           if (!r.ok) return toast(r.msg || "Could not lift the ban.", { type: "error" });
           toast(`${c.shop_name} can trade again`, { type: "success" });
@@ -2660,7 +2682,12 @@ async function clientsView(outlet) {
 
     const deact = row.querySelector('[data-action="deactivate"]');
     if (deact) deact.addEventListener("click", async () => {
-      if (!confirm(`Deactivate ${c.shop_name}? This hides them from your active client list (their order history is kept). It is NOT a ban — they can still sign in.`)) return;
+      const yes = await confirmAction({
+        title: `Deactivate ${c.shop_name}?`,
+        body: "This hides them from your active client list. Their order history is kept.\n\nIt is NOT a ban — they can still sign in and order. Use Ban if you want to stop them.",
+        confirmLabel: "Deactivate",
+      });
+      if (!yes) return;
       await deactivateClient(c.id);
       toast(`${c.shop_name} deactivated`, { type: "default" });
       row.remove();
@@ -2706,7 +2733,9 @@ function openBanDialog(client, onDone) {
     </div>
   `;
   back.appendChild(box);
-  document.body.appendChild(back);
+  // Batch 8A: through the modal stack, so a route change cannot leave this
+  // sitting over an unrelated screen asking whether to ban somebody.
+  openModal(back, { label: `Ban ${client.shop_name}?` });
 
   const sel  = box.querySelector("#ban-reason");
   const hint = box.querySelector("#ban-hint");
@@ -2722,7 +2751,7 @@ function openBanDialog(client, onDone) {
   sel.addEventListener("change", syncHint);
   syncHint();
 
-  const close = () => back.remove();
+  const close = () => closeModal(back);
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   box.querySelector('[data-a="cancel"]').addEventListener("click", close);
 
@@ -2902,7 +2931,33 @@ async function teamView(outlet) {
 // catalog id goes along.
 // =============================================================================
 
-async function catalogsView(outlet) {
+/**
+ * CATALOGS.
+ *
+ * Batch 8A, 23 Aug 2026 — which catalog you are looking at now lives in the
+ * URL instead of in a variable.
+ *
+ * THE BUG THIS FIXES, precisely. Hadi: "I created a catalog and got sent back
+ * to the dashboard." It never went to the dashboard. `activeId` was a local
+ * variable seeded from the DEFAULT catalog, and creating one re-ran this whole
+ * function -- so the new catalog was created, the screen redrew, and the
+ * redraw re-seeded activeId back to Main Catalog. From the outside, being
+ * silently returned to the first tab and being thrown out of the screen look
+ * identical.
+ *
+ * The same variable was also wiped by a reload, by the back button, and by any
+ * re-render from anywhere else. Patching the create path would have fixed one
+ * of four symptoms and left the class alive. A route fixes all four by
+ * construction, and gives away a share link to a single catalog for free.
+ *
+ * @param {object} [params]
+ * @param {string} [params.id]   Catalog id from the route. Absent on the bare
+ *                               /wholesaler/catalogs path, which still works
+ *                               because it is what everyone has bookmarked.
+ * @param {string} [params.pid]  Product id, when the packs drawer is itself
+ *                               the route.
+ */
+async function catalogsView(outlet, params = {}) {
   const session = devAuth.getSession();
   const wid = session.wid;
   let catPanelHost = null;
@@ -2926,7 +2981,15 @@ async function catalogsView(outlet) {
     return;
   }
 
-  let activeId = catalogs.find((c) => c.isDefault)?.id || catalogs[0].id;
+  // From the URL when the URL names one, otherwise the default. An id in the
+  // URL that no longer exists (a deleted catalog, a stale bookmark) falls back
+  // rather than showing an error: the person wanted their catalogs, and they
+  // are looking at the list of them.
+  const fromRoute = params.id && catalogs.some((c) => c.id === params.id) ? params.id : null;
+  if (params.id && !fromRoute) {
+    toast("That catalog no longer exists — showing your main one instead.", { type: "warning" });
+  }
+  let activeId = fromRoute || catalogs.find((c) => c.isDefault)?.id || catalogs[0].id;
 
   const tabs = document.createElement("div");
   tabs.className = "date-range-row";
@@ -2955,7 +3018,14 @@ async function catalogsView(outlet) {
       b.className = "btn btn-sm " + (c.id === activeId ? "btn-primary" : "btn-secondary");
       b.textContent = c.name + (c.isDefault ? " ★" : "");
       b.setAttribute("aria-pressed", String(c.id === activeId));
-      b.addEventListener("click", () => { activeId = c.id; paintTabs(); paintPanel(); });
+      // Navigating rather than swapping in place. Same rule as the Inventory
+      // sub-tabs (js/components/sub-tabs.js): the tab is in the URL, so a
+      // reload lands where the reader was instead of silently resetting to
+      // the default and letting them think they lost their place.
+      b.addEventListener("click", () => {
+        if (c.id === activeId) return;
+        router.go(`/wholesaler/catalogs/${encodeURIComponent(c.id)}`);
+      });
       tabs.appendChild(b);
     });
 
@@ -2964,7 +3034,14 @@ async function catalogsView(outlet) {
     add.className = "btn btn-ghost btn-sm";
     add.textContent = "+ New catalog";
     add.addEventListener("click", async () => {
-      const name = prompt("What is this catalog called?\n\ne.g. \"Summer 26\", \"Outlet\", \"Wholesale only\"");
+      const name = await ask({
+        title: "New catalog",
+        body: "A catalog is a link you send to a buyer. You choose who can open it and what discount it carries.",
+        label: "What is this catalog called?",
+        placeholder: "Summer 26, Outlet, Wholesale only…",
+        confirmLabel: "Create catalog",
+        validate: (v) => (v.trim().length >= 2 ? null : "Give it a name — it is what you will pick it out by, and buyers see it on the link."),
+      });
       if (!name) return;
       const res = await createCatalog(wid, { name });
       if (!res.ok) { toast(res.error, { type: "danger" }); return; }
@@ -2973,8 +3050,13 @@ async function catalogsView(outlet) {
       // Saying where to change that is the difference between a catalog that
       // gets configured and one that quietly stays at the default forever.
       toast(`"${res.name}" created — set its tier and discount at the top of the page.`, { type: "success" });
-      outlet.innerHTML = "";
-      catalogsView(outlet);
+      // THE FIX, in one line. This used to re-run catalogsView(), which
+      // re-seeded activeId from the default catalog and dropped the person
+      // straight back onto Main Catalog with their brand-new catalog nowhere
+      // in sight. Navigating to the new catalog's own route lands them in the
+      // thing they just made -- and a reload keeps them there.
+      if (res.id) router.go(`/wholesaler/catalogs/${encodeURIComponent(res.id)}`);
+      else { outlet.innerHTML = ""; catalogsView(outlet); }
     });
     tabs.appendChild(add);
   }
@@ -3042,7 +3124,9 @@ async function catalogsView(outlet) {
           await paintList();
         },
       });
-      document.body.appendChild(picker.el);
+      // Batch 8A. The picker is a full-screen dialog; before this it was the
+      // only way to add products to a catalog and it survived navigation.
+      openModal(picker.el, { label: `Add products to ${catalog.name}` });
       picker.focus();
     });
 
@@ -3235,7 +3319,13 @@ async function catalogsView(outlet) {
     rotate.title = "Use this if the link reached someone it should not have. Every link you have already sent stops working.";
     rotate.addEventListener("click", async () => {
       // Irreversible for everyone already holding the old link, so it asks.
-      if (!confirm(`Get a new link for "${catalog.name}"?\n\nEvery link you have already sent will stop working, and you will need to send the new one.`)) return;
+      const yes = await confirmAction({
+        title: `Get a new link for "${catalog.name}"?`,
+        body: "Every link you have already sent stops working immediately, and you will need to send the new one to everybody who should still have access.",
+        confirmLabel: "Replace the link",
+        danger: true,
+      });
+      if (!yes) return;
       rotate.disabled = true;
       const res = await rotateCatalogLink(activeId);
       rotate.disabled = false;
@@ -3643,7 +3733,14 @@ async function locationsView(outlet) {
     addBtn.className = "btn btn-primary";
     addBtn.textContent = "+ New location";
     addBtn.addEventListener("click", async () => {
-      const name = prompt("What is this location called?\n\ne.g. \"Main Warehouse\", \"Beirut Shop\", \"Container 3\"");
+      const name = await ask({
+        title: "New stock location",
+        body: "Somewhere stock physically sits. You can transfer units between locations, and every transfer is recorded.",
+        label: "What is this location called?",
+        placeholder: "Main Warehouse, Beirut Shop, Container 3…",
+        confirmLabel: "Create location",
+        validate: (v) => (v.trim().length >= 2 ? null : "Give it a name you would recognise on a stock report."),
+      });
       if (!name) return;
       const res = await createLocation(wid, name);
       if (!res.ok) { toast(res.error, { type: "danger" }); return; }
@@ -3676,7 +3773,13 @@ async function locationsView(outlet) {
       ren.className = "btn btn-secondary btn-sm";
       ren.textContent = "Rename";
       ren.addEventListener("click", async () => {
-        const name = prompt("New name for this location", loc.name);
+        const name = await ask({
+          title: "Rename this location",
+          label: "Location name",
+          value: loc.name,
+          confirmLabel: "Rename",
+          validate: (v) => (v.trim().length >= 2 ? null : "Give it a name you would recognise on a stock report."),
+        });
         if (!name || name === loc.name) return;
         const res = await renameLocation(loc.id, name);
         if (!res.ok) { toast(res.error, { type: "danger" }); return; }
@@ -3770,22 +3873,28 @@ function overlayHost(label) {
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("aria-label", label);
 
-  const prevOverflow = document.body.style.overflow;
-  const onKey = (ev) => { if (ev.key === "Escape") close(); };
-  function close() {
-    document.body.style.overflow = prevOverflow;
-    document.removeEventListener("keydown", onKey);
-    overlay.remove();
-  }
-  document.body.style.overflow = "hidden";
-  document.addEventListener("keydown", onKey);
+  // Batch 8A, 23 Aug 2026. This used to own its own Escape listener and its
+  // own body-scroll lock, and it did NOT listen for navigation. That is the
+  // whole reason a product edit form was found sitting open over the
+  // dashboard: the "N on hand" link inside it changed the route, the view
+  // underneath was replaced, and this overlay -- which lives on document.body,
+  // not in the view -- simply stayed where it was.
+  //
+  // Escape, the scroll lock, focus return and closing-on-navigation are now
+  // all properties of js/lib/modal-stack.js, so the next dialog anyone writes
+  // gets them without having to remember any of it.
+  const close = () => closeModal(overlay);
 
   // Clicking the backdrop closes; clicking the panel does not. The panel is
   // the thing being read, and a mis-aimed click inside it should never throw
   // the reader out of it.
   overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
 
-  return { overlay, close };
+  // The caller fills the overlay and then calls mount(). Kept as a separate
+  // step rather than mounting here so a half-built dialog is never on screen.
+  const mount = () => openModal(overlay, { label });
+
+  return { overlay, close, mount };
 }
 
 async function openProductView(productId, onEdited) {
@@ -3793,12 +3902,12 @@ async function openProductView(productId, onEdited) {
   const detail = await getProductDetail(productId);
   if (!detail.ok) { toast(detail.error, { type: "danger" }); return; }
 
-  const { overlay, close } = overlayHost(`Details for ${detail.product.name}`);
+  const { overlay, close, mount } = overlayHost(`Details for ${detail.product.name}`);
   overlay.appendChild(renderProductDetail(detail, {
     onClose: close,
     onEdit: () => { close(); openProductEditor(productId, onEdited); },
   }));
-  document.body.appendChild(overlay);
+  mount();
   overlay.querySelector(".pdet-close, .pdet-edit")?.focus();
 }
 
@@ -3871,7 +3980,7 @@ async function openProductEditor(productId, onSaved) {
       })),
   };
 
-  const { overlay, close } = overlayHost(`Edit ${loaded.product.name}`);
+  const { overlay, close, mount } = overlayHost(`Edit ${loaded.product.name}`);
 
   const form = renderProductForm({
     suppliers,
@@ -3882,6 +3991,48 @@ async function openProductEditor(productId, onSaved) {
     // opens -- two stacked modals is not a state worth supporting, and an
     // editor left open behind a drawer is the orphaned-dialog bug of 23 Aug.
     onOpenSellingSetup: (pid, model) => { close(); openSellingSetup(pid, model); },
+    // Batch 8A. The "N on hand" figure in the grid used to change the route to
+    // Inventory, which closed nothing and left this editor floating over the
+    // Inventory screen. Now it opens the receive dialog ON TOP of this one:
+    // the modal stack supports two deep, so the editor is still underneath,
+    // still holding every unsaved photo and every grid cell, when the receipt
+    // finishes.
+    onOpenStock: (v) => {
+      const variant = loaded.variants.find(
+        (x) => !x.archived && x.extra_attrs?.color === v.colourName && x.extra_attrs?.size === v.size
+      );
+      if (!variant) {
+        toast("Save this product first — that size does not exist in your stock yet.", { type: "warning" });
+        return;
+      }
+      const location = locations[0] || null;
+      if (!location?.id) {
+        toast("There is no stock location set up to receive into. Tell OGGI — every wholesaler should have one.", { type: "danger" });
+        return;
+      }
+      openReceiveDialog({
+        productName: loaded.product.name,
+        color: v.colourName, size: v.size,
+        sku: variant.sku, locationName: location.name,
+        onHand: v.onHand || 0, cost: variant.cost,
+      }, async ({ qty, freight, duty, other, recordCost }) => {
+        const { error } = await receiveStock(variant.id, location.id, qty);
+        if (error) return { ok: false, error: "That receipt could not be saved. Nothing was changed." };
+        if (recordCost && (freight || duty || other)) {
+          await recordReceiptCost({
+            variantId: variant.id, locationId: location.id, qty,
+            baseCost: variant.cost, freightCost: freight, dutyCost: duty, otherCost: other,
+          });
+        }
+        // Reopen the editor on fresh data so the figure the person just
+        // changed is the figure they see. Refetching rather than adding qty
+        // to what is on screen: another device may have moved the same stock.
+        toast(`Received ${qty} units`, { type: "success" });
+        close();
+        openProductEditor(productId, onSaved);
+        return { ok: true };
+      });
+    },
     onCancel: close,
     onSubmit: async (draft) => {
       const res = await updateProduct(productId, draft);
@@ -3895,7 +4046,7 @@ async function openProductEditor(productId, onSaved) {
   });
 
   overlay.appendChild(form.el);
-  document.body.appendChild(overlay);
+  mount();
   form.focus();
 }
 
@@ -4377,6 +4528,15 @@ export function registerWholesalerRoutes(router) {
   router.register("/wholesaler/clients", (outlet) => clientsView(outlet));
   router.register("/wholesaler/team", (outlet) => teamView(outlet));
   router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));
+  // Batch 8A. One catalog, by id. The OLD bare path above is deliberately kept
+  // and deliberately listed FIRST: it is what every existing bookmark and
+  // every installed PWA's cached navigation points at, and it must keep
+  // landing somewhere real rather than on "Page not found".
+  router.register("/wholesaler/catalogs/:id", (outlet, params) => catalogsView(outlet, params));
+  // Batch 8A. The packs & ratios drawer as a PLACE rather than a transient
+  // state. Reload with it open and it comes back open, which is the whole
+  // difference between a dialog and a screen.
+  router.register("/wholesaler/catalogs/:id/product/:pid/packs", (outlet, params) => catalogsView(outlet, params));
   router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet, { tab: "stock" }));
   router.register("/wholesaler/inventory/products", (outlet) => inventoryView(outlet, { tab: "products" }));
   router.register("/wholesaler/inventory/pricing", (outlet) => inventoryView(outlet, { tab: "pricing" }));

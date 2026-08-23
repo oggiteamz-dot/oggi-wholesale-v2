@@ -1,6 +1,7 @@
 // OGGI Wholesale v2 — Owner/Admin views (Batch 5: real cross-wholesaler data)
 import { emptyState } from "../components/empty-state.js";
 import { toast } from "../components/toast.js";
+import { ask, confirmAction } from "../components/ask.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import {
@@ -179,7 +180,18 @@ async function wholesalersView(outlet) {
     card.querySelector('[data-action="toggle"]').addEventListener("click", async () => {
       let reason = null;
       if (w.active) {
-        reason = prompt(`Reason for deactivating ${w.name}? (recorded in the audit log)`, "");
+        // Batch 8A: in-app dialog. The reason goes into the audit log, so an
+        // empty one is worse than no field at all -- it records that somebody
+        // did this and refuses to say why. validate() is the thing prompt()
+        // could not do: it accepted anything, including nothing.
+        reason = await ask({
+          title: `Deactivate ${w.name}?`,
+          body: "They will not be able to sign in. Nothing is deleted, and you can reactivate them at any time.",
+          label: "Why? (recorded in the audit log)",
+          placeholder: "e.g. unpaid invoice, account closed at their request",
+          confirmLabel: "Deactivate",
+          validate: (v) => (v.trim().length >= 3 ? null : "Give a short reason — it goes into the audit log, and an entry with no reason is one nobody can explain later."),
+        });
         if (reason === null) return;
       }
       const { error } = await setWholesalerActive(w.wid, !w.active, reason, session?.actorLabel || "Owner");
@@ -272,7 +284,16 @@ async function onboardingView(outlet) {
       card.querySelector('[data-action="dismiss"]').addEventListener("click", () => card.remove());
     });
     card.querySelector('[data-action="reject"]').addEventListener("click", async () => {
-      if (!confirm(`Reject ${r.buyer_name}'s request?`)) return;
+      // Batch 8A. Note what the native version could not say: the buttons
+      // were "OK" and "Cancel", so the only thing naming the act was the
+      // question, and the destructive answer was the one on the left.
+      const yes = await confirmAction({
+        title: `Reject ${r.buyer_name}'s request?`,
+        body: "They will not get access. They can request again later, and you would see it as a new request.",
+        confirmLabel: "Reject request",
+        danger: true,
+      });
+      if (!yes) return;
       await rejectSignupRequest(r.id, session?.actorLabel || "Owner");
       toast(`${r.buyer_name} rejected`, { type: "default" });
       card.remove();

@@ -1,6 +1,7 @@
 // OGGI Wholesale v2 — Salesperson views (Batch 4: real client list, visits, reorder)
 import { emptyState } from "../components/empty-state.js";
 import { toast } from "../components/toast.js";
+import { ask, confirmAction } from "../components/ask.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { getClientsByRecency, addClient, deactivateClient, coverageSnapshot } from "../data/clients.js";
 import { logVisit, getVisits } from "../data/visits.js";
@@ -110,7 +111,13 @@ async function clientsView(outlet) {
     logVisitBtn.className = "btn btn-secondary btn-sm";
     logVisitBtn.textContent = "Log visit";
     logVisitBtn.addEventListener("click", async () => {
-      const note = prompt(`Visit note for ${c.shop_name} (optional):`, "");
+      const note = await ask({
+        title: `Log a visit to ${c.shop_name}`,
+        body: "Recorded against this client with today's date and your name.",
+        label: "Note (optional)",
+        placeholder: "e.g. showed the new season, reorder in two weeks",
+        confirmLabel: "Log visit",
+      });
       if (note === null) return;
       await logVisit(wid, { clientId: c.id, repLabel: session.actorLabel || "Rep", note });
       toast("Visit logged", { type: "success" });
@@ -120,7 +127,13 @@ async function clientsView(outlet) {
     deactivateBtn.className = "btn btn-ghost btn-sm";
     deactivateBtn.textContent = "Deactivate";
     deactivateBtn.addEventListener("click", async () => {
-      if (!confirm(`Deactivate ${c.shop_name}? They'll stop appearing in coverage tracking.`)) return;
+      const yes = await confirmAction({
+        title: `Deactivate ${c.shop_name}?`,
+        body: "They stop appearing in coverage tracking. Their order history is kept.",
+        confirmLabel: "Deactivate",
+        danger: true,
+      });
+      if (!yes) return;
       await deactivateClient(c.id);
       toast(`${c.shop_name} deactivated`, { type: "success" });
       outlet.innerHTML = "";
