@@ -115,6 +115,14 @@ export function renderProductForm({
   // for create and edit, because two forms for one object drift -- the edit
   // one always ends up missing the field the create one grew last week.
   initial = null,
+  // Batch 8D, 23 Aug 2026. Hadi: "create a button at the end of the product
+  // creation page. So if I pick ratio, then at the end, it automatically
+  // generates a button that says set ratios."
+  //
+  // Passed IN rather than imported, for the same reason onCreateSupplier is:
+  // this component must not reach into a view, and the ratio/prepack builder
+  // lives in js/views/wholesaler.js. Signature: (productId, model) => void.
+  onOpenSellingSetup = null,
   onSubmit = async () => ({ ok: true }), onCancel = () => {},
 } = {}) {
   const isEdit = !!initial;
@@ -226,6 +234,8 @@ export function renderProductForm({
       <div class="pf-section-head"><h4>Supplier <span class="pf-optional">optional</span></h4>
         <p>Who you buy this from. Pick one you already have, or add a new one without leaving this form.</p></div>
       <div class="pb-supplier" id="pb-supplier"></div>
+
+      <div class="pf-selling-setup" id="pb-selling-setup" hidden></div>
 
       <p class="pf-status" role="status" hidden></p>
       <div class="pf-actions">
@@ -1446,6 +1456,105 @@ export function renderProductForm({
   }
 
   $("#pb-cancel").addEventListener("click", onCancel);
+  // ==========================================================================
+  // "How it sells" -> what you have to do about it            Batch 8D, 23 Aug
+  // ==========================================================================
+  // THE BUG THIS EXISTS FOR, which is bigger than the missing button:
+  //
+  // v2_enforce_selling_model refuses any LOOSE order for a ratio, prepack or
+  // series product -- "choose a colour and a number of packs rather than
+  // individual sizes". If the product has no pack, the buyer cannot choose one
+  // either. It is refused BOTH ways: silently unsellable.
+  //
+  // Measured on production, 23 Aug 2026, on Hadi's own wholesaler:
+  //     guyhj    ratio     28 variants   0 packs
+  //     htfd     prepack   18 variants   0 packs
+  //
+  // Both unorderable from the moment their model was set. Picking "Ratio" in
+  // this very form is what did it, and this form said nothing.
+  //
+  // So this section is not decoration. It is the only place the consequence of
+  // that dropdown is ever stated.
+  //
+  // SERIES IS DELIBERATELY DIFFERENT. Migration 029 defines a series as "a
+  // pack whose components are every live variant at one unit each" -- there is
+  // no curve and no choice, so there is nothing for a human to build.
+  // Migration 079 generates it with a trigger. Offering a button here would be
+  // a button with exactly one possible answer, and pressing it would teach
+  // people that series needs attention when it does not.
+  const setupHost = $("#pb-selling-setup");
+  const SETUP = {
+    ratio:   { title: "Ratio packs",
+               btn: "Set ratios",
+               why: "A ratio is the size curve a buyer orders in — 1-2-3-3-2-1 across 36 to 46, say. Write it once and apply it to every colour. You can save as many as you like and reuse them on other products." },
+    prepack: { title: "Prepacks",
+               btn: "Set prepacks",
+               why: "A prepack is a fixed carton a buyer orders as one line. You decide exactly what is inside it." },
+  };
+
+  let savedProductId = isEdit ? (initial?.id || null) : null;
+
+  function paintSellingSetup() {
+    const model = el.querySelector(`#${ids.model}`)?.value || "open";
+    setupHost.innerHTML = "";
+
+    if (model === "open") { setupHost.hidden = true; return; }
+    setupHost.hidden = false;
+
+    if (model === "series") {
+      setupHost.innerHTML = `
+        <div class="pf-section-head"><h4>Full series</h4></div>
+        <p class="pf-hint">Nothing to set up. A series is every colour and every size together, one of each —
+        so the pack is built and kept in step automatically as you add or remove sizes.
+        Buyers order whole series only.</p>`;
+      return;
+    }
+
+    const cfg = SETUP[model];
+    if (!cfg) { setupHost.hidden = true; return; }
+
+    const head = document.createElement("div");
+    head.className = "pf-section-head";
+    head.innerHTML = `<h4>${esc(cfg.title)}</h4><p>${esc(cfg.why)}</p>`;
+    setupHost.appendChild(head);
+
+    // The warning is the point. Say the consequence, not the rule.
+    const warn = document.createElement("p");
+    warn.className = "pf-setup-warn";
+    warn.textContent = savedProductId
+      ? `Until this product has at least one ${model === "ratio" ? "ratio" : "prepack"}, buyers cannot order it at all — the server refuses loose sizes for this selling model, and there is nothing else for them to choose.`
+      : `Heads up: once this is created, buyers cannot order it until you set ${model === "ratio" ? "at least one ratio" : "at least one prepack"}. The server refuses loose sizes for this selling model.`;
+    setupHost.appendChild(warn);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-primary";
+    btn.id = "pb-open-selling-setup";
+    btn.textContent = cfg.btn;
+    if (!savedProductId) {
+      // Ratios and packs hang off a product row, so there is genuinely nothing
+      // to attach one to yet. Disabled and SAYING WHY beats a button that
+      // looks live and does nothing -- which is the failure this whole batch
+      // has been about.
+      btn.disabled = true;
+      btn.title = "Create the product first — a ratio has to belong to something.";
+    }
+    btn.addEventListener("click", () => {
+      if (!savedProductId) return;
+      if (typeof onOpenSellingSetup === "function") onOpenSellingSetup(savedProductId, model);
+    });
+    setupHost.appendChild(btn);
+
+    if (!savedProductId) {
+      const note = document.createElement("p");
+      note.className = "pf-hint";
+      note.textContent = "Create the product first — this turns on the moment it exists.";
+      setupHost.appendChild(note);
+    }
+  }
+
+  el.querySelector(`#${ids.model}`).addEventListener("change", paintSellingSetup);
+
   $("#pb-save").addEventListener("click", async () => {
     const draft = readDraft();
     if (!validate(draft)) return;
@@ -1467,14 +1576,33 @@ export function renderProductForm({
     }
 
     save.disabled = false;
-    save.textContent = "Create product";
+    // FIXED 23 Aug 2026 (Batch 8D): this said "Create product" unconditionally,
+    // so saving an EDIT relabelled the button to Create -- press it again and
+    // you would reasonably expect a second product.
+    save.textContent = isEdit ? "Save changes" : "Create product";
     if (!result?.ok) {
       status.className = "pf-status pf-status-error";
-      status.textContent = result?.error || "Could not create the product.";
+      status.textContent = result?.error || (isEdit ? "Could not save the changes." : "Could not create the product.");
       return;
     }
     status.className = "pf-status pf-status-ok";
-    status.textContent = result.message || "Created.";
+    status.textContent = result.message || (isEdit ? "Saved." : "Created.");
+
+    // The product now exists, so the ratio/prepack button has something to
+    // attach to. Turn it on where the person is already looking, rather than
+    // making them find their way back to a card action to finish the job they
+    // are visibly in the middle of.
+    if (!savedProductId && result.productId) savedProductId = result.productId;
+    const model = el.querySelector(`#${ids.model}`)?.value || "open";
+    if (savedProductId && (model === "ratio" || model === "prepack")) {
+      paintSellingSetup();
+      const openBtn = el.querySelector("#pb-open-selling-setup");
+      if (openBtn) {
+        status.textContent = `${status.textContent} Now set ${model === "ratio" ? "its ratios" : "its prepacks"} — buyers cannot order it until you do.`;
+        openBtn.scrollIntoView({ block: "center", behavior: "smooth" });
+        openBtn.focus();
+      }
+    }
   });
 
   el.querySelector("[data-scan-product]")?.addEventListener("click", () => {
@@ -1547,6 +1675,11 @@ export function renderProductForm({
   paintSupplier();
   paintSizes();
   paintGrid();
+
+  // Painted last, so edit mode has already put the product's real model into
+  // the dropdown -- painting before that would always show the "open" state
+  // and a ratio product would open its own editor showing nothing to set.
+  paintSellingSetup();
 
   return {
     el,

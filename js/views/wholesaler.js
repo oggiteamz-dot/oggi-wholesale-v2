@@ -389,6 +389,31 @@ function closeProductPanel() {
   openDrawer = null;
 }
 
+/**
+ * Open the ratio / prepack builder for a product id, from anywhere.
+ *
+ * Batch 8D, 23 Aug 2026. Hadi: "I have zero ways of actually opening this up.
+ * I think you're thinking that there's going to be an AI building this. No,
+ * it's going to be a human. So it needs to be manual."
+ *
+ * Until now the only door was a card action, three screens from where the
+ * selling model is actually chosen. This is the same drawer, opened from the
+ * product form, at the moment the decision is made.
+ *
+ * Refetched rather than handed a product object, because the caller is a form
+ * that has just written to the database and whatever it holds in memory is a
+ * draft, not what was stored.
+ */
+async function openSellingSetup(productId, model) {
+  const session = devAuth.getSession();
+  const wid = session?.wid;
+  const fresh = await getProductForEdit(productId);
+  if (!fresh.ok) { toast(fresh.error || "Could not open that product.", { type: "danger" }); return; }
+  const product = { ...fresh.product, variants: fresh.variants };
+  const title = model === "prepack" ? "Prepacks" : "Ratios and prepacks";
+  openProductPanel(null, title, product, (body) => renderPacksPanel(body, wid, product));
+}
+
 function openProductPanel(panelHost, title, product, painter) {
   // Only one drawer at a time, and a second click replaces the first rather
   // than stacking two fixed elements on top of each other.
@@ -1205,12 +1230,22 @@ async function stockPane(outlet) {
       // navigation, so "go and make one first" would mean losing the work.
       onCreateSupplier: (draft) => createSupplier(wid, draft),
       onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ New product"; },
+      onOpenSellingSetup: (pid, model) => openSellingSetup(pid, model),
       onSubmit: async (draft) => {
         const res = await createProduct(wid, { ...draft, locationId: draft.locationId || location?.id || null });
         if (res.ok) {
           toast(res.message, { type: res.variantsFailed?.length ? "warning" : "success" });
-          outlet.innerHTML = "";
-          stockPane(outlet);
+          // Batch 8D. This used to repaint the pane unconditionally, which
+          // destroys the form -- and with it the "Set ratios" button that has
+          // just appeared on it. For a model that CANNOT be sold until it has
+          // a pack, throwing the person back to a list is how the product
+          // stays unsellable: the one thing they still have to do is now three
+          // screens away. The pane repaints when they close the form instead.
+          const needsSetup = draft.sellingModel === "ratio" || draft.sellingModel === "prepack";
+          if (!needsSetup) {
+            outlet.innerHTML = "";
+            stockPane(outlet);
+          }
         }
         return res;
       },
@@ -2989,6 +3024,10 @@ async function catalogsView(outlet) {
         suppliers,
         onCreateSupplier: (draft) => createSupplier(wid, draft),
         onCancel: () => { formHost.innerHTML = ""; newBtn.textContent = "+ Create new product"; },
+        // Batch 8D. This form stays open after a successful create, so the
+        // drawer opens over it and closing the drawer returns you to the form
+        // you were in -- no navigation, nothing lost.
+        onOpenSellingSetup: (pid, model) => openSellingSetup(pid, model),
         onSubmit: async (draft) => {
           const res = await createProduct(wid, {
             ...draft,
@@ -3760,6 +3799,9 @@ async function openProductEditor(productId, onSaved) {
   });
 
   const initial = {
+    // id added 23 Aug 2026 (Batch 8D): the form needs it to know whether the
+    // "Set ratios" button has anything to attach to yet.
+    id: loaded.product.id,
     name: loaded.product.name,
     description: loaded.product.description,
     category: loaded.product.category,
@@ -3793,6 +3835,10 @@ async function openProductEditor(productId, onSaved) {
     locations,
     initial,
     onCreateSupplier: (d) => createSupplier(wid, d),
+    // Batch 8D. The editor is itself a modal, so it closes before the drawer
+    // opens -- two stacked modals is not a state worth supporting, and an
+    // editor left open behind a drawer is the orphaned-dialog bug of 23 Aug.
+    onOpenSellingSetup: (pid, model) => { close(); openSellingSetup(pid, model); },
     onCancel: close,
     onSubmit: async (draft) => {
       const res = await updateProduct(productId, draft);
