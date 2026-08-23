@@ -156,6 +156,10 @@ broke · ❌ not built
 | 69 | Every module parses, imports resolve, no orphan calls | `js/**` | `check_module_syntax.mjs`, `check_imports_resolve.sh`, `check_cross_module_imports.mjs` | ✅ |
 | 70 | **This repo can rebuild the database** | `supabase/migrations/*` | `check_migration_chain.mjs` (6) + `checks/replay_migrations.sh` | ✅ |
 | 71 | **No change deletes a line without saying so** | `js/**` | `check_no_feature_loss.sh` — zero-deletion gate, overridable only with the reason in the commit message | ✅ |
+| 72 | **The app never loses your place** — every catalog is its own route (`/wholesaler/catalogs/:id`), so creating one lands you in it and a reload keeps you there | `js/views/wholesaler.js`, `js/lib/router.js` | `check_route_state.mjs` (20) | ✅ |
+| 73 | **A route change closes every open dialog** — one modal stack, so no dialog can be orphaned over an unrelated screen, and none of the next ones written has to remember | `js/lib/modal-stack.js` + 6 call sites | `check_route_state.mjs` — opens two dialogs, navigates, asserts the DOM is empty and both scroll locks released | ✅ |
+| 74 | **No native browser dialogs** — every question is asked in the app, so it can be styled, used on a phone, and tested | `js/components/ask.js`, `js/components/receive-dialog.js` | `check_no_undeclared_identifiers.mjs` — `prompt`/`confirm`/`alert` are banned globals | ✅ |
+| 75 | **Nothing is used that was never declared** — a name used without an import is a ReferenceError that only fires when someone clicks the thing | `js/**` | `check_no_undeclared_identifiers.mjs` — real parse, real scope walk, 97 files | ✅ |
 
 ---
 
@@ -163,11 +167,24 @@ broke · ❌ not built
 
 | | |
 |---|---|
-| Features listed | **71** |
-| Enforced and proven (✅) | **63** |
+| Features listed | **75** |
+| Enforced and proven (✅) | **67** |
 | Present but unproven (⚠️) | **8** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
+
+Batch 8A (23 Aug, later the same day) added rows 72–75 and one finding worth
+recording separately, because it is an instance of this file's own subject:
+
+**`check_route_state.mjs` passed, all twenty assertions, while the code was
+broken.** `router.go()` had been added inside `catalogsView()` and
+`js/views/wholesaler.js` never imported `router` — the name only *looked*
+bound because `registerWholesalerRoutes(router)` takes it as a parameter at
+the bottom of the file. `check_imports_resolve.sh` passed too: it resolves the
+paths of imports that exist, and this was an import that did not. At runtime
+the catalog tab would have thrown ReferenceError and done nothing — the exact
+symptom the batch was fixing. Row 75 is the gate written for it, red-proven by
+deleting the import and watching it name both lines.
 
 Batch 8 (23 Aug) added rows 15–21. None of the three is a new capability:
 the selling models have been enforced since 15 August and the ratio editor has
