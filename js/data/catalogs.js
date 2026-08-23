@@ -80,7 +80,11 @@ export async function getCatalogProducts(catalogId) {
 
   const [{ data: products }, { data: variants }] = await Promise.all([
     sbCall(supabase.from("v2_products")
-      .select("id, name, description, category, archived, selling_model, created_at")
+      // base_unit added 23 Aug 2026 (Batch 8C.1). The ratio builder reads
+      // product.base_unit; without the column the box came back blank on this
+      // surface and saving would have silently reset a product sold in 12s to
+      // being sold by the single piece.
+      .select("id, name, description, category, archived, selling_model, base_unit, created_at")
       .in("id", ids)),
     sbCall(supabase.from("v2_product_variants")
       // image_url/images come along so the list can show what the product
@@ -106,8 +110,37 @@ export async function getCatalogProducts(catalogId) {
       return {
         id: p.id, name: p.name, description: p.description, category: p.category,
         archived: !!p.archived, sellingModel: p.selling_model, createdAt: p.created_at,
+        base_unit: p.base_unit,
         highlighted: !!highlightedBy.get(p.id),
         variantCount: vs.length,
+        // ---------------------------------------------------------------
+        // `variants` added 23 Aug 2026 (Batch 8C.1). THE BUG THIS FIXES:
+        // ---------------------------------------------------------------
+        // This function has always FETCHED the variants -- they are right
+        // there in `vs`, and three lines below they are used to build the
+        // colour swatches, the price range and the photographs. They were
+        // simply never handed back on the row.
+        //
+        // js/data/size-ratios.js reads product.variants[].extra_attrs to work
+        // out which sizes and colours a product has. On this surface it got
+        // `undefined`, so productSizes() and productColors() both returned []
+        // and the ratio builder took its "this product has no colours or
+        // sizes yet" branch -- for EVERY product, always, however many it
+        // actually had.
+        //
+        // Hadi, 23 Aug: "I added the images, I added the colors, I added the
+        // sizes, but there's no place to set the ratios." His product had 3
+        // colours and 6 sizes. The panel told him 0.
+        //
+        // The ratio editor was added to Catalogs on 20 Aug at his request --
+        // "the ratio editor belongs here as well as on Products". The copy on
+        // Products worked, because listProductsForAdmin returns `variants: vs`
+        // on its rows. The copy here never did, from the day it shipped.
+        //
+        // One line of difference between two surfaces running the same
+        // component is exactly the drift the shared-helper rule exists to
+        // stop, and it was in the DATA layer where nobody was looking.
+        variants: vs,
         // Distinct colours, for the swatch row. "#999" matches the fallback
         // js/data/catalog.js already uses, so a variant with no colorHex looks
         // the same on this screen as it does to a buyer. In practice that is
