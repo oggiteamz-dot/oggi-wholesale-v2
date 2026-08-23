@@ -33,6 +33,7 @@ import { sellingModelBadge } from "../lib/selling-model.js";
 import { openModal, closeModal, closeAllModals, modalDepth } from "../lib/modal-stack.js";
 import { openReceiveDialog } from "../components/receive-dialog.js";
 import { ask, confirmAction } from "../components/ask.js";
+import { receiveScanView } from "./mobile-ops.js";
 import { router } from "../lib/router.js";
 import { renderProductForm } from "../components/product-form.js";
 import { renderProductTile, productGrid } from "../components/admin-product-tile.js";
@@ -1583,12 +1584,18 @@ async function labelsView(outlet, params = {}) {
   const session = devAuth.getSession();
   const wid = session.wid;
 
-  const labelsHeader = pageHeader("Barcode labels",
-    "Print a scannable label for every colour and size. Codes are read by the app's own camera scanner and by any hardware scanner.");
-  // Screen furniture only -- printing the page title would cost a label off
-  // the top of the sheet.
-  labelsHeader.classList.add("no-print");
-  outlet.appendChild(labelsHeader);
+  // Batch 8B: when this view is a SUB-TAB of Inventory the screen already has
+  // its title, so a second one stacked underneath reads as two screens rather
+  // than one. Kept as a flag, not deleted, so the standalone route still shows
+  // a title if it is ever reached directly.
+  if (!params.embedded) {
+    const labelsHeader = pageHeader("Barcode labels",
+      "Print a scannable label for every colour and size. Codes are read by the app's own camera scanner and by any hardware scanner.");
+    // Screen furniture only -- printing the page title would cost a label off
+    // the top of the sheet.
+    labelsHeader.classList.add("no-print");
+    outlet.appendChild(labelsHeader);
+  }
 
   const host = document.createElement("div");
   outlet.appendChild(host);
@@ -1930,10 +1937,16 @@ function dedupeVariants(stock) {
   return [...seen.values()];
 }
 
-async function intelligenceView(outlet) {
+async function intelligenceView(outlet, { embedded = false } = {}) {
   const session = devAuth.getSession();
   const wid = session.wid;
-  outlet.appendChild(pageHeader("Inventory Intelligence", "Reorder suggestions, GMROI/aging/sell-through, ABC cycle counts, and kit assembly."));
+  // Batch 8B: when this view is a SUB-TAB of Inventory the screen already has
+  // its title, so a second one stacked underneath reads as two screens rather
+  // than one. Kept as a flag, not deleted, so the standalone route still shows
+  // a title if it is ever reached directly.
+  if (!embedded) {
+    outlet.appendChild(pageHeader("Inventory Intelligence", "Reorder suggestions, GMROI/aging/sell-through, ABC cycle counts, and kit assembly."));
+  }
 
   // One signal fetch feeds the summary, the reorder list and the breakout
   // alert, so the three can never disagree with each other on screen.
@@ -3702,13 +3715,19 @@ async function catalogsView(outlet, params = {}) {
 // Refusing at the moment of the click is correct but late.
 // =============================================================================
 
-async function locationsView(outlet) {
+async function locationsView(outlet, { embedded = false } = {}) {
   const session = devAuth.getSession();
   const wid = session.wid;
-  outlet.appendChild(pageHeader(
-    "Locations",
-    "Warehouses and shops that hold your stock. Move stock between them here."
-  ));
+  // Batch 8B: when this view is a SUB-TAB of Inventory the screen already has
+  // its title, so a second one stacked underneath reads as two screens rather
+  // than one. Kept as a flag, not deleted, so the standalone route still shows
+  // a title if it is ever reached directly.
+  if (!embedded) {
+    outlet.appendChild(pageHeader(
+      "Locations",
+      "Warehouses and shops that hold your stock. Move stock between them here."
+    ));
+  }
 
   const host = document.createElement("div");
   outlet.appendChild(host);
@@ -4059,14 +4078,20 @@ async function openProductEditor(productId, onSaved) {
 // suppliers() means "wholesalers I buy from" seen from a buyer's seat. This is
 // the wholesaler's own supply chain, and migration 050 closed the table to anon
 // entirely, so nothing here is ever buyer-facing.
-async function suppliersView(outlet) {
+async function suppliersView(outlet, { embedded = false } = {}) {
   const session = devAuth.getSession();
   const wid = session?.wid;
   outlet.innerHTML = "";
-  outlet.appendChild(pageHeader(
-    "Suppliers",
-    "Who you buy from. Attach one to a product when you create it, so you can always find your way back to the source."
-  ));
+  // Batch 8B: when this view is a SUB-TAB of Inventory the screen already has
+  // its title, so a second one stacked underneath reads as two screens rather
+  // than one. Kept as a flag, not deleted, so the standalone route still shows
+  // a title if it is ever reached directly.
+  if (!embedded) {
+    outlet.appendChild(pageHeader(
+      "Suppliers",
+      "Who you buy from. Attach one to a product when you create it, so you can always find your way back to the source."
+    ));
+  }
 
   const host = document.createElement("div");
   outlet.appendChild(host);
@@ -4325,18 +4350,61 @@ async function suppliersView(outlet) {
 // control that reprices an entire catalogue does not belong under a grid
 // somebody scrolls past forty times a day.
 
+/**
+ * INVENTORY — one module, nine views of the same stock.  (Batch 8B, 23 Aug 2026)
+ *
+ * The wholesaler sidebar had FIFTEEN entries and seven of them were inventory.
+ * Batch 6 folded Products in and stopped, which was fairly criticised as moving
+ * one item and calling it a system. These six were never separate places: they
+ * are questions you ask about the same stock. Where is it (Locations), how did
+ * it get there (Movements), who sold it to you (Suppliers), how do you find it
+ * on a shelf (Labels, Scan), and what should you do about it (Insights).
+ *
+ * EVERY TAB'S PATH IS ITS ORIGINAL TOP-LEVEL ROUTE, deliberately. The obvious
+ * design would have been fresh `/wholesaler/inventory/movements` paths plus
+ * redirects from the old ones. That is two sets of paths to keep in step, and
+ * the redirect layer is exactly the sort of thing that rots quietly. Reusing
+ * the original path means every bookmark and every installed phone's cached
+ * navigation keeps working BY CONSTRUCTION rather than by a redirect somebody
+ * has to remember to maintain.
+ *
+ * Labels and Movements take route params (a product id), so their render gets
+ * the params object; the rest ignore it.
+ */
 const INVENTORY_TABS = [
-  { key: "stock",    icon: "📊", label: "Stock",         path: "/wholesaler/inventory",          render: (host) => stockPane(host) },
-  { key: "products", icon: "📦", label: "Products",      path: "/wholesaler/inventory/products", render: (host) => productsPane(host) },
-  { key: "pricing",  icon: "💲", label: "Pricing rules", path: "/wholesaler/inventory/pricing",  render: (host) => pricingRulesPane(host) },
+  { key: "stock",        icon: "📊", label: "Stock",         path: "/wholesaler/inventory",          render: (host) => stockPane(host) },
+  { key: "products",     icon: "📦", label: "Products",      path: "/wholesaler/inventory/products", render: (host) => productsPane(host) },
+  { key: "pricing",      icon: "💲", label: "Pricing rules", path: "/wholesaler/inventory/pricing",  render: (host) => pricingRulesPane(host) },
+  { key: "movements",    icon: "🕓", label: "Movements",     path: "/wholesaler/movements",          render: (host, params) => movementsView(host, { ...params, embedded: true }) },
+  { key: "locations",    icon: "🏬", label: "Locations",     path: "/wholesaler/locations",          render: (host) => locationsView(host, { embedded: true }) },
+  { key: "suppliers",    icon: "🏭", label: "Suppliers",     path: "/wholesaler/suppliers",          render: (host) => suppliersView(host, { embedded: true }) },
+  { key: "labels",       icon: "🏷", label: "Labels",        path: "/wholesaler/labels",             render: (host, params) => labelsView(host, { ...params, embedded: true }) },
+  { key: "scan",         icon: "📷", label: "Scan",          path: "/wholesaler/receive-scan",       render: (host) => receiveScanView(host, { embedded: true }) },
+  { key: "intelligence", icon: "🧠", label: "Insights",      path: "/wholesaler/intelligence",       render: (host) => intelligenceView(host, { embedded: true }) },
 ];
 
-async function inventoryView(outlet, { tab = "stock" } = {}) {
+/** The subtitle under "Inventory" changes with the tab, so the screen says what
+ *  you are actually looking at. One title, nine explanations. */
+const INVENTORY_SUBTITLE = {
+  stock:        "What you have, where it is, and what is available to sell right now.",
+  products:     "Everything you sell. Create, edit, price and set how each one is ordered.",
+  pricing:      "The rules that apply to every product at once.",
+  movements:    "Every unit in and out, dated and explained. This is why a number is what it is.",
+  locations:    "Warehouses and shops that hold your stock. Move stock between them here.",
+  suppliers:    "Who you buy from — so you can always find your way back to the source.",
+  labels:       "Print a scannable label for every colour and size.",
+  scan:         "Scan a barcode or type the SKU, confirm the quantity, done.",
+  intelligence: "Reorder suggestions, aging and sell-through, ABC cycle counts, and kits.",
+};
+
+async function inventoryView(outlet, { tab = "stock", ...params } = {}) {
   outlet.appendChild(pageHeader(
     "Inventory",
-    "Your stock, your products and the rules that price them — one screen."
+    INVENTORY_SUBTITLE[tab] || "Your stock, your products and the rules that price them — one screen."
   ));
-  const tabs = renderSubTabs({ tabs: INVENTORY_TABS, active: tab });
+  // params carries route params (a product id for Movements and Labels)
+  // straight through to whichever pane wants them.
+  const tabs = renderSubTabs({ tabs: INVENTORY_TABS, active: tab, params });
   outlet.appendChild(tabs.el);
   await tabs.paint();
 }
@@ -4540,16 +4608,21 @@ export function registerWholesalerRoutes(router) {
   router.register("/wholesaler/inventory", (outlet) => inventoryView(outlet, { tab: "stock" }));
   router.register("/wholesaler/inventory/products", (outlet) => inventoryView(outlet, { tab: "products" }));
   router.register("/wholesaler/inventory/pricing", (outlet) => inventoryView(outlet, { tab: "pricing" }));
-  router.register("/wholesaler/movements", (outlet) => movementsView(outlet));
-  router.register("/wholesaler/labels", (outlet) => labelsView(outlet));
-  router.register("/wholesaler/labels/:productId", (outlet, params) => labelsView(outlet, params));
+  // Batch 8B. These six used to be top-level screens with their own nav entries.
+  // They are now sub-tabs of Inventory -- and they keep their ORIGINAL paths,
+  // so every bookmark and every installed phone's cached navigation still lands
+  // somewhere real, without a redirect layer to maintain.
+  router.register("/wholesaler/movements", (outlet) => inventoryView(outlet, { tab: "movements" }));
+  router.register("/wholesaler/labels", (outlet) => inventoryView(outlet, { tab: "labels" }));
+  router.register("/wholesaler/labels/:productId", (outlet, params) => inventoryView(outlet, { tab: "labels", ...params }));
   // Deep link from a product card, so "why is this 12 and not 20" is answered
   // where the question is actually asked rather than on a screen the
   // wholesaler has to think to go and find.
-  router.register("/wholesaler/movements/:productId", (outlet, params) => movementsView(outlet, params));
+  router.register("/wholesaler/movements/:productId", (outlet, params) => inventoryView(outlet, { tab: "movements", ...params }));
 
-  router.register("/wholesaler/locations", (outlet) => locationsView(outlet));
-  router.register("/wholesaler/suppliers", (outlet) => suppliersView(outlet));
-  router.register("/wholesaler/intelligence", (outlet) => intelligenceView(outlet));
+  router.register("/wholesaler/locations", (outlet) => inventoryView(outlet, { tab: "locations" }));
+  router.register("/wholesaler/suppliers", (outlet) => inventoryView(outlet, { tab: "suppliers" }));
+  router.register("/wholesaler/intelligence", (outlet) => inventoryView(outlet, { tab: "intelligence" }));
+  router.register("/wholesaler/receive-scan", (outlet) => inventoryView(outlet, { tab: "scan" }));
   router.register("/wholesaler/settings", (outlet) => settingsView(outlet));
 }
