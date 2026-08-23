@@ -40,6 +40,7 @@
 // is `must_change_password`: the buyer has to replace it on first
 // sign-in, so the copy sitting in a WhatsApp thread is dead on arrival.
 import { esc } from "../lib/utils.js";
+import { openModal, closeModal } from "../lib/modal-stack.js";
 import { renderTagInput } from "./tag-input.js";
 import { createClient } from "../data/clients.js";
 
@@ -336,7 +337,12 @@ function showCredentials({ shopName, ownerName, phone, username, password, wasGe
     <button class="btn btn-primary" id="cred-done" style="width:100%;">I've saved it — close</button>
   `;
   back.appendChild(box);
-  document.body.appendChild(back);
+  // Batch 8A. This sheet shows a password that appears NOWHERE else, ever.
+  // Leaving it orphaned over another screen was the mild version of the risk;
+  // the real one is that it used to survive a navigation, so the person could
+  // wander off, come back, and find a credential dialog they no longer had
+  // any context for.
+  openModal(back, { label: "New client sign-in details" });
 
   box.querySelector("#cred-copy").addEventListener("click", async () => {
     const btn = box.querySelector("#cred-copy");
@@ -355,5 +361,5 @@ function showCredentials({ shopName, ownerName, phone, username, password, wasGe
   // No click-outside-to-dismiss, and no Escape. Every other dialog in this
   // app closes that way; this one must not, because a stray click would
   // destroy the only copy of the password.
-  box.querySelector("#cred-done").addEventListener("click", () => back.remove());
+  box.querySelector("#cred-done").addEventListener("click", () => closeModal(back));
 }

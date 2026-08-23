@@ -23,6 +23,7 @@
 import { toast } from "./toast.js";
 import { extendSubscription, cancelSubscription, setPrice } from "../data/subscriptions.js";
 import { esc } from "../lib/utils.js";
+import { ask } from "./ask.js";
 
 // Months, not "periods" — so any combination stacks correctly.
 const EXTEND_OPTIONS = [
@@ -140,10 +141,14 @@ export function renderSubscriptionPanel({ wid, billing = {}, onChange = () => {}
   cancelBtn.textContent = "Cancel subscription";
   cancelBtn.title = "Stops renewing. They keep access until their paid time runs out.";
   cancelBtn.addEventListener("click", async () => {
-    const reason = prompt(
-      `Cancel ${billing.brand || wid}'s subscription?\n\n` +
-      `They KEEP access until ${billing.paid_until || "their paid time ends"}.\n` +
-      `Reason (recorded in the history):`, "");
+    const reason = await ask({
+      title: `Cancel ${billing.brand || wid}'s subscription?`,
+      body: `They KEEP access until ${billing.paid_until || "their paid time ends"}. Nothing is cut off today.`,
+      label: "Reason (recorded in the billing history)",
+      placeholder: "e.g. moving to annual, closing the account",
+      confirmLabel: "Cancel subscription",
+      validate: (v) => (v.trim().length >= 3 ? null : "Give a short reason — it is the only record of why this account stopped renewing."),
+    });
     if (reason === null) return;
     const res = await cancelSubscription(wid, reason, false);
     if (!res.ok) { toast(res.error || "Could not cancel", { type: "danger" }); return; }
@@ -159,12 +164,19 @@ export function renderSubscriptionPanel({ wid, billing = {}, onChange = () => {}
   killBtn.style.cssText = "color:var(--danger);border:1px solid var(--danger);background:transparent;";
   killBtn.title = "Ends their access TODAY, even if they have paid time left.";
   killBtn.addEventListener("click", async () => {
-    const typed = prompt(
-      `TERMINATE ${billing.brand || wid} immediately?\n\n` +
-      `This ends their access TODAY${billing.paid_until ? `, discarding paid time up to ${billing.paid_until}` : ""}.\n\n` +
-      `Type the word TERMINATE to confirm:`, "");
+    // The typed confirmation stays -- it is the right control for an action
+    // that cuts off a paying customer's business today. What changes is that
+    // the dialog now REFUSES a wrong word instead of accepting it, closing,
+    // and only then telling you via a toast that nothing happened.
+    const typed = await ask({
+      title: `Terminate ${billing.brand || wid} immediately?`,
+      body: `This ends their access TODAY${billing.paid_until ? `, discarding paid time up to ${billing.paid_until}` : ""}.`,
+      label: "Type the word TERMINATE to confirm",
+      placeholder: "TERMINATE",
+      confirmLabel: "Terminate now",
+      validate: (v) => (v.trim().toUpperCase() === "TERMINATE" ? null : "Type TERMINATE exactly to confirm, or Cancel to leave the account running."),
+    });
     if (typed === null) return;
-    if (typed.trim().toUpperCase() !== "TERMINATE") { toast("Not terminated — confirmation didn't match", { type: "default" }); return; }
     const res = await cancelSubscription(wid, "Terminated by owner", true);
     if (!res.ok) { toast(res.error || "Could not terminate", { type: "danger" }); return; }
     toast("Access terminated today", { type: "danger" });

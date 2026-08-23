@@ -17,6 +17,7 @@
 // showing it eight times would be worse than showing it once.
 
 import { esc } from "../lib/utils.js";
+import { openModal, closeModal } from "../lib/modal-stack.js";
 
 /** Collect a product's distinct images from its variants, main one first. */
 export function imagesForVariants(variants) {
@@ -126,22 +127,21 @@ export function openGallery(images, startIndex = 0, label = "") {
     }
   }, { passive: true });
 
-  function close() {
-    document.removeEventListener("keydown", onKey);
-    document.body.style.overflow = prevOverflow;
-    overlay.remove();
-  }
+  // Batch 8A. Escape, the scroll lock and closing-on-navigation are the modal
+  // stack's. The arrow keys are NOT -- they are this viewer's own behaviour,
+  // so that listener stays and is removed in onClose.
+  const close = () => closeModal(overlay);
   function onKey(ev) {
-    if (ev.key === "Escape") close();
-    else if (ev.key === "ArrowRight") goTo(index + 1);
+    if (ev.key === "ArrowRight") goTo(index + 1);
     else if (ev.key === "ArrowLeft") goTo(index - 1);
   }
 
   overlay.querySelector("[data-close]").addEventListener("click", close);
   document.addEventListener("keydown", onKey);
-  const prevOverflow = document.body.style.overflow;
-  document.body.style.overflow = "hidden";
-  document.body.appendChild(overlay);
+  openModal(overlay, {
+    label: "Photo viewer",
+    onClose: () => document.removeEventListener("keydown", onKey),
+  });
   paintCount();
   goTo(index, false);
   return overlay;

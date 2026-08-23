@@ -23,6 +23,7 @@
 
 import { toast } from "./toast.js";
 import { decodeImageData, hasNativeDetector } from "../lib/barcode-decode.js";
+import { openModal, closeModal } from "../lib/modal-stack.js";
 
 /** Returns { el, refocus, setPlaceholder }. onSubmit receives the trimmed
  *  code; the input clears itself first, so a handler that throws cannot leave
@@ -141,25 +142,33 @@ async function openCamera({ onSubmit, input }) {
     catch { detector = null; }
   }
 
+  // Batch 8A, and this one is the most consequential of the six.
+  //
+  // Releasing the camera used to depend on stop() being called, and stop() was
+  // only called by the Cancel button, by Escape, or by a successful scan.
+  // Navigating away with the scanner open therefore left the phone's CAMERA
+  // RUNNING with no visible overlay -- a hot torch on a warehouse phone, and a
+  // privacy indicator the user cannot account for.
+  //
+  // Camera release is now the modal stack's onClose, so it happens however the
+  // dialog goes away, route change included.
   function stop() {
     if (stopped) return;
-    stopped = true;
-    stream.getTracks().forEach((t) => t.stop());
-    document.removeEventListener("keydown", onKey);
-    overlay.remove();
-    document.body.style.overflow = prevOverflow;
+    closeModal(overlay);            // -> onClose below does the real teardown
   }
-  function onKey(ev) { if (ev.key === "Escape") stop(); }
   function found(code) {
     stop();
     onSubmit(String(code).trim());
   }
 
   overlay.querySelector("[data-cancel]").addEventListener("click", stop);
-  document.addEventListener("keydown", onKey);
-  const prevOverflow = document.body.style.overflow;
-  document.body.style.overflow = "hidden";
-  document.body.appendChild(overlay);
+  openModal(overlay, {
+    label: "Scan a barcode",
+    onClose: () => {
+      stopped = true;
+      stream.getTracks().forEach((t) => t.stop());
+    },
+  });
 
   try { await video.play(); } catch { /* autoplay policies; the loop copes */ }
 

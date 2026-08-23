@@ -139,6 +139,14 @@ const MUST = [
   [".pdrawer-body",     "the drawer's internal scroller"],
   [".pf-selling-setup", "the Set ratios / Set prepacks panel at the foot of the product form"],
   [".pf-setup-warn",    "the warning that says buyers cannot order the product yet"],
+  // Batch 8A. These are appended at the very END of components.css, which is
+  // the exact position that got eaten last time: a stray brace earlier in the
+  // file made CSS error recovery discard the first construct that followed it,
+  // and the file itself looked fine. Anything appended last is the most
+  // exposed, so it is the most worth asserting.
+  [".modal-backdrop",   "the shared dialog backdrop — without it every dialog written from here on renders inline, in document flow, wherever it happens to be appended"],
+  [".modal-box",        "the dialog panel, which is also what stops it growing past the viewport"],
+  [".modal-actions",    "the dialog's button row"],
 ];
 const allKept = await page.evaluate(async (texts) => {
   const el = document.createElement("style");
@@ -173,6 +181,25 @@ const drawerFixed = await page.evaluate(async (texts) => {
 }, files.map((f) => readFileSync(join(CSS_DIR, f), "utf8")));
 ok(drawerFixed === "fixed",
    `an element with class "pdrawer-root" actually computes to position:fixed (got "${drawerFixed}") — the assertion the screenshot would have failed`);
+
+// Same assertion for the dialog backdrop, and for the same reason: a rule that
+// is in the file is not a rule in the browser. A dialog that computes to
+// `static` is a dialog that appears at the bottom of the page, below the fold,
+// with no indication that anything opened -- the packs-panel bug wearing a
+// different class name.
+const modalPos = await page.evaluate(async (texts) => {
+  const el = document.createElement("style");
+  el.textContent = texts.join("\n");
+  document.head.appendChild(el);
+  const d = document.createElement("div");
+  d.className = "modal-backdrop";
+  document.body.appendChild(d);
+  const pos = getComputedStyle(d).position;
+  d.remove(); el.remove();
+  return pos;
+}, files.map((f) => readFileSync(join(CSS_DIR, f), "utf8")));
+ok(modalPos === "fixed",
+   `an element with class "modal-backdrop" actually computes to position:fixed (got "${modalPos}") — a dialog in normal flow is a dialog nobody can see`);
 
 await browser.close();
 
