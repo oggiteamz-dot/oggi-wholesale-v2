@@ -94,7 +94,36 @@ export function renderSubTabs({ tabs, active, params = {} }) {
     // the PAGE vertically -- which would jump the reader away from the content
     // they just navigated to.
     el.scrollIntoView({ inline: "center", block: "nearest" });
+    syncEdges();
   }
+
+  /**
+   * Which edges are "there is more this way".
+   *
+   * A right-hand fade alone was the first version of this, and a screenshot of
+   * the real nine-tab strip showed why it is not enough: land on the NINTH tab
+   * and the strip auto-scrolls to the end, so the right fade correctly
+   * disappears -- and now nothing at all suggests that tabs one to five exist
+   * behind you. The reader sees four tabs, one of them selected, and no reason
+   * to think there are five more.
+   *
+   * So both edges, each shown only when there is actually content that way.
+   * A fade that is always on is decoration; a fade that means something is an
+   * affordance.
+   */
+  function syncEdges() {
+    // 1px of slack: sub-pixel layout makes an exact comparison flicker the
+    // fade on and off at the ends of the scroll.
+    const atStart = bar.scrollLeft <= 1;
+    const atEnd = bar.scrollLeft >= bar.scrollWidth - bar.clientWidth - 1;
+    wrap.classList.toggle("has-more-left", !atStart);
+    wrap.classList.toggle("has-more-right", !atEnd);
+  }
+  bar.addEventListener("scroll", syncEdges, { passive: true });
+  // The strip's width changes with the window, and a strip that fits at 900px
+  // does not fit at 360px. Guarded because jsdom has no ResizeObserver.
+  if (typeof ResizeObserver === "function") new ResizeObserver(syncEdges).observe(bar);
+
   // After the element is in the document and has been laid out. Called by the
   // caller's append order in practice, so a microtask is enough.
   queueMicrotask(revealActive);
