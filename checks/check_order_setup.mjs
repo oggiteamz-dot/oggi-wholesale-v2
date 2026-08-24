@@ -60,19 +60,33 @@ catch (e) { fail.push(`js/components/order-setup.js could not be loaded: ${Strin
 // A product with a deliberate HOLE: there is no Blue/L variant. A cell that
 // cannot be ordered must not be typeable, or the wholesaler builds a box
 // containing something that does not exist.
-const V = (id, color, size) => ({ id, sku: `T-${color}-${size}`, extra_attrs: { color, size } });
+const V = (id, color, size, hex, img) => ({
+  id, sku: `T-${color}-${size}`,
+  extra_attrs: { color, size, colorHex: hex },
+  image_url: img || null, images: [],
+});
 const product = {
   id: "p1", name: "Test Tee", selling_model: "open", base_unit: null,
   moq_qty: null, moq_per_colour: null,
   variants: [
-    V("v1", "Red", "S"), V("v2", "Red", "M"), V("v3", "Red", "L"),
-    V("v4", "Blue", "S"), V("v5", "Blue", "M"),   // <- no Blue / L
+    V("v1", "Red", "S", "#c0392b"), V("v2", "Red", "M", "#c0392b"), V("v3", "Red", "L", "#c0392b"),
+    V("v4", "Blue", "S", "#2c5f9e", "https://example.invalid/blue.jpg"),
+    V("v5", "Blue", "M", "#2c5f9e"),   // <- no Blue / L
   ],
 };
 
 if (mod?.renderOrderSetup) {
   const el = mod.renderOrderSetup({ product, wid: "test", onSaved: () => {} });
-  await new Promise((r) => setTimeout(r, 30));   // the async pack/ratio loaders
+  await new Promise((r) => setTimeout(r, 40));   // the async pack/ratio loaders
+
+  const boxCards = () => [...el.querySelectorAll(".os-box")];
+  const cellsOf = (card) => [...card.querySelectorAll(".os-cell")];
+  const setRow = (card, rowIdx, vals) => {
+    const row = [...card.querySelectorAll("tbody tr")][rowIdx];
+    const cs = [...row.querySelectorAll(".os-cell")];
+    vals.forEach((v, i) => { if (cs[i] && !cs[i].disabled) { cs[i].value = String(v); cs[i].dispatchEvent(new dom.window.Event("input", { bubbles: true })); } });
+    return cs;
+  };
 
   // -- 1. the one question -------------------------------------------------
   const radios = [...el.querySelectorAll('input[name="os-mode"]')];
@@ -80,40 +94,85 @@ if (mod?.renderOrderSetup) {
   ok(radios.map((r) => r.value).sort().join(",") === "boxes,open",
      "the two are 'any amount' and 'only in boxes' — the three-way ratio/prepack/series distinction the database never made is gone from the screen");
 
-  // -- 2. the grid ---------------------------------------------------------
-  const cells = [...el.querySelectorAll(".os-cell")];
-  ok(cells.length === 6, `the grid is colours x sizes (2 x 3 = 6 cells, got ${cells.length}) — not one flat row per variant`);
-  const disabled = cells.filter((c) => c.disabled);
-  ok(disabled.length === 1, `the one colour/size that has no variant is not typeable (got ${disabled.length} disabled) — a box cannot contain something that does not exist`);
+  // -- 2. ARBITRARY BOXES. This is the assertion that was missing. ----------
+  // The first version of this panel could express exactly two shapes: one
+  // mixed box, or one box per colour. The builder it replaced could create any
+  // number of arbitrary packs, so shipping it was a REGRESSION -- and this
+  // gate passed, because it was written to match the new design rather than to
+  // preserve the old capability. That is how a feature-loss check goes green
+  // on a feature loss.
+  ok(boxCards().length === 1, `a product with no boxes starts with one empty box card (got ${boxCards().length})`);
+  el.querySelector("#os-add-box").dispatchEvent(new dom.window.Event("click"));
+  el.querySelector("#os-add-box").dispatchEvent(new dom.window.Event("click"));
+  ok(boxCards().length === 3,
+     `"Add a box" adds another box, without limit (got ${boxCards().length} after two clicks) — "Box A all colours L and M, Box B only S and XL, Box C just blue" has to be expressible`);
 
-  // -- 3. the shortcut actually fills the grid ------------------------------
-  const redRow = [...el.querySelectorAll("tbody tr")][0];
-  const redCells = [...redRow.querySelectorAll(".os-cell")];
-  redCells[0].value = "2"; redCells[1].value = "3"; redCells[2].value = "3";
-  redCells.forEach((c) => c.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
-  el.querySelector("#os-same").dispatchEvent(new dom.window.Event("click"));
-  const blueRow = [...el.querySelectorAll("tbody tr")][1];
-  const blueCells = [...blueRow.querySelectorAll(".os-cell")];
-  ok(blueCells[0].value === "2" && blueCells[1].value === "3",
-     `"Same mix for every colour" copies the first row down (Blue got ${blueCells[0].value},${blueCells[1].value}) — this is the "don't make me re-enter it per colour" complaint, answered`);
-  ok(blueCells[2].disabled && blueCells[2].value === "",
-     "…and it does NOT fill the cell that has no variant — copying a row must not invent stock");
+  // -- 3. and the boxes are INDEPENDENT -----------------------------------
+  // Guarded. Proving this gate red by capping the panel at one box made it
+  // CRASH here on an undefined second card -- exit 1, no readable finding.
+  // A gate that only throws tells you nothing, which this project has already
+  // written down once. Everything below needs two boxes, so if there are not
+  // two, say so and stop rather than dying.
+  const [b1, b2] = boxCards();
+  if (!b1 || !b2) {
+    fail.push("only one box could be created, so nothing below could be checked — the panel must support any number of arbitrary boxes");
+  } else {
+  setRow(b1, 0, [2, 3, 3]);
+  const b2first = cellsOf(b2)[0];
+  ok(b2first.value === "0",
+     "filling one box leaves the others alone — boxes derived from each other are not arbitrary boxes");
 
-  // -- 4. the sentence, which is the whole point ---------------------------
-  const preview = el.querySelector("#os-box-preview");
-  const text = preview?.textContent || "";
-  ok(/1 box of Red/.test(text) && /2 S/.test(text) && /8 pieces/.test(text),
-     `the preview says what a buyer actually receives — got "${text.slice(0, 90)}". Hadi could not tell what he was building; this is the fix for that`);
+  // -- 4. each box carries its own full grid ------------------------------
+  ok(cellsOf(b1).length === 6, `each box has its own colours x sizes grid (2 x 3 = 6, got ${cellsOf(b1).length})`);
+  ok(cellsOf(b1).filter((c) => c.disabled).length === 1,
+     "the colour/size with no variant is not typeable — a box cannot contain something that does not exist");
 
-  // -- 5. per-colour vs one fixed box --------------------------------------
-  const sw = el.querySelector("#os-per-colour");
-  ok(!!sw, "there is a 'buyer picks the colour' switch");
-  sw.checked = false;
-  sw.dispatchEvent(new dom.window.Event("change"));
-  ok(/They pick nothing/.test(el.querySelector("#os-box-preview").textContent),
-     "turning it off describes ONE fixed box the buyer cannot choose within — the mixed box, which the old UI could not express at all");
+  // -- 5. the shortcut fills THIS box only --------------------------------
+  b1.querySelector(".os-b-same").dispatchEvent(new dom.window.Event("click"));
+  const b1row2 = [...[...b1.querySelectorAll("tbody tr")][1].querySelectorAll(".os-cell")];
+  ok(b1row2[0].value === "2" && b1row2[1].value === "3",
+     `"Same mix for every colour" copies the first row down within its own box (got ${b1row2[0].value},${b1row2[1].value})`);
+  ok(b1row2[2].disabled && b1row2[2].value === "",
+     "…and does NOT fill the cell that has no variant — copying a row must not invent stock");
+  ok(cellsOf(b2)[0].value === "0", "…and does not touch the other boxes");
 
-  // -- 6. the open pane exposes the settings that were unreachable ---------
+  // -- 6. one box per colour is an ACTION, not a mode ----------------------
+  const before = boxCards().length;
+  el.querySelector("#os-add-per-colour").dispatchEvent(new dom.window.Event("click"));
+  // Derived from the fixture, not typed as a literal: the first version of
+  // this line said "3" against a two-colour product and failed for a reason
+  // that had nothing to do with the app.
+  const nColours = new Set(product.variants.map((v) => v.extra_attrs.color)).size;
+  ok(boxCards().length === before + nColours,
+     `"One box per colour" adds one ordinary, editable box per colour (got +${boxCards().length - before} for ${nColours} colours) — not a mode that locks the grid`);
+
+  // -- 7. duplicate and remove --------------------------------------------
+  const n0 = boxCards().length;
+  b1.querySelector(".os-box-dup").dispatchEvent(new dom.window.Event("click"));
+  const dup = boxCards()[boxCards().length - 1];
+  ok(boxCards().length === n0 + 1 && cellsOf(dup)[0].value === "2",
+     "Duplicate copies a box's contents, so a near-identical box is not retyped");
+  const n1 = boxCards().length;
+  dup.querySelector(".os-box-del").dispatchEvent(new dom.window.Event("click"));
+  ok(boxCards().length === n1 - 1, "Remove deletes a box");
+
+  // -- 8. THE COLOUR IS VISIBLE, not just spelled -------------------------
+  // Hadi: "I don't know if these are the right names for them, and I might
+  // forget." Both the hex and the per-colour photo were already in the data
+  // and already drive the buyer's card; only this screen showed a word.
+  const head = boxCards()[0].querySelector(".os-rowhead");
+  ok(!!head.querySelector(".os-rowdot") || !!head.querySelector(".os-rowimg"),
+     "each row shows the actual colour — a swatch, or the product photo for that colour — and not only its name");
+  ok(/Red/.test(head.textContent), "…with the name still there, because a swatch alone is not searchable either");
+
+  // -- 9. the sentence ----------------------------------------------------
+  const prev = boxCards()[0].querySelector(".os-box-preview").textContent;
+  ok(/gets/.test(prev) && /pieces/.test(prev),
+     `each box says what a buyer receives — got "${prev.slice(0, 80)}"`);
+
+  }
+
+  // -- 10. the settings that were unreachable ------------------------------
   ok(!!el.querySelector("#os-unit"), "the 'each + adds this many pieces' setting is on this screen — live evidence 24 Aug: not one of four products had it set, because its only control was inside the drawer nobody could use");
   ok(!!el.querySelector("#os-moq-colour"), "the per-colour minimum is on this screen");
 } else {

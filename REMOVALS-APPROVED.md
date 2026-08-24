@@ -54,3 +54,29 @@ before this change (`addClient`, `adjustStock`, `getWholesaler`,
 `INVENTORY_SETTING_DEFAULTS`). Every one verified unused by
 `checks/check_no_undeclared_identifiers.mjs`, which fails if a name is read
 without being bound.
+
+
+---
+
+## 2026-08-24 (later) · A removal I made by accident, and put back
+
+Not an approved removal — a **regression**, recorded here because this file is
+where losses are supposed to become visible and it would be dishonest to log
+only the deliberate ones.
+
+The builder deleted above could create **any number of arbitrary packs**, one
+at a time. The grid that replaced it could express exactly two shapes: one
+mixed box, or one box per colour. That is strictly less, and it shipped to
+production.
+
+`check_order_setup.mjs` passed throughout, because I wrote it to match the new
+design instead of to preserve the old capability. **A gate written around your
+own intention will go green on a feature loss.**
+
+Hadi found it within the hour: *"can I pick one colour per box... I want the
+most amount of flexibility... give me a way to tell the system that I'm giving
+box A in this style, box B in this style, box C in this style."*
+
+Restored as a list of boxes, each with its own name and grid. The gate now
+asserts that adding boxes is unbounded and that boxes are independent, and was
+proven red by capping the panel at one box.

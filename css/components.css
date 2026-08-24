@@ -2296,3 +2296,64 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 
 .os-cell { width: 52px; height: 44px; text-align: center; padding: 0; }
 .os-cell:disabled { background: var(--bg-sunken); border-style: dashed; }
+
+/* ---------------------------------------------------------------------------
+   A LIST of boxes, and colours you can actually SEE.   24 Aug 2026
+   ---------------------------------------------------------------------------
+   Two corrections in one pass:
+
+   1. The first version could express one mixed box or one box per colour, and
+      nothing else. The builder it replaced could make any number of arbitrary
+      packs, so that was a regression. Each box is now its own card.
+
+   2. The row heading was the colour's NAME and nothing else. "Navy" and "Blue"
+      are two rows apart in a grid and a word does not tell them apart —
+      Hadi: "I don't know if these are the right names for them, and I might
+      forget." The hex and the per-colour photo were already in the data and
+      already drive the buyer's card; they were simply never shown to the
+      person deciding what goes in the box.
+--------------------------------------------------------------------------- */
+
+.os-boxadd { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+
+.os-box {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 10px);
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--bg-surface);
+}
+
+.os-box-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.os-box-name { flex: 1 1 160px; min-width: 140px; height: 40px; font-weight: 600; }
+.os-box-count { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+
+/* What this box holds, at a glance, without opening anything. */
+.os-box-summary { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; min-height: 4px; }
+.os-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 3px 8px 3px 3px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-sunken);
+}
+.os-chip-dot { width: 16px; height: 16px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,.15); }
+.os-chip-img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; display: block; }
+
+/* The row heading: photo (or swatch) + name. The swatch has a hairline border
+   so that white and cream are still visibly circles on a white card. */
+.os-rowhead-inner { display: inline-flex; align-items: center; gap: 7px; }
+.os-rowdot {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: inline-block; flex: none;
+  border: 1px solid rgba(0,0,0,.18);
+}
+.os-rowimg {
+  width: 26px; height: 26px; border-radius: 5px;
+  object-fit: cover; display: block; flex: none;
+  background: var(--bg-sunken);
+}
+.os-rowname { white-space: nowrap; }
