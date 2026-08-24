@@ -77,100 +77,80 @@ const product = {
 
 if (mod?.renderOrderSetup) {
   const el = mod.renderOrderSetup({ product, wid: "test", onSaved: () => {} });
-  await new Promise((r) => setTimeout(r, 40));   // the async pack/ratio loaders
+  await new Promise((r) => setTimeout(r, 40));
 
-  const boxCards = () => [...el.querySelectorAll(".os-box")];
-  const cellsOf = (card) => [...card.querySelectorAll(".os-cell")];
-  const setRow = (card, rowIdx, vals) => {
-    const row = [...card.querySelectorAll("tbody tr")][rowIdx];
-    const cs = [...row.querySelectorAll(".os-cell")];
-    vals.forEach((v, i) => { if (cs[i] && !cs[i].disabled) { cs[i].value = String(v); cs[i].dispatchEvent(new dom.window.Event("input", { bubbles: true })); } });
-    return cs;
+  const click = (sel, root = el) => { const n = root.querySelector(sel); if (n) n.dispatchEvent(new dom.window.Event("click")); return !!n; };
+  const cards = () => [...el.querySelectorAll(".os-box")];
+  const stepsIn = (card) => [...card.querySelectorAll(".os-stepcell")];
+  const bump = (card, i, times = 1) => {
+    const cell = stepsIn(card)[i];
+    if (!cell) return false;
+    const plus = cell.querySelectorAll(".os-step button")[1];
+    for (let k = 0; k < times; k++) plus.dispatchEvent(new dom.window.Event("click"));
+    return true;
   };
 
   // -- 1. the one question -------------------------------------------------
   const radios = [...el.querySelectorAll('input[name="os-mode"]')];
-  ok(radios.length === 2, `exactly two ways to order are offered (got ${radios.length}) — the four-model picker is what nobody could navigate`);
+  ok(radios.length === 2, `exactly two ways to order are offered (got ${radios.length})`);
   ok(radios.map((r) => r.value).sort().join(",") === "boxes,open",
-     "the two are 'any amount' and 'only in boxes' — the three-way ratio/prepack/series distinction the database never made is gone from the screen");
+     "the two are 'any amount' and 'only in boxes' — the ratio/prepack/series split the database never made is gone from the screen");
 
-  // -- 2. ARBITRARY BOXES. This is the assertion that was missing. ----------
-  // The first version of this panel could express exactly two shapes: one
-  // mixed box, or one box per colour. The builder it replaced could create any
-  // number of arbitrary packs, so shipping it was a REGRESSION -- and this
-  // gate passed, because it was written to match the new design rather than to
-  // preserve the old capability. That is how a feature-loss check goes green
-  // on a feature loss.
-  ok(boxCards().length === 1, `a product with no boxes starts with one empty box card (got ${boxCards().length})`);
-  el.querySelector("#os-add-box").dispatchEvent(new dom.window.Event("click"));
-  el.querySelector("#os-add-box").dispatchEvent(new dom.window.Event("click"));
-  ok(boxCards().length === 3,
-     `"Add a box" adds another box, without limit (got ${boxCards().length} after two clicks) — "Box A all colours L and M, Box B only S and XL, Box C just blue" has to be expressible`);
+  // -- 2. THREE KINDS, named the way Hadi says them ------------------------
+  ok(!!el.querySelector("#os-add-full") && !!el.querySelector("#os-add-colour") && !!el.querySelector("#os-add-size"),
+     "all three kinds can be added: Full box, By colour, By size — 'by size' (one size, every colour) existed nowhere before and is the one Hadi had no way to express");
 
-  // -- 3. and the boxes are INDEPENDENT -----------------------------------
-  // Guarded. Proving this gate red by capping the panel at one box made it
-  // CRASH here on an undefined second card -- exit 1, no readable finding.
-  // A gate that only throws tells you nothing, which this project has already
-  // written down once. Everything below needs two boxes, so if there are not
-  // two, say so and stop rather than dying.
-  const [b1, b2] = boxCards();
-  if (!b1 || !b2) {
-    fail.push("only one box could be created, so nothing below could be checked — the panel must support any number of arbitrary boxes");
-  } else {
-  setRow(b1, 0, [2, 3, 3]);
-  const b2first = cellsOf(b2)[0];
-  ok(b2first.value === "0",
-     "filling one box leaves the others alone — boxes derived from each other are not arbitrary boxes");
+  // -- 3. arbitrary and mixable -------------------------------------------
+  ok(cards().length === 0, `a product with no packs starts empty (got ${cards().length})`);
+  click("#os-add-full"); click("#os-add-colour"); click("#os-add-size"); click("#os-add-colour");
+  ok(cards().length === 4,
+     `packs can be added without limit and KINDS CAN BE MIXED on one product (got ${cards().length}) — a full box, two colour packs and a size pack together, which is what "any which way that I like" means`);
 
-  // -- 4. each box carries its own full grid ------------------------------
-  ok(cellsOf(b1).length === 6, `each box has its own colours x sizes grid (2 x 3 = 6, got ${cellsOf(b1).length})`);
-  ok(cellsOf(b1).filter((c) => c.disabled).length === 1,
-     "the colour/size with no variant is not typeable — a box cannot contain something that does not exist");
+  const [full, byCol, bySize] = cards();
 
-  // -- 5. the shortcut fills THIS box only --------------------------------
-  b1.querySelector(".os-b-same").dispatchEvent(new dom.window.Event("click"));
-  const b1row2 = [...[...b1.querySelectorAll("tbody tr")][1].querySelectorAll(".os-cell")];
-  ok(b1row2[0].value === "2" && b1row2[1].value === "3",
-     `"Same mix for every colour" copies the first row down within its own box (got ${b1row2[0].value},${b1row2[1].value})`);
-  ok(b1row2[2].disabled && b1row2[2].value === "",
-     "…and does NOT fill the cell that has no variant — copying a row must not invent stock");
-  ok(cellsOf(b2)[0].value === "0", "…and does not touch the other boxes");
+  // -- 4. FULL BOX: one ratio, every colour --------------------------------
+  ok(stepsIn(full).length === 3, `a full box asks for ONE ratio — one number per size (got ${stepsIn(full).length} for 3 sizes), not one per colour-and-size`);
+  bump(full, 1, 3);                       // 3 of the second size
+  const fullTxt = full.querySelector(".os-box-preview").textContent;
+  ok(/in each of \d+ colours/.test(fullTxt),
+     `the full box says the ratio repeats across colours — got "${fullTxt.slice(0, 90)}"`);
+  ok(/9 pieces|6 pieces/.test(full.querySelector(".os-box-count").textContent) || /pieces/.test(full.querySelector(".os-box-count").textContent),
+     "…and counts the whole box, not one colour's worth");
 
-  // -- 6. one box per colour is an ACTION, not a mode ----------------------
-  const before = boxCards().length;
-  el.querySelector("#os-add-per-colour").dispatchEvent(new dom.window.Event("click"));
-  // Derived from the fixture, not typed as a literal: the first version of
-  // this line said "3" against a two-colour product and failed for a reason
-  // that had nothing to do with the app.
-  const nColours = new Set(product.variants.map((v) => v.extra_attrs.color)).size;
-  ok(boxCards().length === before + nColours,
-     `"One box per colour" adds one ordinary, editable box per colour (got +${boxCards().length - before} for ${nColours} colours) — not a mode that locks the grid`);
+  // -- 5. and any single colour can still be overridden --------------------
+  ok(/One colour is different/.test(full.textContent),
+     "a full box can be opened up to change one colour on its own — 'same by default, editable per colour'");
+  click(".os-box-editor button.btn-ghost", full);
+  ok(!!full.querySelector(".os-grid"), "…and that opens the real grid");
 
-  // -- 7. duplicate and remove --------------------------------------------
-  const n0 = boxCards().length;
-  b1.querySelector(".os-box-dup").dispatchEvent(new dom.window.Event("click"));
-  const dup = boxCards()[boxCards().length - 1];
-  ok(boxCards().length === n0 + 1 && cellsOf(dup)[0].value === "2",
-     "Duplicate copies a box's contents, so a near-identical box is not retyped");
-  const n1 = boxCards().length;
-  dup.querySelector(".os-box-del").dispatchEvent(new dom.window.Event("click"));
-  ok(boxCards().length === n1 - 1, "Remove deletes a box");
+  // -- 6. BY COLOUR --------------------------------------------------------
+  const colChips = [...byCol.querySelectorAll(".os-pickchip")];
+  ok(colChips.length === 2, `a colour pack lets you pick which colour (got ${colChips.length} for 2 colours)`);
+  ok(colChips.some((c) => c.querySelector(".os-chip-dot") || c.querySelector(".os-chip-img")),
+     "…and the colours are shown as swatches or photos, not just spelled — 'I don't know if these are the right names for them, and I might forget'");
+  bump(byCol, 0, 2);
+  ok(/in Red|in Blue/.test(byCol.querySelector(".os-box-preview").textContent),
+     "a colour pack says which colour the buyer gets");
 
-  // -- 8. THE COLOUR IS VISIBLE, not just spelled -------------------------
-  // Hadi: "I don't know if these are the right names for them, and I might
-  // forget." Both the hex and the per-colour photo were already in the data
-  // and already drive the buyer's card; only this screen showed a word.
-  const head = boxCards()[0].querySelector(".os-rowhead");
-  ok(!!head.querySelector(".os-rowdot") || !!head.querySelector(".os-rowimg"),
-     "each row shows the actual colour — a swatch, or the product photo for that colour — and not only its name");
-  ok(/Red/.test(head.textContent), "…with the name still there, because a swatch alone is not searchable either");
+  // -- 7. BY SIZE ----------------------------------------------------------
+  const sizeChips = [...bySize.querySelectorAll(".os-pickchip")];
+  ok(sizeChips.length === 3, `a size pack lets you pick which size (got ${sizeChips.length} for 3 sizes)`);
+  const colRows = [...bySize.querySelectorAll(".os-colrow")];
+  ok(colRows.length >= 1, `…and then asks how many of each colour (got ${colRows.length} colour rows)`);
+  ok(colRows.every((r) => r.querySelector(".os-chip-dot") || r.querySelector(".os-chip-img")),
+     "…each shown with its swatch or photo");
+  bump(bySize, 0, 2);
+  const bsTxt = bySize.querySelector(".os-box-preview").textContent;
+  ok(/all in size/.test(bsTxt), `a size pack says it is one size across colours — got "${bsTxt.slice(0, 90)}"`);
 
-  // -- 9. the sentence ----------------------------------------------------
-  const prev = boxCards()[0].querySelector(".os-box-preview").textContent;
-  ok(/gets/.test(prev) && /pieces/.test(prev),
-     `each box says what a buyer receives — got "${prev.slice(0, 80)}"`);
+  // -- 8. packs are independent -------------------------------------------
+  ok(/empty/.test(cards()[3].querySelector(".os-box-count").textContent),
+     "filling one pack leaves the others alone");
 
-  }
+  // -- 9. remove -----------------------------------------------------------
+  const n0 = cards().length;
+  click(".os-box-del", cards()[3]);
+  ok(cards().length === n0 - 1, "a pack can be removed");
 
   // -- 10. the settings that were unreachable ------------------------------
   ok(!!el.querySelector("#os-unit"), "the 'each + adds this many pieces' setting is on this screen — live evidence 24 Aug: not one of four products had it set, because its only control was inside the drawer nobody could use");
@@ -190,10 +170,26 @@ ok(/renderOrderSetup\(/.test(code), "renderPacksPanel mounts the new panel");
 
 // -- 8. nothing was silently dropped ---------------------------------------
 const osrc = readFileSync(new URL("../js/components/order-setup.js", import.meta.url), "utf8");
-ok(/suggestPackRatio\(/.test(osrc),
-   "'Suggest from what sells' survived the deletion — it lived only in the removed builder and CR-0001 never named it, which is exactly how a feature disappears");
-ok(/listRatios\(/.test(osrc),
-   "the saved-mix library survived — as an optional shortcut, never a gate: you can now set a box up without naming or saving anything, which was the wall Hadi hit");
+// TIGHTENED, third time of asking. These two features have now fallen out of
+// three consecutive rewrites of this panel. The previous version of this check
+// only asked whether the NAME appeared in the file -- and an unused `import`
+// satisfies that, so it stayed green through a rewrite that dropped both.
+// A preservation check that a dead import can pass preserves nothing.
+//
+// So: the button must exist in the rendered DOM, and be wired.
+if (mod?.renderOrderSetup) {
+  const el2 = mod.renderOrderSetup({ product, wid: "test", onSaved: () => {} });
+  await new Promise((r) => setTimeout(r, 40));
+  el2.querySelector("#os-add-full")?.dispatchEvent(new dom.window.Event("click"));
+  await new Promise((r) => setTimeout(r, 20));
+  const txt = el2.textContent;
+  ok(/Suggest from what sells/.test(txt),
+     "'Suggest from what sells' is actually ON SCREEN — it lived only in the builder CR-0001 deleted, and has since fallen out of three rewrites");
+  ok(/suggestPackRatio\s*\(/.test(osrc),
+     "…and is wired to the real suggestion call, not just a button that does nothing");
+  ok(/savedRatiosPromise/.test(osrc) && /listRatios\s*\(/.test(osrc),
+     "the saved-ratio library is still reachable — optional reuse, never a gate: a pack can be built without naming or saving anything, which was the wall Hadi hit");
+}
 
 const line = "-".repeat(64);
 console.log(line);
