@@ -163,6 +163,10 @@ broke · ❌ not built
 | 76 | **Inventory is one module** — nav 15 → 9; Movements, Labels, Locations, Suppliers, Scan and Insights are sub-tabs, not separate places | `js/lib/nav-config.js`, `js/views/wholesaler.js` | `check_inventory_module.mjs` (32) | ✅ |
 | 77 | **Every retired route still resolves** — the six absorbed screens keep their ORIGINAL paths, so bookmarks and cached PWA navigation work by construction rather than through a redirect layer | `js/views/wholesaler.js` | `check_inventory_module.mjs` — asked of the real router | ✅ |
 | 78 | **Nine tabs survive a phone** — the strip scrolls, says it scrolls, and scrolls the active tab into view | `css/brand.css`, `js/components/sub-tabs.js` | `check_inventory_module.mjs` — asserts the fade and the reveal | ⚠️ |
+| 79 | **One question decides how a product is ordered** — "any amount" or "only in boxes". The ratio / prepack / series split is gone from the screen, because the server never made it: migration 063 rejects loose lines for all three with identical logic | `js/components/order-setup.js` | `check_order_setup.mjs` (16) | ✅ |
+| 80 | **Box contents are a colour × size grid, every cell editable** — with "same mix for every colour" and "suggest from what sells" as shortcuts that fill it, never as modes that lock it | `js/components/order-setup.js` | `check_order_setup.mjs` — asserts the shortcut copies the row AND does not fill a cell with no variant | ✅ |
+| 81 | **The wholesaler is told what the buyer will receive**, in a sentence, as they type | `js/components/order-setup.js` | `check_order_setup.mjs` — asserts the sentence names the sizes and the total | ✅ |
+| 82 | **No money is taken through this app** — no processor, no card field, no charge, no "pay now"; the buyer's final button says "Submit order" | absence, across `js/**` | `check_no_payment_path.mjs` (3) — the one rule enforced by code that does NOT exist, so it needs a gate more than the others | ✅ |
 
 ---
 
@@ -170,8 +174,8 @@ broke · ❌ not built
 
 | | |
 |---|---|
-| Features listed | **78** |
-| Enforced and proven (✅) | **69** |
+| Features listed | **82** |
+| Enforced and proven (✅) | **73** |
 | Present but unproven (⚠️) | **9** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
@@ -195,6 +199,17 @@ assert that nine tabs are usable with a thumb. That is a judgement only a
 person holding the phone can make, and it is Hadi's to make before this is
 called finished. A green gate on row 78 means the mechanism is present, not
 that the design works.
+
+CR-0001 (24 Aug) added rows 79–82 and removed two builders — recorded in
+`REMOVALS-APPROVED.md` rather than done quietly. Two things worth keeping:
+
+**The whole suite stayed green while 253 lines of UI were deleted.** 37 of 37.
+Not one gate covered the thing being removed, which is why `check_order_setup.mjs`
+exists. **And the first draft of the replacement silently dropped the "Add
+colours & sizes" way out of the empty state** — `check_packs_panel_reachable.mjs`
+caught it, because its assertions were re-aimed at the new file instead of
+deleted along with the old one. Re-aiming a gate rather than retiring it is the
+difference between a replacement and a loss.
 
 Batch 8 (23 Aug) added rows 15–21. None of the three is a new capability:
 the selling models have been enforced since 15 August and the ratio editor has
