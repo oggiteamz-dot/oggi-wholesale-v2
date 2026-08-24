@@ -138,24 +138,22 @@ ok(/Escape/.test(stackSrc),
 
 // -- 7. the dead end behind it is gone --------------------------------------
 // Reaching the panel is worthless if it then says "add variants first" and
-// offers nothing to press. Anchored to renderRatioSection's byte range.
-const ratio = (() => {
-  const start = src.indexOf("async function renderRatioSection(");
-  if (start < 0) return null;
-  let i = src.indexOf("{", start), depth = 0;
-  for (let j = i; j < src.length; j++) {
-    if (src[j] === "{") depth++;
-    else if (src[j] === "}") { depth--; if (depth === 0) return src.slice(start, j + 1); }
-  }
-  return null;
-})();
-ok(!!ratio, "renderRatioSection() exists");
-ok(!!ratio && /Add colours & sizes/.test(ratio),
+// offers nothing to press.
+//
+// RE-AIMED, CR-0001 (24 Aug): renderRatioSection was deleted and its job moved
+// to js/components/order-setup.js. These four assertions were NOT dropped with
+// it — and that matters, because the first draft of the replacement DID drop
+// the way out, and this gate is what caught it. The property is the same; only
+// the file that owns it changed.
+const osrc = readFileSync(new URL("../js/components/order-setup.js", import.meta.url), "utf8");
+ok(/export function renderOrderSetup/.test(osrc),
+   "the panel that replaced renderRatioSection exists");
+ok(/Add colours & sizes/.test(osrc),
    "the no-variants state offers a button to add them, instead of stating a rule and refusing to say where it is satisfied");
-ok(!!ratio && /openProductEditor\s*\(/.test(ratio),
-   "that button opens the real product editor — one editor, not a second half-copy of it that drifts");
-ok(!!ratio && /getProductForEdit\s*\(/.test(ratio),
-   "it refetches after saving, so the ratio is built over sizes the database actually accepted");
+ok(/onAddVariants/.test(osrc) && /openProductEditor\s*\(/.test(src),
+   "that button opens the real product editor — one editor, not a second half-copy of it that drifts. Passed in as a callback, because a component must not reach into a view");
+ok(/getProductForEdit\s*\(/.test(src),
+   "it refetches after saving, so the grid is built over sizes the database actually accepted");
 
 // -- 8. the selling model is finally visible --------------------------------
 const smSrc = readFileSync(new URL("../js/lib/selling-model.js", import.meta.url), "utf8");
