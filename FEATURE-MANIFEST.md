@@ -164,9 +164,10 @@ broke · ❌ not built
 | 77 | **Every retired route still resolves** — the six absorbed screens keep their ORIGINAL paths, so bookmarks and cached PWA navigation work by construction rather than through a redirect layer | `js/views/wholesaler.js` | `check_inventory_module.mjs` — asked of the real router | ✅ |
 | 78 | **Nine tabs survive a phone** — the strip scrolls, says it scrolls, and scrolls the active tab into view | `css/brand.css`, `js/components/sub-tabs.js` | `check_inventory_module.mjs` — asserts the fade and the reveal | ⚠️ |
 | 79 | **One question decides how a product is ordered** — "any amount" or "only in boxes". The ratio / prepack / series split is gone from the screen, because the server never made it: migration 063 rejects loose lines for all three with identical logic | `js/components/order-setup.js` | `check_order_setup.mjs` (16) | ✅ |
-| 80 | **Box contents are a colour × size grid, every cell editable** — with "same mix for every colour" and "suggest from what sells" as shortcuts that fill it, never as modes that lock it | `js/components/order-setup.js` | `check_order_setup.mjs` — asserts the shortcut copies the row AND does not fill a cell with no variant | ✅ |
+| 80 | **Any number of arbitrary boxes** — each its own card, its own name, its own colour × size grid. "All colours in L and M" and "just blue, 1-2-2-1" can coexist on one product | `js/components/order-setup.js` | `check_order_setup.mjs` — asserts adding boxes is unbounded, that they are independent, and that Duplicate/Remove work | ✅ |
 | 81 | **The wholesaler is told what the buyer will receive**, in a sentence, as they type | `js/components/order-setup.js` | `check_order_setup.mjs` — asserts the sentence names the sizes and the total | ✅ |
 | 82 | **No money is taken through this app** — no processor, no card field, no charge, no "pay now"; the buyer's final button says "Submit order" | absence, across `js/**` | `check_no_payment_path.mjs` (3) — the one rule enforced by code that does NOT exist, so it needs a gate more than the others | ✅ |
+| 83 | **The colour is visible, not just spelled** — a swatch, or the product photo for that colour, on every grid row and every box summary | `js/components/order-setup.js` | `check_order_setup.mjs` — asserts a swatch or image exists on the row head, with the name still present | ✅ |
 
 ---
 
@@ -174,8 +175,8 @@ broke · ❌ not built
 
 | | |
 |---|---|
-| Features listed | **82** |
-| Enforced and proven (✅) | **73** |
+| Features listed | **83** |
+| Enforced and proven (✅) | **74** |
 | Present but unproven (⚠️) | **9** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
@@ -210,6 +211,16 @@ colours & sizes" way out of the empty state** — `check_packs_panel_reachable.m
 caught it, because its assertions were re-aimed at the new file instead of
 deleted along with the old one. Re-aiming a gate rather than retiring it is the
 difference between a replacement and a loss.
+
+**Rows 80 and 83 were rewritten the same day, because the first version of
+row 80 was a REGRESSION and Hadi found it within the hour.** The builder that
+CR-0001 deleted could create any number of arbitrary packs. What replaced it
+could express exactly two shapes — one mixed box, or one box per colour — and
+`check_order_setup.mjs` passed, because it had been written to match the new
+design rather than to preserve the old capability. Writing a gate around your
+own intention is how a feature-loss check goes green on a feature loss. The
+gate now asserts that adding boxes is unbounded, and was proven red by capping
+the panel at one box.
 
 Batch 8 (23 Aug) added rows 15–21. None of the three is a new capability:
 the selling models have been enforced since 15 August and the ratio editor has
