@@ -2357,3 +2357,57 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   background: var(--bg-sunken);
 }
 .os-rowname { white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------
+   Three kinds of pack — Full box · By colour · By size     24 Aug 2026
+   ---------------------------------------------------------------------------
+   The kinds are not stored anywhere and they are not modes. They are guided
+   ways of filling the same colour x size grid: a full box fills every row with
+   one ratio, "by colour" fills one row, "by size" fills one column. Every card
+   can still drop to the grid and be edited by hand, which is what keeps
+   "any which way that I like" true while the common cases stay two taps.
+
+   Reopening a saved pack works the kind out FROM THE DATA -- one colour means
+   by-colour, one size means by-size -- so nothing has to be migrated and a
+   pack built before today opens in the right editor.
+--------------------------------------------------------------------------- */
+
+.os-kind {
+  font-size: 10px; font-weight: 700; letter-spacing: .02em;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap; flex: none;
+}
+.os-kind-full   { background: var(--accent-600); color: #fff; }
+.os-kind-colour { background: var(--bg-sunken); color: var(--accent-700); border: 1px solid var(--border-subtle); }
+.os-kind-size   { background: var(--bg-sunken); color: var(--accent-700); border: 1px solid var(--border-subtle); }
+
+.os-steprow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.os-stepcell { text-align: center; }
+.os-steplbl { font-size: 11px; color: var(--text-tertiary); margin-bottom: 3px; min-height: 13px; }
+.os-step { display: inline-flex; align-items: center; gap: 3px; }
+.os-step button {
+  width: 32px; height: 44px;
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+  background: var(--bg-surface); color: var(--text-primary);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 0;
+}
+.os-step button:hover { border-color: var(--accent-500); }
+.os-stepn { min-width: 26px; font-weight: 700; font-size: 14px; }
+
+.os-pick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.os-pickchip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 4px 12px 4px 5px;
+  border: 1px solid var(--border-subtle); border-radius: 999px;
+  background: var(--bg-surface); font: inherit; font-size: 12px; cursor: pointer;
+}
+.os-pickchip.on { border-color: var(--accent-500); background: var(--bg-sunken); font-weight: 700; }
+.os-pickchip .os-chip-img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+.os-pickchip .os-chip-dot { width: 18px; height: 18px; }
+
+.os-colrows { margin-top: 10px; }
+.os-colrow {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 5px 0; border-bottom: 1px solid var(--border-subtle);
+}
+.os-colrow:last-child { border-bottom: 0; }
+.os-colrow .os-steplbl { display: none; }
