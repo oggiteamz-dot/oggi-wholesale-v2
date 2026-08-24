@@ -36,10 +36,20 @@ import { advanceOrderStatus } from "../data/wholesaler-orders.js";
 import { esc, pageHeader } from "../lib/utils.js";
 // ---------- Receive-scan ----------
 
-async function receiveScanView(outlet) {
+/**
+ * Batch 8B: exported, because Scan to Receive is now a sub-tab of Inventory as
+ * well as its own route. Exported rather than copied -- a second scanner would
+ * drift from this one, and this is the one that has been used against real
+ * hardware.
+ */
+export async function receiveScanView(outlet, { embedded = false } = {}) {
   const session = devAuth.getSession();
   const wid = session.wid;
-  outlet.appendChild(pageHeader("Scan to Receive", "Scan a barcode (or type the SKU), confirm the quantity, done."));
+  // Inside the Inventory module the screen already has its title; a second one
+  // stacked underneath reads as two screens rather than one.
+  if (!embedded) {
+    outlet.appendChild(pageHeader("Scan to Receive", "Scan a barcode (or type the SKU), confirm the quantity, done."));
+  }
 
   const locations = await getLocations(wid);
   if (!locations.length) {
@@ -243,6 +253,10 @@ async function pickView(outlet, params) {
 }
 
 export function registerMobileOpsRoutes(router) {
-  router.register("/wholesaler/receive-scan", (outlet) => receiveScanView(outlet));
+  // Batch 8B: /wholesaler/receive-scan is registered by js/views/wholesaler.js
+  // now, because it lands on the Inventory module's "Scan" sub-tab. It is
+  // registered THERE rather than here so the import stays one-way
+  // (wholesaler -> mobile-ops); registering it here would need mobile-ops to
+  // import inventoryView back, which is a cycle.
   router.register("/wholesaler/pick/:orderId", (outlet, params) => pickView(outlet, params));
 }

@@ -28,24 +28,33 @@ export const NAV_BY_ROLE = {
     { icon: "🗂", label: "Catalogs", path: "/wholesaler/catalogs" },
     { icon: "🔑", label: "Team & Buyers", path: "/wholesaler/team" },
     { icon: "📊", label: "Inventory", path: "/wholesaler/inventory" },
-    // Added 18 Aug 2026. Stock has been per-location in the data since
-    // migration 001, but nothing could create a second location and nothing
-    // could move stock between two -- regression ledger #17.
-    // Batch 2. The stock ledger has been written since migration 001 and had
-    // nowhere to be seen. Sits directly under Inventory because it answers the
-    // question Inventory provokes: "why is this number what it is?"
-    { icon: "🕓", label: "Stock Movements", path: "/wholesaler/movements" },
-    // Batch 4. v1 printed barcodes; the 2.0 rewrite kept only the reader, so
-    // the camera scanner had nothing to scan. Sits by Stock Movements because
-    // both are about the physical goods rather than the catalogue.
-    { icon: "🏷", label: "Barcode Labels", path: "/wholesaler/labels" },
-    { icon: "🏬", label: "Locations", path: "/wholesaler/locations" },
-    // Batch 17. Sits next to Locations because both answer "where does stock
-    // come from and go" -- Locations is inside the business, Suppliers is the
-    // step before it.
-    { icon: "🏭", label: "Suppliers", path: "/wholesaler/suppliers" },
-    { icon: "🧠", label: "Intelligence", path: "/wholesaler/intelligence" },
-    { icon: "📷", label: "Scan to Receive", path: "/wholesaler/receive-scan" },
+    //
+    // SIX ITEMS REMOVED HERE — 23 Aug 2026, Batch 8B.
+    //
+    //   Stock Movements   /wholesaler/movements
+    //   Barcode Labels    /wholesaler/labels
+    //   Locations         /wholesaler/locations
+    //   Suppliers         /wholesaler/suppliers
+    //   Intelligence      /wholesaler/intelligence
+    //   Scan to Receive   /wholesaler/receive-scan
+    //
+    // They are sub-tabs of Inventory now. Seven of the fifteen entries in this
+    // list were inventory, which is not a navigation -- it is one screen that
+    // had been taken apart and spread down a sidebar. Batch 6 folded Products
+    // in and stopped, which was fairly criticised as moving one item and
+    // calling it a system.
+    //
+    // ⚠️ EVERY ONE OF THOSE ROUTES STILL EXISTS AND STILL RESOLVES, and each
+    // lands on its own sub-tab with that tab already selected. They keep their
+    // ORIGINAL paths rather than getting new /wholesaler/inventory/* ones, so
+    // a bookmark and an installed phone's cached navigation keep working by
+    // construction instead of through a redirect layer somebody has to
+    // maintain. See INVENTORY_TABS in js/views/wholesaler.js, and
+    // checks/check_inventory_module.mjs, which fails if any of the six stops
+    // resolving.
+    //
+    // The same precedent, set by Batch 6 for /wholesaler/products, is why this
+    // is safe to do at all.
     { icon: "⬆️", label: "Import Catalog", path: "/wholesaler/import" },
     { icon: "🔌", label: "Integrations", path: "/wholesaler/integrations" },
     { icon: "⚙️", label: "Settings", path: "/wholesaler/settings" },

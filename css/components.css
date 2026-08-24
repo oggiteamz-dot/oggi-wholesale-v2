@@ -2211,3 +2211,88 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   .modal-actions { flex-direction: column-reverse; }
   .modal-actions .btn { width: 100%; }
 }
+
+/* ---------------------------------------------------------------------------
+   Order setup — "How do buyers order this?"     CR-0001, 24 Aug 2026
+   ---------------------------------------------------------------------------
+   Replaces two stacked builders and their ~15 controls. The grid is the only
+   dense thing on the screen, and it is dense on purpose: a colour × size table
+   is how a wholesaler already thinks about a box, and it is the one shape that
+   the old 64-row flat list destroyed by flattening it.
+--------------------------------------------------------------------------- */
+
+.order-setup { display: flex; flex-direction: column; gap: 4px; }
+
+.os-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+.os-sub,
+.os-hint { font-size: 11px; color: var(--text-tertiary); line-height: 1.5; }
+
+/* A choice is a whole tappable block, not a 13px radio dot. */
+.os-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-bottom: 8px;
+  font-size: 13px;
+  min-height: 44px;
+}
+.os-choice:hover { border-color: var(--accent-500); }
+.os-choice input { margin-top: 2px; flex: none; }
+.os-switch { margin-top: 12px; }
+
+.os-pane { padding-top: 6px; }
+.os-field { margin-bottom: 14px; }
+.os-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.os-num { width: 120px; height: 44px; }
+
+/* The sentence that says what the buyer actually receives. Deliberately the
+   loudest thing in the panel — it is the answer to "I couldn't tell what I
+   was building". */
+.os-preview {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.os-shortcuts { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.os-saved { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Nine sizes across will not fit a phone. Scroll the table, not the page. */
+.os-grid-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 6px;
+}
+.os-grid { border-collapse: collapse; }
+.os-grid th,
+.os-grid td { padding: 3px; text-align: center; }
+.os-grid thead th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.os-rowhead {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  padding-right: 8px;
+  white-space: nowrap;
+  /* The colour name stays visible while the sizes scroll under it — without
+     this you scroll to size 7 and no longer know which colour's row you are
+     typing into. */
+  position: sticky;
+  left: 0;
+  background: var(--bg-surface);
+}
+.os-corner { position: sticky; left: 0; background: var(--bg-surface); }
+
+.os-cell { width: 52px; height: 44px; text-align: center; padding: 0; }
+.os-cell:disabled { background: var(--bg-sunken); border-style: dashed; }

@@ -35,6 +35,31 @@ export async function getProductPricing(productId) {
   };
 }
 
+/**
+ * Set how a product may be ordered. CR-0001, 24 Aug 2026.
+ *
+ * A targeted single-column update, deliberately NOT updateProduct(): that
+ * takes a whole draft (name, images, the variant grid) and rewrites the row
+ * from it. Sending a partial draft through it is how a product loses its
+ * photos because someone only meant to change one flag.
+ *
+ * Values are unchanged from what the server already enforces --
+ * v2_enforce_selling_model (migration 063) rejects loose lines for 'series',
+ * 'prepack' and 'ratio' with identical logic. The order-setup panel writes
+ * only 'open' or 'prepack'; the other two keep working for products already
+ * set to them, and nothing is ever re-classified behind a wholesaler's back.
+ */
+export async function setSellingModel(productId, model) {
+  if (!["open", "prepack", "ratio", "series"].includes(model)) {
+    return { error: { message: `Unknown selling model "${model}"` } };
+  }
+  return sbCall(
+    supabase.from("v2_products")
+      .update({ selling_model: model, updated_at: new Date().toISOString() })
+      .eq("id", productId)
+  );
+}
+
 export async function setProductMoq(productId, { moqQty, moqReorderQty, moqPerColour }) {
   return sbCall(supabase.from("v2_products").update({
     moq_qty: moqQty, moq_reorder_qty: moqReorderQty === "" || moqReorderQty == null ? null : moqReorderQty,

@@ -325,8 +325,59 @@ body {
   .sub-tab { min-height: 44px; }
 }
 
+/* ---------------------------------------------------------------------------
+   The nine-tab problem — Batch 8B, 23 Aug 2026
+   ---------------------------------------------------------------------------
+   Folding six screens into Inventory took the strip from three tabs to nine:
+   roughly 900px of labels on a 360px phone. The strip already scrolled. What
+   it did not do was SAY so, and a row of tabs that ends flush against the
+   screen edge looks like a row that has ended.
+
+   A right-edge fade is the cheapest honest signal: it is visibly not the end
+   of anything. Implemented as a mask on the wrapper rather than an overlaid
+   gradient so it cannot sit on top of a tab and eat the tap.
+
+   The mask is applied ONLY while the strip actually overflows -- a three-tab
+   strip that fits should not look like it is cut off. `--st-fade` is set by
+   nothing today and the fade is unconditional at narrow widths only, which is
+   where nine tabs cannot fit by definition.
+--------------------------------------------------------------------------- */
+.sub-tabs-wrap {
+  position: relative;
+}
+
+.sub-tabs-wrap::before,
+.sub-tabs-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 28px;
+  /* The strip's own height, not the pane's — the fade belongs to the tabs. */
+  height: 44px;
+  pointer-events: none;   /* never eats a tap meant for the tab underneath */
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+.sub-tabs-wrap::before {
+  left: 0;
+  background: linear-gradient(to left, transparent, var(--bg-page));
+}
+.sub-tabs-wrap::after {
+  right: 0;
+  background: linear-gradient(to right, transparent, var(--bg-page));
+}
+/* Toggled by js/components/sub-tabs.js, so a fade only ever appears when there
+   really is something in that direction. */
+.sub-tabs-wrap.has-more-left::before  { opacity: 1; }
+.sub-tabs-wrap.has-more-right::after  { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sub-tabs-wrap::before, .sub-tabs-wrap::after { transition: none; }
+}
+
 @media print {
   /* On paper there is no "other tab", so a row of them is just noise above
      the thing being printed. */
   .sub-tabs { display: none; }
+  .sub-tabs-wrap::before, .sub-tabs-wrap::after { display: none; }
 }
