@@ -2411,3 +2411,32 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 }
 .os-colrow:last-child { border-bottom: 0; }
 .os-colrow .os-steplbl { display: none; }
+
+/* ── CR-0004: which photographs belong to a colour ────────────────────────
+   Appended, never spliced into an existing rule. On 23 Aug a single stray `}`
+   at line 2026 caused CSS error recovery to silently discard exactly one
+   construct appended after it, and the drawer rendered 1608px down a 911px
+   viewport with no console error anywhere. checks/check_css_parses.mjs asks a
+   real browser what it kept; this block is written to be re-run through it. */
+.pb-colour-photos { flex: 1 0 100%; margin-top: 8px; }
+.pb-colour-photos-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 5px; }
+/* Amber, not red. A colour with no photograph is INCOMPLETE, not broken --
+   it still sells, it just shows an empty frame. Red would say "you cannot
+   ship this", which is not true and teaches people to ignore the colour. */
+.pb-colour-photos-none { color: var(--warning-700); }
+.pb-colour-photos-strip { display: flex; gap: 6px; flex-wrap: wrap; }
+.pb-photo-tag {
+  width: 46px; height: 46px; padding: 0; border-radius: 8px; cursor: pointer;
+  border: 2px solid var(--border-default); background: none; overflow: hidden;
+  opacity: .45; transition: opacity .12s ease, border-color .12s ease;
+}
+.pb-photo-tag img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Tagged photos are full strength with an accent ring; untagged are dimmed.
+   Two signals, not one -- opacity alone is invisible to anyone who cannot
+   compare it against a neighbour, and a ring alone is lost on a busy photo. */
+.pb-photo-tag.is-on { opacity: 1; border-color: var(--accent-500); }
+.pb-photo-tag:focus-visible { outline: 2px solid var(--accent-500); outline-offset: 2px; }
+@media (hover: hover) { .pb-photo-tag:hover { opacity: .8; } }
+/* 44px is the floor for a thumb; the box above is 46px including its border,
+   so this only has to stop a narrow viewport from squeezing it. */
+@media (max-width: 420px) { .pb-photo-tag { width: 44px; height: 44px; } }
