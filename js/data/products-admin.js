@@ -250,6 +250,83 @@ export async function duplicateAsTemplate(productId) {
  * @param {string} [draft.locationId]    where opening stock lands
  */
 
+
+// =============================================================================
+// WHERE THE STOCK ACTUALLY IS                                        (CR-0006)
+// =============================================================================
+// Hadi, 25 Aug 2026: "there's a very high chance that multiple warehouses will
+// have the same item ... at the end, when they're done, they can then log their
+// warehouses -- basically telling you that there's this many in this warehouse,
+// this many in that warehouse, per item."
+//
+// The database has been multi-warehouse since the beginning: v2_inventory_
+// balances is keyed per (variant, location) and v2_receive_stock takes a
+// location on every call. It was only ever CALLED with one, because the form
+// offered a single dropdown for the whole product -- so the only way to hold
+// one style in two warehouses was to receive it all into one and immediately
+// transfer half out, which is bookkeeping theatre for something the wholesaler
+// knew at the time.
+//
+// THE ARITHMETIC IS CHECKED BEFORE ANYTHING IS WRITTEN, and that is the whole
+// point of this function. A split is numbers typed into several boxes that
+// nobody re-adds. If 60 pieces can be split 40/30 and saved, twenty pieces have
+// been invented -- silently, in a system whose entire job is knowing how much
+// you have. A refusal that names the item and both numbers is recoverable in
+// ten seconds; a stock count that is quietly wrong is found weeks later by a
+// buyer ordering something that does not exist.
+//
+// ABSENT IS NOT EMPTY. A variant the split never mentions keeps the old
+// behaviour and lands at the chosen location. Same rule attachPhotos follows
+// for coloursPhotos, and for the same reason: a caller that does not know about
+// a feature must not be punished by it.
+//
+// @param {Array} variants     the draft's variants, each with openingStock
+// @param {Array} stockSplit   [{ sku, allocations:[{ locationId, qty }] }]
+// @returns {{ ok:boolean, error?:string }}
+// =============================================================================
+export function validateStockSplit(variants = [], stockSplit) {
+  if (!Array.isArray(stockSplit) || !stockSplit.length) return { ok: true };
+  for (const row of stockSplit) {
+    const sku = String(row?.sku || "").trim();
+    if (!sku) continue;
+    const variant = variants.find((v) => String(v.sku || "").trim() === sku);
+    // A split for a SKU that is not in this product is a mistake worth naming,
+    // not something to skip past -- it usually means a renamed size.
+    if (!variant) return { ok: false, error: `The stock split mentions "${sku}", which is not one of this product's items.` };
+    const entered = Number(variant.openingStock) || 0;
+    const allocated = (row.allocations || []).reduce((sum, a) => sum + (Number(a?.qty) || 0), 0);
+    if (allocated !== entered) {
+      return {
+        ok: false,
+        error: `"${sku}" has ${entered} piece${entered === 1 ? "" : "s"} but the warehouses add up to ${allocated}. ` +
+               `Adjust one of them so both numbers match.`,
+      };
+    }
+    for (const a of row.allocations || []) {
+      if (!a?.locationId) return { ok: false, error: `"${sku}" has a quantity with no warehouse against it.` };
+      if ((Number(a.qty) || 0) < 0) return { ok: false, error: `"${sku}" has a negative quantity in one warehouse.` };
+    }
+  }
+  return { ok: true };
+}
+
+/** Where one variant's opening stock goes: the split if it has one, otherwise
+ *  the single chosen location, exactly as before. Always a list, so the caller
+ *  has one shape to loop over rather than two paths to keep in step. */
+export function allocationsFor(variant, stockSplit, fallbackLocationId) {
+  const qty = Number(variant.openingStock) || 0;
+  if (qty <= 0) return [];
+  const row = Array.isArray(stockSplit)
+    ? stockSplit.find((r) => String(r?.sku || "").trim() === String(variant.sku || "").trim())
+    : null;
+  if (row && (row.allocations || []).length) {
+    return row.allocations
+      .filter((a) => a?.locationId && (Number(a.qty) || 0) > 0)
+      .map((a) => ({ locationId: a.locationId, qty: Number(a.qty) }));
+  }
+  return fallbackLocationId ? [{ locationId: fallbackLocationId, qty }] : [];
+}
+
 // =============================================================================
 // PHOTOGRAPHY, PER COLOUR                                            (CR-0004)
 // =============================================================================
@@ -367,6 +444,13 @@ export async function createProduct(wid, draft = {}, { uploader = uploadProductI
     return { ok: false, error: `"${model}" is not a selling model this product can have.` };
   }
 
+  // CR-0006. Checked HERE -- before the product row, before a single variant,
+  // before any stock moves. A split that does not add up must cost the
+  // wholesaler a correction, never a half-created product with invented stock
+  // in it that somebody has to unpick later.
+  const splitCheck = validateStockSplit(variants, draft.stockSplit);
+  if (!splitCheck.ok) return splitCheck;
+
   const { data: product, error: pErr } = await sbCall(
     supabase.from("v2_products").insert({
       wid,
@@ -442,19 +526,27 @@ export async function createProduct(wid, draft = {}, { uploader = uploadProductI
     // is precisely why photography used to be sprayed at all of them.
     created.push({ ...variant, color: String(v.color || "").trim() || null });
 
-    const opening = Number(v.openingStock) || 0;
-    if (opening > 0 && draft.locationId) {
+    // CR-0006: one receive per (variant, warehouse). A loop of one when there
+    // is no split, which is why the old single-location path needs no separate
+    // branch and cannot drift out of step with this one.
+    for (const alloc of allocationsFor(v, draft.stockSplit, draft.locationId)) {
+    const opening = alloc.qty;
+    if (opening > 0 && alloc.locationId) {
       // Through the RPC, never a direct balance write. See the header.
       const { error: sErr } = await sbCall(supabase.rpc("v2_receive_stock", {
         p_variant_id: variant.id,
-        p_location_id: draft.locationId,
+        p_location_id: alloc.locationId,
         p_qty: opening,
         p_reference_type: "product_created",
         p_reference_id: null,
         p_actor_id: null,
         p_note: `Opening stock for ${name} (${variant.sku})`,
       }));
-      if (sErr) failed.push({ sku: v.sku, error: `created, but opening stock failed: ${sErr.message}` });
+      // The WAREHOUSE is named. A split of three that half-lands is otherwise
+      // reported as one vague failure against the SKU, and the wholesaler has
+      // no way to know which warehouse to re-check.
+      if (sErr) failed.push({ sku: v.sku, error: `created, but opening stock failed for one warehouse: ${sErr.message}` });
+    }
     }
   }
 

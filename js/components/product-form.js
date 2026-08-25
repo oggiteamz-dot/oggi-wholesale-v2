@@ -267,6 +267,15 @@ export function renderProductForm({
       <div class="pb-scan" id="pb-scan"></div>
       <div class="pb-grid" id="pb-grid"></div>
 
+      <!-- CR-0006. AFTER the grid, never before it. Hadi: "at the end, when
+           they're done, they can then log their warehouses." Splitting stock is
+           a second pass over numbers that already exist; asking "which
+           warehouse?" up front is what forced the put-it-all-in-one-and-
+           transfer dance this replaces. Hidden entirely for a wholesaler with
+           one warehouse -- see paintWarehouses(). -->
+      <div class="pb-warehouses" id="pb-warehouses" hidden></div>
+      <p class="pf-error" data-for="warehouses" hidden></p>
+
       <div class="pf-section-head"><h4>Supplier <span class="pf-optional">optional</span></h4>
         <p>Who you buy this from. Pick one you already have, or add a new one without leaving this form.</p></div>
       <div class="pb-supplier" id="pb-supplier"></div>
@@ -286,6 +295,10 @@ export function renderProductForm({
   const coloursHost = $("#pb-colours");
   const sizesHost = $("#pb-sizes");
   const gridHost = $("#pb-grid");
+  const whHost = $("#pb-warehouses");
+  // "colourId|size" -> [{ locationId, qty }]. Sparse on purpose: a cell with no
+  // entry means "not split", which is different from "split into nothing".
+  const stockSplit = {};
   const supplierHost = $("#pb-supplier");
   const scanHost = $("#pb-scan");
   const status = $(".pf-status");
@@ -1191,7 +1204,80 @@ export function renderProductForm({
     paintScanAim();
   }
 
+  // ===========================================================================
+  // WHERE IS THIS STOCK?                                             (CR-0006)
+  // ===========================================================================
+  // One block per item that HAS opening stock, each listing every warehouse.
+  // The running total is shown against the number typed in the grid, and it
+  // says so out loud the moment they disagree -- because the failure this
+  // prevents is not a crash, it is a stock count that is quietly wrong.
+  function paintWarehouses() {
+    // A wholesaler with one warehouse must never see this. It would be a
+    // screen whose only possible answer is the one they already gave.
+    const real = locations.filter((l) => l.id);
+    if (real.length < 2) { whHost.hidden = true; whHost.innerHTML = ""; return; }
+
+    const withStock = [];
+    colours.forEach((c) => c.sizes.forEach((size) => {
+      const cell = c.cells[size];
+      const qty = Number(cell?.qty) || 0;
+      if (qty > 0) withStock.push({ c, size, qty, key: c.id + "|" + size });
+    }));
+    if (!withStock.length) { whHost.hidden = true; whHost.innerHTML = ""; return; }
+
+    whHost.hidden = false;
+    whHost.innerHTML = `<div class="pf-section-head"><h4>Where is this stock?</h4>
+      <p>Split each item across your warehouses. Leave one alone and it all goes to the default.</p></div>`;
+
+    withStock.forEach(({ c, size, qty, key }) => {
+      const rows = stockSplit[key] || [];
+      const allocated = rows.reduce((s2, r) => s2 + (Number(r.qty) || 0), 0);
+      const box = document.createElement("div");
+      box.className = "pb-wh-item";
+      const matches = rows.length === 0 || allocated === qty;
+      box.innerHTML = `<div class="pb-wh-head">
+          <span class="pb-colour-dot" style="background:${esc(c.hex)}"></span>
+          <span class="pb-wh-name">${esc(c.name || "colour")} · ${esc(size)}</span>
+          <span class="pb-wh-tot${matches ? "" : " pb-wh-bad"}">${
+            rows.length ? `${allocated} of ${qty}` : `${qty} pieces`}</span>
+        </div>`;
+      const list = document.createElement("div");
+      list.className = "pb-wh-list";
+      real.forEach((loc) => {
+        const cur = rows.find((r) => r.locationId === loc.id);
+        const row = document.createElement("label");
+        row.className = "pb-wh-row";
+        row.innerHTML = `<span class="pb-wh-loc">${esc(loc.name)}${loc.is_default ? " (default)" : ""}</span>`;
+        const inp = document.createElement("input");
+        inp.type = "number"; inp.min = "0"; inp.className = "input pb-wh-qty";
+        inp.value = cur ? String(cur.qty) : "";
+        inp.placeholder = "0";
+        inp.setAttribute("aria-label", `Pieces of ${c.name || "colour"} ${size} in ${loc.name}`);
+        inp.addEventListener("input", () => {
+          const n = Number(inp.value);
+          const next = (stockSplit[key] || []).filter((r) => r.locationId !== loc.id);
+          if (Number.isFinite(n) && n > 0) next.push({ locationId: loc.id, qty: n });
+          if (next.length) stockSplit[key] = next; else delete stockSplit[key];
+          // Repaint only the running total, not the whole block -- rebuilding
+          // the inputs would steal focus on every keystroke.
+          const tot = box.querySelector(".pb-wh-tot");
+          const rows2 = stockSplit[key] || [];
+          const sum = rows2.reduce((s2, r) => s2 + (Number(r.qty) || 0), 0);
+          tot.textContent = rows2.length ? `${sum} of ${qty}` : `${qty} pieces`;
+          tot.classList.toggle("pb-wh-bad", rows2.length > 0 && sum !== qty);
+        });
+        row.appendChild(inp);
+        list.appendChild(row);
+      });
+      box.appendChild(list);
+      whHost.appendChild(box);
+    });
+  }
+
   function paintGrid() {
+    // Deferred: paintWarehouses reads the cells this function is about to
+    // rebuild, so it runs after, not during.
+    setTimeout(paintWarehouses, 0);
     gridHost.innerHTML = "";
     if (!colours.length) {
       const p = document.createElement("p");
@@ -1358,6 +1444,10 @@ export function renderProductForm({
           qty.addEventListener("input", () => {
             c.cells[size] = c.cells[size] || { qty: 0, sku: "", barcode: "" };
             c.cells[size].qty = Math.max(0, parseInt(qty.value, 10) || 0);
+            // CR-0006: the warehouse step follows the grid. An item that just
+            // gained stock needs a block; one that just lost it must not keep
+            // a stale split pointing at a quantity that no longer exists.
+            paintWarehouses();
             updateTotal(c);
           });
           qty.addEventListener("focus", () => aimScanner(c.id, size));
@@ -1497,6 +1587,13 @@ export function renderProductForm({
       photoStrip: photos.map((p) => (p.file ? { file: p.file } : { url: p.url })),
       supplierId: selectedSupplierId || null,
       barcode: v(ids.barcode).trim(),
+      // CR-0006. Keyed by SKU, because that is what the server matches on --
+      // the form's internal colour ids mean nothing to it.
+      stockSplit: Object.entries(stockSplit).map(([key, allocations]) => {
+        const [cid, size] = key.split("|");
+        const c = colours.find((x) => x.id === cid);
+        return { sku: (c?.cells?.[size]?.sku || "").trim(), allocations };
+      }).filter((r) => r.sku),
       colourBarcodes: colours
         .filter((c) => (c.barcode || "").trim())
         .map((c) => ({ color: c.name.trim(), barcode: c.barcode.trim() })),
