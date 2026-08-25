@@ -2440,3 +2440,66 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 /* 44px is the floor for a thumb; the box above is 46px including its border,
    so this only has to stop a narrow viewport from squeezing it. */
 @media (max-width: 420px) { .pb-photo-tag { width: 44px; height: 44px; } }
+
+/* ── CV-01: the buyer's order sheet ───────────────────────────────────────
+   Colours down, sizes across. Appended, never spliced — see the CR-0004 block
+   above for why that matters and which gate proves it survived. */
+.os-sheet { border: 1px solid var(--border-subtle); border-radius: 12px; overflow: hidden;
+  background: var(--bg-surface); margin-top: 4px; }
+.os-sheet-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.os-grid { border-collapse: separate; border-spacing: 0; width: 100%;
+  font-variant-numeric: tabular-nums; }
+.os-grid th, .os-grid td { padding: 0; margin: 0; }
+.os-grid thead th { position: sticky; top: 0; z-index: 2; height: 32px;
+  background: var(--bg-surface-2); border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px; font-weight: 700; color: var(--text-secondary); text-align: center; }
+/* The colour column is FROZEN. With eight sizes the grid scrolls sideways, and
+   a row of numbers whose label has slid off screen is not a row of anything. */
+.os-grid .os-cch, .os-grid td.os-cc { position: sticky; left: 0; z-index: 3;
+  min-width: 116px; width: 116px; text-align: left; padding-left: 10px;
+  background: var(--bg-surface-2); }
+.os-grid td.os-cc { background: var(--bg-surface); z-index: 1;
+  border-right: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); }
+.os-ccwrap { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.os-cthumb { width: 30px; height: 30px; border-radius: 6px; object-fit: cover; flex: none;
+  cursor: zoom-in; box-shadow: inset 0 0 0 1px rgba(0,0,0,.09); }
+.os-cdot { width: 18px; height: 18px; border-radius: 50%; flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.22); }
+.os-cname { font-size: 12px; font-weight: 700; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+/* 44px is the thumb floor. A cell is a tap target, not just a number. */
+.os-cell { min-width: 46px; height: 44px; text-align: center; font-size: 14px;
+  font-weight: 700; color: var(--text-tertiary); cursor: pointer; user-select: none;
+  border-right: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); }
+.os-cell.os-has { color: var(--text-primary); background: var(--accent-50); }
+.os-cell.os-aim { box-shadow: inset 0 0 0 2px var(--accent-500); color: var(--text-primary); }
+.os-cell.os-out { color: var(--border-default); cursor: default;
+  background: repeating-linear-gradient(135deg, transparent 0 5px, rgba(0,0,0,.045) 5px 10px); }
+.os-cell.os-none { cursor: default; background: var(--bg-sunken); }
+.os-cell:focus-visible { outline: 2px solid var(--accent-500); outline-offset: -2px; }
+.os-rt { min-width: 52px; text-align: center; font-size: 13px; font-weight: 800;
+  background: var(--bg-surface-2); border-bottom: 1px solid var(--border-subtle); }
+.os-rt.os-short { color: var(--warning-700); }
+.os-grid tfoot td { height: 30px; text-align: center; font-size: 11px; font-weight: 700;
+  color: var(--text-secondary); background: var(--bg-sunken);
+  border-top: 1px solid var(--border-subtle); }
+.os-grid tfoot td.os-cc { text-align: left; }
+/* ONE control, at the foot, that never moves — so the thumb never hunts and no
+   cell has to be wide enough to hold its own buttons. */
+.os-pad { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 11px; background: var(--accent-700); color: #fff; }
+.os-pad.os-pad-idle { background: var(--bg-sunken); color: var(--text-secondary); }
+.os-what { flex: 1 1 140px; min-width: 0; font-size: 12px; line-height: 1.35; }
+.os-what b { display: block; font-size: 13px; }
+.os-pad .os-what span { opacity: .75; font-size: 11px; }
+.os-pad.os-pad-idle .os-what b { color: var(--text-primary); }
+.os-step { width: 46px; height: 42px; border-radius: 10px; border: 0; flex: none;
+  background: rgba(255,255,255,.15); color: #fff; font-size: 22px; line-height: 1; padding: 0; }
+.os-step:disabled { opacity: .35; }
+.os-val { min-width: 46px; text-align: center; font-size: 19px; font-weight: 800; flex: none; }
+.os-commit { flex: none; }
+.os-feedback { flex: 1 0 100%; font-size: 11px; line-height: 1.5; padding-top: 4px; }
+.os-warn { color: var(--warning-500); }
+.os-nudge { color: var(--accent-100); }
+.os-pad.os-pad-idle .os-warn { color: var(--warning-700); }
+.os-sheet-scroll.os-wide { scrollbar-width: thin; }

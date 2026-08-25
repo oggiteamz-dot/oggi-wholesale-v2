@@ -279,6 +279,9 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
 
   const sizeRow = document.createElement("div");
   sizeRow.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;";
+  // The sheet is mounted into this slot further down, once it is built. The
+  // slot is appended HERE so the sheet keeps the exact position in the card
+  // that the old size row held -- above the pack section and the footer.
   if (!isBundleOnly) el.appendChild(sizeRow);
 
   // Say plainly how this product is sold, so the absence of a size stepper
@@ -465,225 +468,291 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
     });
   }
 
-  function renderSizes() {
-    sizeRow.innerHTML = "";
-    footer.innerHTML = "";
-    // Bundle-only products (series / prepack / ratio) get no per-size chips and
-    // no quantity stepper -- the server refuses loose lines for them, so the
-    // only honest control is the pack selector rendered further down.
-    if (isBundleOnly) return;
-    const sizesForColor = product.variants.filter((v) => v.color === selectedColor);
-    sizesForColor.forEach((v) => {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.textContent = v.size;
-      chip.disabled = v.available <= 0;
-      const isSelected = chip.dataset.selected === "true";
-      chip.className = "btn btn-sm " + (isSelected ? "btn-primary" : "btn-secondary");
-      chip.style.opacity = v.available <= 0 ? "0.4" : "1";
-      chip.addEventListener("click", () => {
-        sizeRow.querySelectorAll("button").forEach((b) => b.classList.remove("btn-primary"));
-        sizeRow.querySelectorAll("button").forEach((b) => b.classList.add("btn-secondary"));
-        chip.classList.remove("btn-secondary");
-        chip.classList.add("btn-primary");
-        renderStepper(v);
-      });
-      sizeRow.appendChild(chip);
-    });
+  // ===========================================================================
+  // THE ORDER SHEET                                          (CV-01, 25 Aug)
+  // ===========================================================================
+  // Hadi, 25 Aug 2026, choosing between two rebuilds of the buyer screen:
+  //   "the matrix style ... the colors in a table vertically and the sizes in
+  //    the table horizontally."
+  //
+  // WHAT THIS REPLACES, and why the old shape was wrong.
+  //
+  // Before today a buyer picked ONE colour, then ONE size, and a stepper
+  // appeared. Everything about the order except the cell you were standing on
+  // was invisible. On a four-colour product that is sixteen separate visits to
+  // find out what you had ordered, and the size labels were reprinted under
+  // every colour so nothing lined up into a column the eye could follow.
+  //
+  // The sheet answers the question a wholesale buyer actually asks -- "what
+  // have I taken, and in what spread" -- because the numbers now sit in
+  // columns. Forty 32s against twelve 36s is visible without adding anything
+  // up. That is also why the per-size totals along the bottom exist.
+  //
+  // THE ONE CONTROL. Cells are not steppers. A cell wide enough to hold
+  // "- 12 +" is a cell too wide for eight sizes on a phone, and a row of
+  // sixty-four tiny buttons is the wall CR-0001 has just finished deleting
+  // from the wholesaler's side. So a cell is a NUMBER you tap to aim at, and
+  // one large control at the foot -- which never moves, so the thumb never
+  // hunts -- changes whichever cell is aimed at.
+  //
+  // WHAT IS DELIBERATELY UNCHANGED: the control still commits explicitly.
+  // Every quantity change releases and re-reserves stock server-side
+  // (cart.js), so a sheet that wrote on every press would fire two round trips
+  // per tap. Auto-commit needs a debounce and a rollback path, and that is its
+  // own change with its own gate -- not something to smuggle in behind a
+  // layout rewrite.
+  // ===========================================================================
+  function cellQty(variant) {
+    const line = cart.get(wid).find((l) => l.variantId === variant.id);
+    return line ? line.qty : 0;
   }
 
-  function renderStepper(variant) {
-    footer.innerHTML = "";
-    const existing = cart.get(wid).find((l) => l.variantId === variant.id);
-    const stepperWrap = document.createElement("div");
-    stepperWrap.style.cssText = "display:flex;align-items:center;gap:8px;";
+  let aimed = null;                 // the variant the foot control is pointing at
+  const sheet = document.createElement("div");
+  sheet.className = "os-sheet";
+  const sheetScroll = document.createElement("div");
+  sheetScroll.className = "os-sheet-scroll";
+  const grid = document.createElement("table");
+  grid.className = "os-grid";
+  sheetScroll.appendChild(grid);
+  sheet.appendChild(sheetScroll);
+  const pad = document.createElement("div");
+  pad.className = "os-pad";
+  sheet.appendChild(pad);
+  sizeRow.appendChild(sheet);
+  // The slot was a flex row of chips; the sheet is a block. Reset it rather
+  // than leaving the old layout to squeeze the table.
+  sizeRow.style.cssText = "display:block;margin-top:2px;";
 
-    const qtyInput = document.createElement("input");
-    qtyInput.type = "number";
-    qtyInput.className = "input";
-    qtyInput.min = "0";
-    qtyInput.max = String(variant.available);
-    qtyInput.step = String(baseUnit);
-    qtyInput.value = String(existing?.qty || 0);
-    qtyInput.style.width = "72px";
-    qtyInput.setAttribute("aria-label", `Pieces of ${product.name} in ${variant.color}, size ${variant.size}`);
+  /** Every size this product has, in the order the catalogue gave them --
+   *  NOT per colour. A column has to mean the same thing on every row or the
+   *  grid stops being a grid. */
+  const allSizes = [...new Set(product.variants.map((v) => v.size).filter(Boolean))];
 
-    // ---------------------------------------------------------------------
-    // + and - , stepping by the product's base unit. Batch 5.
-    //
-    // Hadi, 20 Aug 2026: "Let's say the MOQ is 20 -- every single time they
-    // click plus on the colour red they get 20 ... they see that there's a x12
-    // or x20 next to it, which will be multiplied in the final total."
-    //
-    // The number in the box stays PIECES, not units, on purpose. Pieces are
-    // what stock is counted in, what every MOQ is measured in, and what the
-    // invoice lists -- so one number means one thing on every screen. What the
-    // base unit changes is the STEP: pressing + adds a whole unit, and typing
-    // a number that is not a whole one is rounded up rather than silently
-    // accepted and then refused at checkout.
-    //
-    // Real buttons rather than the number input's own spinners: those spinners
-    // are a few pixels tall, are absent on mobile Safari, and cannot be given
-    // a base-unit step that a phone keyboard will respect.
-    // ---------------------------------------------------------------------
-    const maxWhole = baseUnit > 1 ? Math.floor(variant.available / baseUnit) * baseUnit : variant.available;
+  function variantAt(colour, size) {
+    return product.variants.find((v) => v.color === colour && v.size === size);
+  }
 
-    function snap(n) {
-      if (n <= 0) return 0;
-      if (baseUnit <= 1) return Math.min(n, variant.available);
-      return Math.min(Math.ceil(n / baseUnit) * baseUnit, maxWhole);
-    }
+  function renderSizes() {
+    // Name kept. Fifteen-odd call sites and two gates already say renderSizes,
+    // and renaming a function to describe its new drawing is how a rename
+    // turns into a regression. It draws the sheet now.
+    if (isBundleOnly) { sheet.innerHTML = ""; return; }
+    grid.innerHTML = "";
 
-    function step(delta) {
-      const now = parseInt(qtyInput.value, 10) || 0;
-      const next = Math.max(0, Math.min(now + delta * baseUnit, maxWhole || variant.available));
-      qtyInput.value = String(next);
-      renderFeedback();
-    }
+    const thead = document.createElement("thead");
+    thead.innerHTML = `<tr><th class="os-cch">Colour</th>${
+      allSizes.map((sz) => `<th data-size="${esc(sz)}">${esc(sz)}</th>`).join("")
+    }<th class="os-tch">Total</th></tr>`;
+    grid.appendChild(thead);
 
-    const minusBtn = document.createElement("button");
-    minusBtn.type = "button";
-    minusBtn.className = "btn btn-secondary btn-sm pc-step";
-    minusBtn.textContent = "−";
-    minusBtn.setAttribute("aria-label", baseUnit > 1 ? `Remove ${baseUnit} pieces` : "Remove one piece");
-    minusBtn.addEventListener("click", () => step(-1));
+    const tbody = document.createElement("tbody");
+    product.colors.forEach((c) => {
+      const tr = document.createElement("tr");
+      tr.dataset.colour = c.name;
+      const photo = photosFor(c.name)[0];
+      const head = document.createElement("td");
+      head.className = "os-cc";
+      head.innerHTML = `<div class="os-ccwrap">${
+        photo ? `<img src="${esc(photo)}" alt="" class="os-cthumb">`
+              : `<span class="os-cdot" style="background:${esc(c.hex)}"></span>`
+      }<span class="os-cname">${esc(c.name)}</span></div>`;
+      // The thumbnail is the swatch's job too: tapping a colour's picture sets
+      // the hero, so the big image follows what the buyer just looked at.
+      const th = head.querySelector(".os-cthumb");
+      if (th) th.addEventListener("click", () => { selectedColor = c.name; renderPhoto(); });
+      tr.appendChild(head);
 
-    const plusBtn = document.createElement("button");
-    plusBtn.type = "button";
-    plusBtn.className = "btn btn-secondary btn-sm pc-step";
-    plusBtn.textContent = "+";
-    plusBtn.setAttribute("aria-label", baseUnit > 1 ? `Add ${baseUnit} pieces` : "Add one piece");
-    plusBtn.addEventListener("click", () => step(1));
+      allSizes.forEach((sz) => {
+        const v = variantAt(c.name, sz);
+        const td = document.createElement("td");
+        td.className = "os-cell";
+        if (!v) {
+          // This colour is not made in this size. Blank, and unaimable --
+          // never a zero, which would read as "available, none taken".
+          td.classList.add("os-none");
+          td.textContent = "";
+          td.setAttribute("aria-label", `${c.name} is not made in size ${sz}`);
+        } else {
+          const q = cellQty(v);
+          td.textContent = String(q);
+          td.dataset.variantId = v.id;
+          if (q > 0) td.classList.add("os-has");
+          if (v.available <= 0) {
+            // Out of stock stays VISIBLE and unaimable. Hiding it would let a
+            // buyer think the size does not exist; the server would refuse the
+            // line anyway, so offering it is worse than showing it greyed.
+            td.classList.add("os-out");
+            td.setAttribute("aria-label", `${c.name} size ${sz} is out of stock`);
+          } else {
+            td.setAttribute("role", "button");
+            td.setAttribute("tabindex", "0");
+            td.setAttribute("aria-label", `${c.name}, size ${sz}, ${q} pieces. Tap to change.`);
+            const aim = () => { aimed = v; selectedColor = c.name; renderSizes(); renderPhoto(); };
+            td.addEventListener("click", aim);
+            td.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); aim(); } });
+          }
+          if (aimed && aimed.id === v.id) td.classList.add("os-aim");
+        }
+        tr.appendChild(td);
+      });
 
-    // Typing wins over the buttons, but a part-unit is corrected the moment
-    // the buyer looks away -- with the reason said out loud, because a number
-    // that changes itself and does not explain is worse than one that is
-    // refused later.
-    qtyInput.addEventListener("blur", () => {
-      const typed = parseInt(qtyInput.value, 10) || 0;
-      const snapped = snap(typed);
-      if (snapped !== typed) {
-        qtyInput.value = String(snapped);
-        if (baseUnit > 1 && typed > 0) toast(`Sold in units of ${baseUnit} — rounded up to ${snapped} pieces`, { type: "info" });
-        renderFeedback();
+      const total = allSizes.reduce((sum, sz) => {
+        const v = variantAt(c.name, sz);
+        return sum + (v ? cellQty(v) : 0);
+      }, 0);
+      const rt = document.createElement("td");
+      rt.className = "os-rt";
+      rt.textContent = String(total);
+      // The per-colour minimum, on the colour it is about. The server enforces
+      // it in v2_enforce_selling_model; a buyer used to meet the product MOQ,
+      // press submit, and be refused by a rule no screen had mentioned.
+      if (product.moqPerColour && total > 0 && total < product.moqPerColour) {
+        rt.classList.add("os-short");
+        rt.title = `Add ${product.moqPerColour - total} more in ${c.name} — minimum ${product.moqPerColour} per colour`;
       }
+      tr.appendChild(rt);
+      tbody.appendChild(tr);
     });
+    grid.appendChild(tbody);
 
-    const addBtn = document.createElement("button");
-    addBtn.className = "btn btn-primary btn-sm";
-    addBtn.textContent = existing ? "Update" : "Add to cart";
+    // Per-size totals. The reason the columns were worth building: a buyer can
+    // see they have taken forty 32s and twelve 36s without adding it up.
+    const tfoot = document.createElement("tfoot");
+    let grand = 0;
+    const cells = allSizes.map((sz) => {
+      const n = product.colors.reduce((sum, c) => {
+        const v = variantAt(c.name, sz);
+        return sum + (v ? cellQty(v) : 0);
+      }, 0);
+      grand += n;
+      return `<td data-total-size="${esc(sz)}">${n}</td>`;
+    }).join("");
+    tfoot.innerHTML = `<tr><td class="os-cc">Per size</td>${cells}<td class="os-gt" data-grand>${grand}</td></tr>`;
+    grid.appendChild(tfoot);
 
-    // Batch 6: live "add N more to unlock $X/ea" / MOQ feedback as the
-    // buyer types a qty, computed with the same tier/MOQ precedence the
-    // server enforces at submit time (pricing.js mirrors migrations/010).
+    sheetScroll.classList.toggle("os-wide", allSizes.length > 5);
+    renderPad();
+  }
+
+  function renderPad() {
+    pad.innerHTML = "";
+    if (!aimed) {
+      pad.className = "os-pad os-pad-idle";
+      pad.innerHTML = `<div class="os-what"><b>Tap a box above</b><span>then use + and − here</span></div>`;
+      return;
+    }
+    pad.className = "os-pad";
+    const variant = aimed;
+    const maxWhole = baseUnit > 1 ? Math.floor(variant.available / baseUnit) * baseUnit : variant.available;
+    let draft = cellQty(variant);
+
+    const what = document.createElement("div");
+    what.className = "os-what";
+    const minus = document.createElement("button");
+    minus.type = "button"; minus.className = "btn os-step"; minus.textContent = "−";
+    minus.setAttribute("aria-label", baseUnit > 1 ? `Remove ${baseUnit} pieces` : "Remove one piece");
+    const val = document.createElement("div");
+    val.className = "os-val";
+    const plus = document.createElement("button");
+    plus.type = "button"; plus.className = "btn os-step"; plus.textContent = "+";
+    plus.setAttribute("aria-label", baseUnit > 1 ? `Add ${baseUnit} pieces` : "Add one piece");
+    const commit = document.createElement("button");
+    commit.className = "btn btn-primary btn-sm os-commit";
+
     const feedback = document.createElement("div");
-    feedback.style.cssText = "font-size:11px;line-height:1.5;margin-top:4px;text-align:right;";
+    feedback.className = "os-feedback";
 
-    function renderFeedback() {
-      const typedQty = parseInt(qtyInput.value, 10) || 0;
-      const otherVariantsQty = cartQtyForProduct(wid, product) - (existing?.qty || 0);
-      const aggQty = otherVariantsQty + typedQty;
+    function paint() {
+      what.innerHTML = `<b>${esc(variant.color || "")} · size ${esc(variant.size || "")}</b>` +
+        `<span>${baseUnit > 1 ? `each press is ${baseUnit} pieces · ` : ""}${variant.available} available${
+          variant.retailPrice ? ` · MSRP ${money(variant.retailPrice, currency)}${
+            marginPct(variant.price, variant.retailPrice) != null ? ` (${marginPct(variant.price, variant.retailPrice)}% margin)` : ""}` : ""}</span>`;
+      val.textContent = String(draft);
+      minus.disabled = draft <= 0;
+      commit.textContent = cellQty(variant) > 0 ? "Update" : "Add to cart";
+      commit.disabled = draft === cellQty(variant);
 
+      // The same live feedback the old stepper gave, unchanged in substance:
+      // price and its source, the multiplication written out, every minimum the
+      // server will enforce, and the next quantity break as a nudge.
+      const otherQty = cartQtyForProduct(wid, product) - cellQty(variant);
+      const aggQty = otherQty + draft;
       const lines = [];
-      if (typedQty > 0) {
+      if (draft > 0) {
         const { price, listPrice, source } = effectivePrice({
           basePrice: variant.price, productId: product.id, variantId: variant.id,
           aggregateQty: aggQty, tiersByProduct: tiersByProductLocal, overridesByVariant,
           discountPct, customerPct,
         });
         const label = source === "override" ? "your price" : source === "tier" ? "tier price" : "price";
-        // The strikethrough appears only when the CUSTOMER's own discount is
-        // doing something. A catalog-only discount shows one price and no
-        // theatre, because the buyer was never meant to know it exists.
         const shown = listPrice > price
           ? `<s class="pc-was">${money(listPrice, currency)}</s> <strong>${money(price, currency)}</strong>`
           : money(price, currency);
         lines.push(`<div>${shown} per piece (${label})</div>`);
-        // Batch 5: the multiplication the buyer was promised, written out.
-        // The price on screen times the pieces IS the line total -- there is
-        // no second arithmetic anywhere, which is the whole point of
-        // checks/check_line_pricing.mjs.
-        lines.push(`<div><strong>${typedQty}</strong> pieces${baseUnit > 1 ? ` <span class="pc-multiplier">(${typedQty / baseUnit} × ${baseUnit})</span>` : ""} = <strong>${money(round2(price * typedQty), currency)}</strong></div>`);
-
-        const skuMoq = variantMoqStatus(variant, typedQty);
-        if (!skuMoq.met) lines.push(`<div style="color:var(--warning-600,#a15c00);">Add ${skuMoq.short} more of this SKU (min ${skuMoq.required})</div>`);
-
+        lines.push(`<div><strong>${draft}</strong> pieces${baseUnit > 1 ? ` <span class="pc-multiplier">(${draft / baseUnit} × ${baseUnit})</span>` : ""} = <strong>${money(round2(price * draft), currency)}</strong></div>`);
+        const skuMoq = variantMoqStatus(variant, draft);
+        if (!skuMoq.met) lines.push(`<div class="os-warn">Add ${skuMoq.short} more of this SKU (min ${skuMoq.required})</div>`);
         const prodMoq = productMoqStatus(product, aggQty, isReorder);
-        if (!prodMoq.met) lines.push(`<div style="color:var(--warning-600,#a15c00);">Add ${prodMoq.short} more of this product, any colour/size (min ${prodMoq.required})</div>`);
+        if (!prodMoq.met) lines.push(`<div class="os-warn">Add ${prodMoq.short} more of this product, any colour/size (min ${prodMoq.required})</div>`);
       }
       const nt = nextTier(tiers, aggQty);
-      if (nt) lines.push(`<div style="color:var(--accent-600,#2f6b4f);">Add ${nt.minQty - aggQty} more pieces (any colour/size) to reach ${money(nt.unitPrice, currency)} each</div>`);
-
-      // Batch 5: the per-colour minimum the server enforces in
-      // v2_enforce_selling_model (migration 063). It was invisible here, so a
-      // buyer met the product MOQ, pressed submit, and was refused by a rule
-      // no screen had mentioned.
+      if (nt) lines.push(`<div class="os-nudge">Add ${nt.minQty - aggQty} more pieces (any colour/size) to reach ${money(nt.unitPrice, currency)} each</div>`);
       if (product.moqPerColour) {
-        const thisColour = cart.get(wid)
-          .filter((l) => !l.isPack && l.color === variant.color && product.variants.some((v) => v.id === l.variantId))
-          .reduce((sum, l) => sum + (l.variantId === variant.id ? 0 : l.qty), 0) + typedQty;
+        const thisColour = allSizes.reduce((sum, sz) => {
+          const v2 = variantAt(variant.color, sz);
+          if (!v2) return sum;
+          return sum + (v2.id === variant.id ? draft : cellQty(v2));
+        }, 0);
         if (thisColour > 0 && thisColour < product.moqPerColour) {
-          lines.push(`<div style="color:var(--warning-600,#a15c00);">Add ${product.moqPerColour - thisColour} more in ${esc(variant.color)} (min ${product.moqPerColour} per colour)</div>`);
+          lines.push(`<div class="os-warn">Add ${product.moqPerColour - thisColour} more in ${esc(variant.color)} (min ${product.moqPerColour} per colour)</div>`);
         }
       }
-
       feedback.innerHTML = lines.join("");
     }
 
-    qtyInput.addEventListener("input", renderFeedback);
+    function step(delta) {
+      const next = Math.max(0, Math.min(draft + delta * baseUnit, maxWhole || variant.available));
+      draft = next;
+      paint();
+    }
+    minus.addEventListener("click", () => step(-1));
+    plus.addEventListener("click", () => step(1));
 
-    addBtn.addEventListener("click", async () => {
-      // Snap here too, not only on blur: a buyer can type 7 and press Add
-      // without the field ever losing focus.
-      const qty = snap(parseInt(qtyInput.value, 10) || 0);
-      qtyInput.value = String(qty);
-      const otherVariantsQty = cartQtyForProduct(wid, product) - (existing?.qty || 0);
+    commit.addEventListener("click", async () => {
+      const otherQty = cartQtyForProduct(wid, product) - cellQty(variant);
       const { price } = effectivePrice({
         basePrice: variant.price, productId: product.id, variantId: variant.id,
-        aggregateQty: otherVariantsQty + qty, tiersByProduct: tiersByProductLocal, overridesByVariant,
+        aggregateQty: otherQty + draft, tiersByProduct: tiersByProductLocal, overridesByVariant,
         discountPct, customerPct,
       });
-      addBtn.disabled = true;
-      const result = await cart.setLineQty(
-        wid,
-        {
-          variantId: variant.id, productId: product.id, locationId, productName: product.name,
-          color: variant.color, colorHex: variant.colorHex, size: variant.size, price,
-          // Batch 5: the variant's LIST price travels with the line so the
-          // cart screen can re-price it without applying the discount twice.
-          listPrice: variant.price,
-        },
-        qty
-      );
-      addBtn.disabled = false;
+      commit.disabled = true;
+      const result = await cart.setLineQty(wid, {
+        variantId: variant.id, productId: product.id, locationId, productName: product.name,
+        color: variant.color, colorHex: variant.colorHex, size: variant.size, price,
+        listPrice: variant.price,
+      }, draft);
+      commit.disabled = false;
       if (!result.ok) {
         toast(`Only ${variant.available} available in ${variant.color} / ${variant.size}`, { type: "danger" });
         return;
       }
-      toast(qty > 0 ? `Cart updated — ${product.name} (${variant.color}, ${variant.size})` : "Removed from cart", { type: "success" });
-      addBtn.textContent = qty > 0 ? "Update" : "Add to cart";
-      // Batch 13: fly-to-cart micro-interaction on a genuine add (never on
-      // a qty-zero removal) -- purely additive feedback, the cart write
-      // above has already succeeded by this point.
-      if (qty > 0) flyToCart({ sourceEl: addBtn, color: variant.colorHex });
-      renderFeedback();
-      // Crossing a quantity break changes the price shown at the top of the
-      // card, so it is repainted rather than left showing the old one.
+      toast(draft > 0 ? `Cart updated — ${product.name} (${variant.color}, ${variant.size})` : "Removed from cart", { type: "success" });
+      if (draft > 0) flyToCart({ sourceEl: commit, color: variant.colorHex });
+      // The sheet is the record of the order, so it is repainted from the cart
+      // rather than trusted to still match it.
+      renderSizes();
       renderHeader();
       if (onCartChange) onCartChange();
     });
 
-    stepperWrap.appendChild(minusBtn);
-    stepperWrap.appendChild(qtyInput);
-    stepperWrap.appendChild(plusBtn);
-    stepperWrap.appendChild(addBtn);
-    footer.appendChild(stepperWrap);
-    const availNote = document.createElement("div");
-    availNote.style.cssText = "font-size:11px;color:var(--text-tertiary);margin-top:4px;text-align:right;";
-    availNote.textContent = `${variant.available} available${variant.retailPrice ? ` · MSRP ${money(variant.retailPrice, currency)}${marginPct(variant.price, variant.retailPrice) != null ? ` (${marginPct(variant.price, variant.retailPrice)}% margin)` : ""}` : ""}`;
-    footer.appendChild(availNote);
-    footer.appendChild(feedback);
-    renderFeedback();
+    pad.appendChild(what);
+    pad.appendChild(minus);
+    pad.appendChild(val);
+    pad.appendChild(plus);
+    pad.appendChild(commit);
+    pad.appendChild(feedback);
+    paint();
   }
 
   renderSwatches();

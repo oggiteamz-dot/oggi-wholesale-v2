@@ -145,6 +145,13 @@ const MUST = [
   // look like a working feature and be unusable, which is the worst shape a
   // CSS loss can take.
   [".pb-colour-photos",  "the per-colour photo picker's container"],
+  // CV-01. Without these the sheet still renders -- as an unaligned pile of
+  // numbers with no frozen colour column and no visible aim. It would look
+  // like a working table and be unreadable, which is the worst shape a CSS
+  // loss can take. Appended last, the position error recovery ate on 23 Aug.
+  [".os-grid",           "the order sheet's table"],
+  [".os-cell",           "a colour x size cell — also the 44px tap target"],
+  [".os-pad",            "the one control at the foot of the sheet"],
   [".pb-photo-tag",      "the tap-to-tag photo button — 46px, the thumb target"],
   [".pf-setup-warn",    "the warning that says buyers cannot order the product yet"],
   // Batch 8A. These are appended at the very END of components.css, which is
