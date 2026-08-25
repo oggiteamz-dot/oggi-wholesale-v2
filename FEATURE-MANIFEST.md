@@ -183,10 +183,33 @@ broke · ❌ not built
 | 96 | **The colour column is frozen** while sizes scroll sideways | `css/components.css` | `check_css_parses.mjs` — `.os-grid` survives parsing | ✅ |
 | 97 | **A part-unit cannot be typed in** — there is no free-text quantity box on the sheet at all | `js/components/product-card.js` | `check_buyer_product_card.mjs` — the structural assertion | ✅ |
 | 98 | **An out-of-stock cell is shown but unaimable** — visible, hatched, never silently orderable | `js/components/product-card.js` | `check_buyer_card_capabilities.mjs` — 14 | ✅ |
+| 99 | **Opening stock splits across several warehouses** — one item, this many here, that many there | `js/components/product-form.js`, `js/data/products-admin.js` (`allocationsFor`) | `check_multi_warehouse.mjs` (12) — WH-02, WH-06 | ✅ |
+| 100 | **A split that does not add up is REFUSED** — named item, both numbers, before anything is written | `js/data/products-admin.js` (`validateStockSplit`) | `check_multi_warehouse.mjs` — WH-03, red-proved two ways | ✅ |
+| 101 | **One warehouse ⇒ the step never appears** — nothing changes for anyone who does not need it | `js/components/product-form.js` (`paintWarehouses`) | `check_multi_warehouse.mjs` — WH-04 | ✅ |
+| 102 | **The step comes AFTER the grid**, as a second pass over numbers that already exist | `js/components/product-form.js` | `check_css_parses.mjs` — `.pb-wh-item` survives parsing | ✅ |
+| 103 | **A variant absent from the split keeps its stock** at the default warehouse — absent is not empty | `js/data/products-admin.js` | `check_multi_warehouse.mjs` — WH-05, red-proved | ✅ |
 
 ---
 
-## Reconciliation — 25 August 2026 (CV-01, the order sheet)
+## Reconciliation — 25 August 2026 (CR-0006, warehouses)
+
+| | |
+|---|---|
+| Features listed | **103** |
+| Enforced and proven (✅) | **94** |
+| Present but unproven (⚠️) | **9** |
+| Not built (❌) | **0** |
+| **Features lost since the last count** | **0** |
+
+Row 100 is the one that earns this change. A split is numbers typed into
+several boxes that nobody re-adds; if 60 pieces can be saved as 40 + 30, twenty
+pieces have been invented, silently, in a system whose entire job is knowing how
+much you have. It is checked before the product row, before a variant, before
+any stock moves — and red-proved twice: once by removing the arithmetic, once by
+keeping the arithmetic but checking it too late to stop the write. Both left
+three receive calls behind.
+
+## Reconciliation — 25 August 2026 (CV-01, the order sheet, superseded)
 
 | | |
 |---|---|
