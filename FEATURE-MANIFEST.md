@@ -175,10 +175,44 @@ broke · ❌ not built
 | 88 | **A failed upload leaves a hole, not a shift** — one failed photo can never slide the next colour's photograph onto the previous colour | `js/data/products-admin.js` | `check_colour_photos.mjs` — F1, F2. Added *because* a red-proof failed to go red without it | ✅ |
 | 89 | **Callers that send no colour mapping keep the old behaviour** — the CSV importer and AI catalog import still get one gallery on every variant | `js/data/products-admin.js` (`attachPhotos`) | `check_colour_photos.mjs` — E1 | ✅ |
 | 90 | **The wholesaler is told which colours have no photograph**, in the form, as they build | `js/components/product-form.js`, `css/components.css` | `check_css_parses.mjs` — `.pb-colour-photos` / `.pb-photo-tag` survive parsing | ✅ |
+| 91 | **The buyer's order sheet** — colours down, sizes across, one cell per colour x size | `js/components/product-card.js`, `css/components.css` | `check_buyer_card_capabilities.mjs` (36), `check_buyer_product_card.mjs` (46) | ✅ |
+| 92 | **Sizes are named once**, in a header row, not reprinted under every colour | `js/components/product-card.js` | `check_buyer_card_capabilities.mjs` — 31 | ✅ |
+| 93 | **A running total per colour**, on its own row, amber when under the per-colour minimum | `js/components/product-card.js` | `check_buyer_card_capabilities.mjs` — 33 | ✅ |
+| 94 | **A total per SIZE along the bottom** — forty 32s against twelve 36s, visible without adding up | `js/components/product-card.js` | `check_buyer_card_capabilities.mjs` — 34 | ✅ |
+| 95 | **One control at the foot** that never moves, aimed at whichever cell was tapped | `js/components/product-card.js` | `check_buyer_card_capabilities.mjs` — 15, 17, 18 | ✅ |
+| 96 | **The colour column is frozen** while sizes scroll sideways | `css/components.css` | `check_css_parses.mjs` — `.os-grid` survives parsing | ✅ |
+| 97 | **A part-unit cannot be typed in** — there is no free-text quantity box on the sheet at all | `js/components/product-card.js` | `check_buyer_product_card.mjs` — the structural assertion | ✅ |
+| 98 | **An out-of-stock cell is shown but unaimable** — visible, hatched, never silently orderable | `js/components/product-card.js` | `check_buyer_card_capabilities.mjs` — 14 | ✅ |
 
 ---
 
-## Reconciliation — 25 August 2026 (CR-0004)
+## Reconciliation — 25 August 2026 (CV-01, the order sheet)
+
+| | |
+|---|---|
+| Features listed | **98** |
+| Enforced and proven (✅) | **89** |
+| Present but unproven (⚠️) | **9** |
+| Not built (❌) | **0** |
+| **Features lost since the last count** | **0** |
+
+The order sheet replaced the chip-then-stepper on open-stock products. **Zero
+capabilities were lost**, and that is a measured statement rather than a hope:
+`check_buyer_card_capabilities.mjs` was written and made green against the OLD
+card first, then re-run against the new one. It was red-proved three ways
+before being trusted — dropping the next-tier nudge, letting an out-of-stock
+size be ordered, and making the stepper forget the base unit — and each named
+the capability it had lost.
+
+Two existing gates went red on the rewrite and **neither was softened**.
+`check_buyer_product_card.mjs` drove a size chip and read a number input;
+`check_buyer_card_capabilities.mjs` asserted "a chip per size". Both described
+the CONTROL rather than the capability, so both were rewritten in this same
+commit, with the reason written into the file. One assertion was genuinely
+retired: typing a part-unit and watching it round up. Typing is gone, and the
+guarantee it gave is now structural — row 97.
+
+## Reconciliation — 25 August 2026 (CR-0004, superseded)
 
 | | |
 |---|---|
