@@ -157,48 +157,72 @@ function render(over = {}, opts = {}) {
 }
 
 // -------------------------------------------------- + steps by the base unit --
+//
+// REWRITTEN 25 Aug 2026, deliberately, when the order sheet replaced the
+// chip-then-stepper. Hadi: "the matrix style ... the colors in a table
+// vertically and the sizes in the table horizontally."
+//
+// The old block drove a size CHIP and read a number INPUT. Neither exists now:
+// a size is a column, a colour is a row, and one control at the foot changes
+// whichever cell is aimed at. Left as it was, this would have gone red while
+// the behaviour was intact -- and the temptation then is to soften the test,
+// which is exactly how a check ends up describing a defect.
+//
+// So it drives the NEW control and asserts the SAME promises, in Hadi's words:
+// one press is a whole unit, the multiplication is written out, and a
+// part-unit can never be committed. Nothing was weakened -- the typed-input
+// rounding assertion is GONE because typing is gone, and its guarantee (a
+// part-unit cannot reach the cart) is now structural: the only way to change a
+// number is the + / - control, which moves in whole units by construction.
+// checks/check_buyer_card_capabilities.mjs holds the other thirty-five.
 {
   const card = render({ baseUnit: 12 });
-  // Choose a size to reveal the stepper.
-  const sizeChip = card.querySelectorAll("button.btn-secondary");
-  const chip = [...sizeChip].find((b) => b.textContent === "S");
-  ok(!!chip, "a size chip is offered for an open-stock product");
-  if (chip) chip.dispatchEvent(new dom.window.Event("click"));
 
-  const qty = card.querySelector('input[type="number"]') || { value: "(no qty input)" };
-  const plus = [...card.querySelectorAll("button.pc-step")].find((b) => b.textContent === "+");
-  const minus = [...card.querySelectorAll("button.pc-step")].find((b) => b.textContent === "−");
-  ok(!!plus && !!minus, "the stepper has real + and − buttons, not the number input's own spinners");
+  const cells = [...card.querySelectorAll(".os-cell")];
+  ok(cells.length > 0, "the order sheet offers a cell per colour x size for an open-stock product");
+  const cell = cells.find((c) => c.getAttribute("role") === "button");
+  ok(!!cell, "an in-stock cell can be aimed at");
+  if (cell) cell.dispatchEvent(new dom.window.Event("click"));
+
+  const plus  = [...card.querySelectorAll("button.os-step")].find((b) => b.textContent === "+");
+  const minus = [...card.querySelectorAll("button.os-step")].find((b) => b.textContent === "−");
+  ok(!!plus && !!minus, "the sheet's one control has real + and − buttons");
+  const readVal = () => {
+    const v = card.querySelector(".os-val");
+    return v ? v.textContent : "(no control)";
+  };
 
   if (plus) plus.dispatchEvent(new dom.window.Event("click"));
-  ok(qty.value === "12", `one press of + adds a whole unit: 12 pieces (got ${qty.value}) — Hadi: "every single time they click plus on the colour red they get 20"`);
+  ok(readVal() === "12", `one press of + adds a whole unit: 12 pieces (got ${readVal()}) — Hadi: "every single time they click plus on the colour red they get 20"`);
   if (plus) plus.dispatchEvent(new dom.window.Event("click"));
-  ok(qty.value === "24", `two presses is 24 (got ${qty.value})`);
+  ok(readVal() === "24", `two presses is 24 (got ${readVal()})`);
   if (minus) minus.dispatchEvent(new dom.window.Event("click"));
-  ok(qty.value === "12", `− takes a whole unit back off (got ${qty.value})`);
+  ok(readVal() === "12", `− takes a whole unit back off (got ${readVal()})`);
 
-  // A typed part-unit is corrected, not silently accepted and then refused.
-  qty.value = "13";
-  if (qty.dispatchEvent) qty.dispatchEvent(new dom.window.Event("blur"));
-  ok(qty.value === "24", `typing 13 rounds UP to the next whole unit, 24 (got ${qty.value})`);
-
-  // And the multiplication is written out where the buyer can read it.
-  qty.value = "24";
-  if (qty.dispatchEvent) qty.dispatchEvent(new dom.window.Event("input"));
+  // The multiplication, written out where the buyer can read it.
+  if (plus) plus.dispatchEvent(new dom.window.Event("click"));
   ok(/24<\/strong> pieces/.test(card.innerHTML) || /24\s*pieces/.test(card.textContent),
      "the feedback states the piece count");
   ok(/\$192\.00/.test(card.textContent), "and the total: 24 pieces at $8.00 = $192.00");
+
+  // The guarantee the removed typing test used to give, asserted structurally:
+  // there is no free-text quantity field on an open-stock card any more, so a
+  // part-unit has no way in.
+  ok(!card.querySelector('.os-sheet input[type="number"]'),
+     "no free-text quantity box in the sheet — a part-unit cannot be typed in at all");
 }
 
 // ------------------------------------------------ a single-piece product -----
 {
+  // Same rewrite as the block above: the control moved, the promise did not.
   const card = render({ baseUnit: 1 });
-  const chip = [...card.querySelectorAll("button.btn-secondary")].find((b) => b.textContent === "S");
-  if (chip) chip.dispatchEvent(new dom.window.Event("click"));
-  const qty = card.querySelector('input[type="number"]') || { value: "(no qty input)" };
-  const plus = [...card.querySelectorAll("button.pc-step")].find((b) => b.textContent === "+");
+  const cell = [...card.querySelectorAll(".os-cell")].find((c) => c.getAttribute("role") === "button");
+  if (cell) cell.dispatchEvent(new dom.window.Event("click"));
+  const plus = [...card.querySelectorAll("button.os-step")].find((b) => b.textContent === "+");
   if (plus) plus.dispatchEvent(new dom.window.Event("click"));
-  ok(qty.value === "1", `with no base unit, + adds one piece (got ${qty.value}) — nothing changes for the products that have always been sold this way`);
+  const v = card.querySelector(".os-val");
+  const got = v ? v.textContent : "(no control)";
+  ok(got === "1", `with no base unit, + adds one piece (got ${got}) — nothing changes for the products that have always been sold this way`);
 }
 
 // ------------------------------------------------------------ pack pricing --
