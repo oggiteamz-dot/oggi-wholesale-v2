@@ -2503,3 +2503,21 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 .os-nudge { color: var(--accent-100); }
 .os-pad.os-pad-idle .os-warn { color: var(--warning-700); }
 .os-sheet-scroll.os-wide { scrollbar-width: thin; }
+
+/* ── CR-0006: where is this stock? ────────────────────────────────────────
+   Appended, and named in check_css_parses.mjs for the same reason as the two
+   blocks above it. */
+.pb-warehouses { grid-column: 1 / -1; margin-top: 4px; }
+.pb-wh-item { border: 1px solid var(--border-subtle); border-radius: 10px;
+  padding: 9px 11px; margin-bottom: 8px; background: var(--bg-surface); }
+.pb-wh-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.pb-wh-name { font-size: 12px; font-weight: 700; flex: 1; }
+.pb-wh-tot { font-size: 11px; color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The one visual that matters: the moment the warehouses stop adding up to the
+   number in the grid, it says so — before the save, not after. */
+.pb-wh-tot.pb-wh-bad { color: var(--warning-700); font-weight: 700; }
+.pb-wh-list { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; align-items: center; }
+.pb-wh-loc { font-size: 12px; color: var(--text-secondary); }
+.pb-wh-qty { width: 88px; text-align: right; }
+@media (max-width: 420px) { .pb-wh-qty { width: 72px; } }
