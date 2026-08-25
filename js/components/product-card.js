@@ -105,9 +105,24 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
     const byColor = product.imagesByColor;
     const own = byColor && typeof byColor.get === "function" ? byColor.get(color) : null;
     if (own && own.length) return own;
-    // A partly-photographed range still shows a picture rather than a gap --
-    // but only from this same product, never from a neighbour.
-    return product.primaryImage ? [product.primaryImage] : [];
+    // CR-0004, 25 Aug 2026. This used to fall back to product.primaryImage --
+    // "a partly-photographed range still shows a picture rather than a gap".
+    //
+    // That was harmless only for as long as every colour of a product carried
+    // an identical gallery, which is what both save paths did until today. Now
+    // that a colour can genuinely have its own photography, the same line
+    // becomes the bug that shows a buyer the BLACK jean while they are
+    // ordering the BROWN one -- a wrong picture read as fact, which is worse
+    // than an honest empty frame.
+    //
+    // Hadi, 25 Aug: "if it's not available, then it's not available from my
+    // client's side."
+    //
+    // Returning [] hands the caller renderPlaceholder(), which says "No photo
+    // yet" tinted in this colour's own hex. The colour stays fully orderable:
+    // a missing photograph must never quietly remove stock from sale.
+    // Logged in REMOVALS-APPROVED.md.
+    return [];
   }
 
   function renderPlaceholder() {

@@ -168,10 +168,48 @@ broke · ❌ not built
 | 81 | **The wholesaler is told what the buyer will receive**, in a sentence, as they type | `js/components/order-setup.js` | `check_order_setup.mjs` — asserts the sentence names the sizes and the total | ✅ |
 | 82 | **No money is taken through this app** — no processor, no card field, no charge, no "pay now"; the buyer's final button says "Submit order" | absence, across `js/**` | `check_no_payment_path.mjs` (3) — the one rule enforced by code that does NOT exist, so it needs a gate more than the others | ✅ |
 | 83 | **The colour is visible, not just spelled** — a swatch, or the product photo for that colour, on every grid row and every box summary | `js/components/order-setup.js` | `check_order_setup.mjs` — asserts a swatch or image exists on the row head, with the name still present | ✅ |
+| 84 | **Each colour carries its OWN photograph** — a wholesaler taps the photos that belong to a colour and only those reach that colour's variants | `js/components/product-form.js`, `js/data/products-admin.js` (`attachPhotos`) | `check_colour_photos.mjs` (20) — Parts B and D read what is actually written to each variant | ✅ |
+| 85 | **A colour may hold several photographs**, and one photograph may belong to several colours — a flat-lay showing two colourways is tagged to both | `js/components/product-form.js` | `check_colour_photos.mjs` — B3 asserts Red carries both of its own and none of Blue's | ✅ |
+| 86 | **A colour with no photograph is written none** — it never inherits a sibling's, on create or on edit | `js/data/products-admin.js` | `check_colour_photos.mjs` — B5, D6 | ✅ |
+| 87 | **The buyer sees an honest empty frame, never the wrong garment** — the `primaryImage` borrow in the buyer card is gone; the colour stays fully orderable | `js/components/product-card.js` | `check_colour_photos.mjs` — C1 | ✅ |
+| 88 | **A failed upload leaves a hole, not a shift** — one failed photo can never slide the next colour's photograph onto the previous colour | `js/data/products-admin.js` | `check_colour_photos.mjs` — F1, F2. Added *because* a red-proof failed to go red without it | ✅ |
+| 89 | **Callers that send no colour mapping keep the old behaviour** — the CSV importer and AI catalog import still get one gallery on every variant | `js/data/products-admin.js` (`attachPhotos`) | `check_colour_photos.mjs` — E1 | ✅ |
+| 90 | **The wholesaler is told which colours have no photograph**, in the form, as they build | `js/components/product-form.js`, `css/components.css` | `check_css_parses.mjs` — `.pb-colour-photos` / `.pb-photo-tag` survive parsing | ✅ |
 
 ---
 
-## Reconciliation — 23 August 2026
+## Reconciliation — 25 August 2026 (CR-0004)
+
+| | |
+|---|---|
+| Features listed | **90** |
+| Enforced and proven (✅) | **81** |
+| Present but unproven (⚠️) | **9** |
+| Not built (❌) | **0** |
+| **Features lost since the last count** | **0** |
+
+CR-0004 added rows 84–90 and removed exactly one behaviour, deliberately and
+with approval: the buyer card's fallback to `product.primaryImage` for a colour
+with no photograph of its own. It is recorded in `REMOVALS-APPROVED.md` in
+Hadi's words. It is a REMOVAL, not a loss, and the distinction is the whole
+point of this file: the line was harmless only while every colour of a product
+carried an identical gallery, and became the bug that shows a buyer the black
+jean while they order the brown one the moment colours could genuinely differ.
+
+Rows 84–89 are, strictly, the closing of a **v1 regression** this repository had
+already logged against itself in `js/data/products-admin.js`: *"v1 attached one
+photo per COLOUR, which is the better end state — noted rather than
+half-built."* It stayed half-built for the reason the note gives, which had
+stopped being true: the form had been recording the mapping all along.
+
+Row 88 exists because a red-proof **failed to go red.** Collapsing the uploaded
+urls with `.push()` instead of holding their position passed every assertion
+here, because every fixture uploaded successfully. The bug only appears when one
+upload fails mid-strip, and then it does not drop a photograph — it hands the
+next colour's to the previous one. A fixture with a failing upload was added,
+and only then did the red-proof bite.
+
+## Reconciliation — 23 August 2026 (superseded)
 
 | | |
 |---|---|

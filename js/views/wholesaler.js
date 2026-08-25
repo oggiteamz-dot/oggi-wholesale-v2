@@ -1016,6 +1016,18 @@ async function stockPane(outlet) {
     if (p.outCount) badges.push({ text: `${p.outCount} out`, kind: "badge-danger" });
     if (p.lowCount) badges.push({ text: `${p.lowCount} low`, kind: "badge-warning" });
     if (p.neverStockedCount) badges.push({ text: `${p.neverStockedCount} not stocked`, kind: "badge-neutral" });
+    // CR-0004. A colour with no photograph still sells -- it shows the buyer an
+    // honest empty frame rather than another colour's garment. That is only a
+    // fair trade if the wholesaler can SEE it, so it is said here, where they
+    // are already looking at the product, rather than left to be discovered by
+    // a customer. Amber, not red: incomplete, not broken.
+    if (p.noPhotoColours) {
+      badges.push({
+        text: `${p.noPhotoColours} colour${p.noPhotoColours === 1 ? "" : "s"} without photos`,
+        kind: "badge-warning",
+        title: "Buyers see an empty frame for these colours. They can still be ordered — open the product and tap the photos that belong to each colour.",
+      });
+    }
 
     const tile = renderProductTile({
       id: p.productId,
