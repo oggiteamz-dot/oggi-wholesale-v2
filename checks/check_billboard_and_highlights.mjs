@@ -132,8 +132,30 @@ ok(/order\("highlighted", \{ ascending: false \}\)/.test(cat),
   "the wholesaler's own catalog list sorts highlighted first, so both sides see the same order");
 
 const buyer = readFileSync("js/views/buyer.js", "utf8");
-ok(/order\.get\(a\.id\) - order\.get\(b\.id\)/.test(buyer),
-  "the link page preserves the order the database returned rather than re-sorting it");
+
+// REWRITTEN 25 Aug 2026 (Batch S/S2), not softened.
+//
+// This assertion used to require the literal expression
+//     order.get(a.id) - order.get(b.id)
+// which described the CONTROL, not the capability. The capability is "the app
+// does not re-order what the database ordered". S2 satisfies it more strongly
+// than the old code did: the id-list-plus-client-sort is gone entirely,
+// v2_catalog_read returns rows already ordered (highlighted desc, sort_order,
+// added_at), and the app now has no sort to get wrong.
+//
+// The old form went red on a change that made the guarantee STRONGER. A gate
+// that fails when its rule is better kept is a gate that will eventually be
+// deleted by someone in a hurry -- so it is rewritten here, in the same commit
+// as the change, with the reason attached. Same call that was made on the two
+// gates rewritten during CV-01 earlier today.
+const tokenRouteStart = buyer.indexOf("getCatalogByToken(");
+ok(tokenRouteStart !== -1,
+  "the link page reads its products through the gated token call");
+{
+  const region = buyer.slice(tokenRouteStart, tokenRouteStart + 4000);
+  ok(!/products\s*\n?\s*\.sort\(|\bproducts\.sort\(/.test(region),
+    "the link page does not re-sort the products the database ordered");
+}
 ok(/highlightLabel/.test(buyer), "and heads the pinned group with the chosen name");
 ok(/billboardEnabled/.test(buyer), "the billboard only shows when it is switched on");
 ok(/targetPresent/.test(buyer),
@@ -154,8 +176,17 @@ ok(/highlighted = false \}\)/.test(card) || /highlighted = false/.test(card),
   "a product card can be told it is highlighted");
 ok(/product-card-highlighted/.test(card),
   "and marks itself when it is");
-ok(/highlighted: pinned\.has\(product\.id\)/.test(buyer),
-  "the link page passes it through for every pinned product");
+// REWRITTEN 25 Aug 2026 (Batch S/S2) for the same reason as the ordering
+// assertion above: this named the CONTROL (`pinned.has(product.id)`, a Set
+// built from a separate id-list fetch) rather than the capability, which is
+// that the link page tells each card whether it is highlighted. The id list is
+// gone; the flag now rides on the product row from v2_catalog_read, so there
+// is no longer a second source that can disagree with the catalog.
+{
+  const region = buyer.slice(tokenRouteStart, tokenRouteStart + 4000);
+  ok(/highlighted:\s*!!\s*product\.highlighted|highlighted:\s*product\.highlighted/.test(region),
+    "the link page passes highlighted through to every card it renders");
+}
 
 const wsrc2 = readFileSync("js/views/wholesaler.js", "utf8");
 ok(/pcard-highlighted/.test(wsrc2),
