@@ -152,6 +152,11 @@ const MUST = [
   [".os-grid",           "the order sheet's table"],
   [".os-cell",           "a colour x size cell — also the 44px tap target"],
   [".os-pad",            "the one control at the foot of the sheet"],
+  // CR-0006. Without these the warehouse step still renders, but the running
+  // total loses the amber that says the numbers do not add up -- the single
+  // signal the whole step exists to give.
+  [".pb-wh-item",        "one block per item in the warehouse step"],
+  [".pb-wh-tot",         "the running total that turns amber when it disagrees"],
   [".pb-photo-tag",      "the tap-to-tag photo button — 46px, the thumb target"],
   [".pf-setup-warn",    "the warning that says buyers cannot order the product yet"],
   // Batch 8A. These are appended at the very END of components.css, which is
