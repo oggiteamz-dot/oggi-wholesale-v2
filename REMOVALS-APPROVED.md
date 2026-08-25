@@ -80,3 +80,37 @@ box A in this style, box B in this style, box C in this style."*
 Restored as a list of boxes, each with its own name and grid. The gate now
 asserts that adding boxes is unbounded and that boxes are independent, and was
 proven red by capping the panel at one box.
+
+---
+
+## CR-0004 — the buyer card no longer borrows another colour's photograph
+
+**Approved by:** Hadi, 25 August 2026
+**Removed:** the `product.primaryImage` fallback in `photosFor()`,
+`js/components/product-card.js`.
+
+**His words:**
+
+> "Each color to have its own corresponding image. And if it's not available,
+> then it's not available from my client's side."
+
+**What the line did.** When a colour had no photography of its own, the card
+showed the product's first photograph instead — with the reasoning, written at
+the time, that *"a partly-photographed range still shows a picture rather than a
+gap."*
+
+**Why it goes.** That was true only while every colour of a product carried an
+identical gallery, which is exactly what both save paths did until today. Now
+that a colour can genuinely have its own photograph, the same line becomes the
+bug that shows a buyer the BLACK jean while they are ordering the BROWN one. A
+wrong picture is read as fact; an empty frame is read as a fact about the
+product. The second is recoverable and the first is not.
+
+**What replaces it.** `renderPlaceholder()` — "No photo yet", tinted in that
+colour's own hex. **The colour remains fully orderable.** A forgotten upload
+must never quietly remove stock from sale, which is why the alternative — hiding
+an unphotographed colour from buyers — was considered and rejected. The
+wholesaler is told instead, in the product form, as they build.
+
+**Proven by:** `checks/check_colour_photos.mjs` — C1 asserts the borrow is gone;
+red-proved by putting it back and watching the gate fail.
