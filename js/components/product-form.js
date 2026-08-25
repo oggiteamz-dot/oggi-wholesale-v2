@@ -151,7 +151,24 @@ export function renderProductForm({
 
   // ---- state ----
   const photos = [];            // { file, url, id }
-  const colours = [];           // { id, name, hex, photoId|null, sizes:[], cells:{size:{qty,sku,barcode}} }
+  // CR-0004. `photoIds` is the real answer to "which photographs are this
+  // colour's", and `photoId` is kept as its FIRST entry rather than deleted --
+  // the eyedropper, openColourPicker() and the swatch preview all read
+  // `photoId`, and rewriting four call sites to gain nothing would be a
+  // rewrite pretending to be a fix. syncPhotoIds() keeps the two honest.
+  const colours = [];           // { id, name, hex, photoId|null, photoIds:[], sizes:[], cells:{size:{qty,sku,barcode}} }
+
+  /** photoId is photoIds[0]. Called after any change to either. */
+  function syncPhotoIds(c) {
+    if (!Array.isArray(c.photoIds)) c.photoIds = c.photoId ? [c.photoId] : [];
+    // A photo sampled by the eyedropper counts as tagged, and leads the list --
+    // it is the one the wholesaler was literally looking at when they named
+    // this colour, so it is the hero.
+    if (c.photoId && !c.photoIds.includes(c.photoId)) c.photoIds.unshift(c.photoId);
+    // A photo removed from the strip cannot stay tagged to anything.
+    c.photoIds = c.photoIds.filter((id) => photos.some((p) => p.id === id));
+    c.photoId = c.photoIds[0] || null;
+  }
   let defaultSizes = SIZE_PRESETS["S–XL"].slice();
 
   const el = document.createElement("section");
@@ -302,7 +319,11 @@ export function renderProductForm({
         // A colour that pointed at this photo keeps its colour and loses only
         // the reference. Dropping the colour too would throw away naming work
         // for something the operator did not ask to delete.
-        colours.forEach((c) => { if (c.photoId === p.id) c.photoId = null; });
+        colours.forEach((c) => {
+          if (c.photoId === p.id) c.photoId = null;
+          if (Array.isArray(c.photoIds)) c.photoIds = c.photoIds.filter((id) => id !== p.id);
+          syncPhotoIds(c);
+        });
         paintPhotos(); paintColours();
       });
       cell.appendChild(del);
@@ -515,6 +536,7 @@ export function renderProductForm({
         if (c) {
           c.hex = hex;
           c.photoId = photoId;
+          syncPhotoIds(c);
           // Only name it if the wholesaler has not written their own name.
           // Overwriting a name someone typed would be the app arguing with the
           // person who knows what the colour is actually called.
@@ -560,6 +582,7 @@ export function renderProductForm({
       name: prefill.name || "",
       hex: prefill.hex || "#111827",
       photoId: prefill.photoId || null,
+      photoIds: prefill.photoId ? [prefill.photoId] : [],
       sizes: defaultSizes.slice(),
       cells: {},
     };
@@ -584,14 +607,64 @@ export function renderProductForm({
     colours.forEach((c, idx) => {
       const row = document.createElement("div");
       row.className = "pb-colour";
-      const photo = photos.find((p) => p.id === c.photoId);
+      syncPhotoIds(c);
+      const tagged = c.photoIds.map((id) => photos.find((p) => p.id === id)).filter(Boolean);
       row.innerHTML = `
         <span class="pb-colour-dot" style="background:${esc(c.hex)}"></span>
         <input class="input pb-colour-name" data-colour-name="${c.id}"
                value="${esc(c.name)}" placeholder="Name this colour" autocomplete="off"
                aria-label="Name for colour ${idx + 1}">
-        ${photo ? `<img class="pb-colour-photo" src="${photo.url}" alt="">` : ""}
+        ${tagged.map((p, i) => `<img class="pb-colour-photo" src="${p.url}" alt=""${i ? ' style="margin-left:-8px"' : ""}>`).join("")}
       `;
+
+      // ── CR-0004: which photographs belong to THIS colour ──────────────────
+      // Hadi, 25 Aug: "I want each color to have its own corresponding image."
+      //
+      // Rendered as an inline strip rather than a modal. A modal here would sit
+      // on top of the colour it is about, so the wholesaler could not see the
+      // swatch they are choosing photos for -- and this form already opens one
+      // modal (the eyedropper) that has to close before the next colour.
+      //
+      // Only shown when there is more than nothing to choose from. A row of
+      // controls for zero photos reads as a broken feature.
+      if (photos.length) {
+        const pickWrap = document.createElement("div");
+        pickWrap.className = "pb-colour-photos";
+        const label = document.createElement("div");
+        label.className = "pb-colour-photos-label";
+        label.textContent = tagged.length
+          ? `${tagged.length} photo${tagged.length === 1 ? "" : "s"} for ${c.name || "this colour"}`
+          : `No photo for ${c.name || "this colour"} yet — buyers will see an empty frame`;
+        if (!tagged.length) label.classList.add("pb-colour-photos-none");
+        pickWrap.appendChild(label);
+
+        const strip = document.createElement("div");
+        strip.className = "pb-colour-photos-strip";
+        photos.forEach((p) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          const on = c.photoIds.includes(p.id);
+          btn.className = "pb-photo-tag" + (on ? " is-on" : "");
+          btn.setAttribute("aria-pressed", on ? "true" : "false");
+          btn.setAttribute("aria-label",
+            `${on ? "Remove" : "Use"} this photo for ${c.name || "this colour"}`);
+          btn.title = btn.getAttribute("aria-label");
+          btn.innerHTML = `<img src="${p.url}" alt="">`;
+          btn.addEventListener("click", () => {
+            // A photo may belong to SEVERAL colours -- one flat-lay can show
+            // two colourways -- so this toggles membership rather than moving
+            // the photo from one colour to another.
+            if (c.photoIds.includes(p.id)) c.photoIds = c.photoIds.filter((x) => x !== p.id);
+            else c.photoIds.push(p.id);
+            c.photoId = c.photoIds[0] || null;
+            syncPhotoIds(c);
+            paintColours();
+          });
+          strip.appendChild(btn);
+        });
+        pickWrap.appendChild(strip);
+        row.appendChild(pickWrap);
+      }
 
       row.querySelector(".pb-colour-name").addEventListener("input", (ev) => {
         c.name = ev.target.value;
@@ -1427,6 +1500,27 @@ export function renderProductForm({
       colourBarcodes: colours
         .filter((c) => (c.barcode || "").trim())
         .map((c) => ({ color: c.name.trim(), barcode: c.barcode.trim() })),
+      // CR-0004. THIS LINE IS THE FIX.
+      //
+      // The form has recorded which photograph each colour came from since the
+      // day the eyedropper was written. readDraft() never sent it, so both save
+      // paths fell back to writing one gallery onto every variant -- and the
+      // buyer card's "the picture follows the swatch" could never show a
+      // difference, because there was never a difference to show.
+      //
+      // Photos are identified by POSITION IN THE STRIP, not by the form's
+      // internal ids, because that is the only thing the server also sees: the
+      // upload loop walks the strip in order and hands back a url per position.
+      // Ids would have to be mapped twice and could drift once.
+      coloursPhotos: colours.map((c) => {
+        syncPhotoIds(c);
+        return {
+          colour: c.name.trim(),
+          photoIndexes: c.photoIds
+            .map((id) => photos.findIndex((p) => p.id === id))
+            .filter((i) => i >= 0),
+        };
+      }),
       // Product-level pricing spread onto every variant -- see the header.
       variants: variants.map((x) => ({ ...x, price, cost, retailPrice: retail, moqQty: 1 })),
     };
