@@ -4,8 +4,8 @@ import { renderProductCard } from "../components/product-card.js";
 import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { supabase, sbCall } from "../lib/supabase-client.js";
-import { getCatalog, getWholesaler, listWholesalers, getVariantListPrices } from "../data/catalog.js";
-import { buyerCatalogs, buyerCatalogProductIds, catalogByToken, catalogProductsByToken } from "../data/catalogs.js";
+import { getCatalogByToken, getBuyerCatalog, getBuyerVisibleProducts, getWholesaler, listWholesalers, getVariantListPrices } from "../data/catalog.js";
+import { buyerCatalogs, catalogByToken } from "../data/catalogs.js";
 import { renderBillboard, sectionHeader } from "../components/billboard.js";
 import { cart } from "../data/cart.js";
 import { getBuyerOrders, orderedTimesCount, getBuyerOrderedProductIds } from "../data/orders.js";
@@ -68,11 +68,18 @@ async function dashboard(outlet) {
   }
   outlet.appendChild(skeletonWrap);
 
-  const [wholesaler, location, catalog] = await Promise.all([
+  // Batch S / S2b. The whole-tenant getCatalog(wid) read is gone from here.
+  // The buyer's visible catalogs are resolved FIRST, because the products now
+  // come from the catalog they are allowed to see rather than from the
+  // wholesaler's entire range filtered afterwards in the browser.
+  const [wholesaler, location, visibleCatalogs] = await Promise.all([
     getWholesaler(wid),
     defaultLocation(wid),
-    getCatalog(wid),
+    buyerCatalogs(session.accountId),
   ]);
+  let activeCatalog = visibleCatalogs.find((c) => c.id === activeCatalogId) || visibleCatalogs[0] || null;
+  activeCatalogId = activeCatalog?.id || null;
+  const catalog = await getBuyerCatalog(session.accountId, activeCatalogId);
 
   skeletonWrap.remove();
 
@@ -132,17 +139,21 @@ async function dashboard(outlet) {
   // as empty. A failed products call and a genuinely empty catalog look the
   // same from here, and inventing products to cover the difference would be
   // worse than the honest blank.
-  const visibleCatalogs = await buyerCatalogs(session.accountId);
-  let activeCatalog = visibleCatalogs.find((c) => c.id === activeCatalogId) || visibleCatalogs[0] || null;
-  activeCatalogId = activeCatalog?.id || null;
-
-  async function narrowTo(cat) {
-    if (!cat) return catalog;
-    const ids = new Set(await buyerCatalogProductIds(session.accountId, cat.id));
-    if (!ids.size) return [];
-    return catalog.filter((p) => ids.has(p.id));
-  }
-  let shownCatalog = await narrowTo(activeCatalog);
+  // ⛔ WHAT USED TO BE HERE, AND WHY IT IS GONE (Batch S / S2b, 25 Aug 2026):
+  //
+  //     const ids = new Set(await buyerCatalogProductIds(session.accountId, cat.id));
+  //     return catalog.filter((p) => ids.has(p.id));
+  //
+  // buyerCatalogProductIds returns OBJECTS, so that Set held object
+  // references and ids.has(p.id) -- a string -- was ALWAYS false. Every
+  // signed-in buyer saw an EMPTY catalogue. Live since 20 Aug 2026; see the
+  // full account in js/data/catalog.js above getBuyerCatalog().
+  //
+  // There is no narrowing step any more. The database returns this buyer's
+  // catalogue and nothing else, so there is no wider list left to filter --
+  // which is the point of the batch, and incidentally makes the bug above
+  // unrepresentable rather than merely fixed.
+  let shownCatalog = catalog;
 
   const [{ tiersByProduct, overridesByVariant, discountPct }, packsByProduct] = await Promise.all([
     // Batch 16: pricing takes the ACCOUNT id now, not a client id -- the
@@ -615,7 +626,15 @@ async function favouritesView(outlet) {
     outlet.appendChild(emptyState({ icon: "★", title: "No favourites yet", body: "Star products from the catalog to save them here." }));
     return;
   }
-  const [catalog, wholesaler, location] = await Promise.all([getCatalog(wid), getWholesaler(wid), defaultLocation(wid)]);
+  // Batch S / S2b: through the gate, across every catalog this buyer may see.
+  // A favourite starred in one catalog must still appear when another is
+  // active, so this cannot read just the active one.
+  const [visible, wholesaler, location] = await Promise.all([
+    buyerCatalogs(session.accountId),
+    getWholesaler(wid),
+    defaultLocation(wid),
+  ]);
+  const catalog = await getBuyerVisibleProducts(session.accountId, visible.map((c) => c.id));
   const favProducts = catalog.filter((p) => favIds.includes(p.id));
   const grid = document.createElement("div");
   grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;";
@@ -698,16 +717,11 @@ async function catalogLinkView(outlet, params) {
   const wid = resolved.wid;
   outlet.appendChild(pageHeader(resolved.name, resolved.description || `From ${resolved.wholesalerName || "your supplier"}`));
 
-  const rows = await catalogProductsByToken(token, session.accountId || null);
-  const order = new Map(rows.map((r, i) => [r.id, i]));
-  const pinned = new Set(rows.filter((r) => r.highlighted).map((r) => r.id));
-  const everything = await getCatalog(wid);
-  // The database decided the order; this only preserves it. getCatalog returns
-  // its own ordering, so without this the highlighted-first rule would survive
-  // the query and die in the filter.
-  const products = everything
-    .filter((p) => order.has(p.id))
-    .sort((a, b) => order.get(a.id) - order.get(b.id));
+  // Batch S / S2. One gated call, where there used to be an id list plus a
+  // whole-tenant table read that the gate had no say over. The ordering,
+  // the highlighted flag and the filtering to THIS catalog are all the
+  // database's now -- there is nothing left here to get them wrong.
+  const products = await getCatalogByToken(token, session.accountId || null);
 
   if (!products.length) {
     outlet.appendChild(emptyState({
@@ -729,7 +743,7 @@ async function catalogLinkView(outlet, params) {
     tiers: tiersByProduct.get(product.id) || [],
     overridesByVariant, discountPct, customerPct,
     packs: [],
-    highlighted: pinned.has(product.id),
+    highlighted: !!product.highlighted,
   });
   // Same grid the buyer dashboard builds. Written inline there rather than as a
   // class, so it is matched here rather than inventing a second one that would
@@ -763,8 +777,11 @@ async function catalogLinkView(outlet, params) {
   }
 
   // ---- highlighted first, under the name the wholesaler chose ----
-  const highlighted = products.filter((p) => pinned.has(p.id));
-  const rest = products.filter((p) => !pinned.has(p.id));
+  // Batch S: the flag rides on the product now, from the catalog's own row.
+  // It used to come from a separate id list fetched alongside a whole-tenant
+  // table read; that list is gone, and so is the chance of the two disagreeing.
+  const highlighted = products.filter((p) => p.highlighted);
+  const rest = products.filter((p) => !p.highlighted);
 
   if (highlighted.length) {
     outlet.appendChild(sectionHeader(resolved.highlightLabel || "Featured", highlighted.length));
