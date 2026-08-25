@@ -71,6 +71,24 @@ export async function listWholesalers() {
  *   moqPerColour, imagesByColor, primaryImage,
  *   variants: [{id, sku, price, cost, compareAtPrice, color, colorHex, size,
  *               sellMode, available, onHand, reserved, imageUrl, images}] }] */
+/**
+ * ⛔ WHOLESALER-SIDE ONLY. NEVER CALL THIS FROM A BUYER VIEW.
+ *
+ * Reads v2_products, v2_product_variants and v2_inventory_by_variant DIRECTLY,
+ * for the WHOLE wholesaler, with no catalog gate of any kind. That was the
+ * defect Batch S closed: three buyer views called this, and the share-token
+ * gate had no say over any of it.
+ *
+ * As of 25 Aug 2026 it has NO CALLERS. It is kept rather than deleted because
+ * a wholesaler reading their own full range is a legitimate thing to want, and
+ * they are `authenticated` with real RLS behind them — the grants S7 revokes
+ * are anon's, not theirs. But it is a loaded gun pointing at the buyer side,
+ * so `checks/check_buyer_reads_are_gated.mjs` fails the build if
+ * js/views/buyer.js so much as names it.
+ *
+ * If you want a buyer's products, you want getCatalogByToken() (a link) or
+ * getBuyerCatalog() (signed in). Both are gated. This one is not.
+ */
 export async function getCatalog(wid) {
   const { data: products } = await sbCall(
     supabase.from("v2_products").select("*").eq("wid", wid).eq("archived", false).order("created_at", { ascending: false })
@@ -105,39 +123,62 @@ export async function getCatalog(wid) {
   }
   const availByVariant = new Map(availability.map((a) => [a.variant_id, a]));
 
-  const now = Date.now();
   const variantsByProduct = new Map();
   (variants || []).forEach((v) => {
     const list = variantsByProduct.get(v.product_id) || [];
-    const avail = availByVariant.get(v.id);
-    list.push({
-      id: v.id,
-      sku: v.sku,
-      price: Number(v.price ?? 0),
-      // cost intentionally not exposed to the buyer catalogue -- see the query above
-      cost: null,
-      compareAtPrice: v.compare_at_price != null ? Number(v.compare_at_price) : null,
-      color: v.extra_attrs?.color || null,
-      colorHex: v.extra_attrs?.colorHex || "#999",
-      size: v.extra_attrs?.size || null,
-      sellMode: v.extra_attrs?.sellMode || "open",
-      available: avail ? Number(avail.total_available) : 0,
-      onHand: avail ? Number(avail.total_on_hand) : 0,
-      reserved: avail ? Number(avail.total_reserved) : 0,
-      // Batch 6: SKU-level MOQ + optional retail/MSRP for margin display.
-      moqQty: v.moq_qty || 1,
-      retailPrice: v.retail_price != null ? Number(v.retail_price) : null,
-      // Batch 13: photography for the hologram/360 viewer -- both are
-      // opt-in and commonly empty (see js/lib/animations/product-hologram.js
-      // for how the viewer degrades gracefully with zero real photos).
-      imageUrl: v.image_url || null,
-      images: Array.isArray(v.images) ? v.images : [],
-    });
+    list.push(shapeVariant(v, availByVariant.get(v.id)));
     variantsByProduct.set(v.product_id, list);
   });
 
-  return products.map((p) => {
-    const vs = variantsByProduct.get(p.id) || [];
+  return products.map((p) => shapeProduct(p, variantsByProduct.get(p.id) || []));
+}
+
+/**
+ * One variant row -> the shape the buyer cards read. Batch S.
+ *
+ * Extracted so that getCatalog() (table reads, wholesaler side) and
+ * getCatalogByToken() (the gated RPC, buyer side) produce IDENTICAL objects.
+ * Two functions each building this by hand is how the two paths end up
+ * disagreeing about what a variant is -- and the buyer path is the one nobody
+ * is looking at when the wholesaler path gets edited.
+ *
+ * `avail` may be undefined: a variant with no stock row anywhere is zero
+ * available, not an error.
+ */
+function shapeVariant(v, avail) {
+  return {
+    id: v.id,
+    sku: v.sku,
+    price: Number(v.price ?? 0),
+    // cost is never exposed to the buyer catalogue. The table read revokes it
+    // at column level (migration 031); the RPC omits it from its return type
+    // (migration 080), which matters MORE, because a definer function
+    // outranks that revoke and would hand it over if asked.
+    cost: null,
+    compareAtPrice: v.compare_at_price != null ? Number(v.compare_at_price) : null,
+    color: v.extra_attrs?.color || null,
+    colorHex: v.extra_attrs?.colorHex || "#999",
+    size: v.extra_attrs?.size || null,
+    sellMode: v.extra_attrs?.sellMode || "open",
+    available: avail ? Number(avail.total_available) : 0,
+    onHand: avail ? Number(avail.total_on_hand) : 0,
+    reserved: avail ? Number(avail.total_reserved) : 0,
+    // Batch 6: SKU-level MOQ + optional retail/MSRP for margin display.
+    moqQty: v.moq_qty || 1,
+    retailPrice: v.retail_price != null ? Number(v.retail_price) : null,
+    // Batch 13: photography for the hologram/360 viewer -- both are
+    // opt-in and commonly empty (see js/lib/animations/product-hologram.js
+    // for how the viewer degrades gracefully with zero real photos).
+    imageUrl: v.image_url || null,
+    images: Array.isArray(v.images) ? v.images : [],
+  };
+}
+
+/** One product row plus its already-shaped variants -> the buyer card's
+ *  product. Batch S: shared by both read paths, same reason as shapeVariant. */
+function shapeProduct(p, vs) {
+  {
+    const now = Date.now();
     const prices = vs.map((v) => v.price).filter((n) => n > 0);
     const isNew = now - new Date(p.created_at).getTime() < NEW_BADGE_DAYS * 86400000;
     const lowStock = vs.length > 0 && vs.every((v) => v.available <= LOW_STOCK_THRESHOLD);
@@ -195,8 +236,12 @@ export async function getCatalog(wid) {
       // twice is how two cards end up disagreeing.
       imagesByColor: imagesByColor(vs),
       primaryImage: firstImageOf(vs),
+      // Batch S: set by the token path, absent on the wholesaler path. The
+      // catalog, not the client, decides what is pinned -- see the ORDER BY in
+      // migration 080.
+      highlighted: !!p.highlighted,
     };
-  });
+  }
 }
 
 /** Every distinct photo for each colour of a product, in variant order and
@@ -226,6 +271,162 @@ function firstImageOf(variants) {
     if (v.images && v.images.length) return v.images[0];
   }
   return null;
+}
+
+/**
+ * THE BUYER'S READ PATH. Batch S / S2.
+ *
+ * Everything getCatalog(wid) returns, for exactly ONE catalog, through the
+ * gated function instead of the tables.
+ *
+ * WHY THIS EXISTS AT ALL. The token gate was already real -- and it protected
+ * the wrong thing. v2_catalog_products_by_token returns a list of product IDs;
+ * buyer.js then called getCatalog(wid), which read v2_products,
+ * v2_product_variants and v2_inventory_by_variant DIRECTLY for the WHOLE
+ * wholesaler, and filtered to those ids in the browser. So the gate decided
+ * what got DRAWN and had no say in what the database HANDED OVER. Measured
+ * signed-out on production, 25 Aug 2026, with the key that ships in this app:
+ * 23 products, 264 variants, 143 stock rows, across SIX wholesalers.
+ *
+ * ONE ROUND TRIP, NOT THREE. The RPC returns a flat product x variant join;
+ * the grouping below rebuilds the nested shape. That is why this is faster
+ * than what it replaces, not slower, despite doing strictly more checking.
+ *
+ * ⚠️ ORDER IS THE DATABASE'S. The rows arrive highlighted-first, then by the
+ * wholesaler's sort order. Map preserves insertion order, so the grouping
+ * preserves it too. Do NOT add a sort here: "no matter what order they put
+ * them in, always the highlighted items will be on the top" is a property of
+ * the catalog, and a second sort in JS is a second place for it to be wrong --
+ * which is exactly how the highlighted-first rule survived the query and died
+ * in the filter on the path this replaces.
+ *
+ * ⚠️ A PRODUCT WITH NO VARIANTS COMES BACK WITH variant_id NULL. That is the
+ * LEFT JOIN doing its job -- a catalog_only product, or one whose colours have
+ * not been added yet, must still appear. Dropping those rows here would
+ * reintroduce the silent disappearance the join was written to prevent.
+ */
+export async function getCatalogByToken(token, accountId = null) {
+  if (!token) return [];
+  const { data } = await sbCall(
+    supabase.rpc("v2_catalog_read", { p_token: token, p_account_id: accountId || null })
+  );
+  return groupCatalogRows(data);
+}
+
+/**
+ * THE SIGNED-IN BUYER'S READ PATH. Batch S / S2b.
+ *
+ * The path the 23 Aug research did not mention. Measured on production on
+ * 25 Aug 2026: ALL TEN catalogs are private and none is public, so this is
+ * not the secondary path -- it is the one buyers actually use.
+ *
+ * ⛔ IT ALSO REPLACES A LIVE BUG. What this supersedes was:
+ *
+ *     const ids = new Set(await buyerCatalogProductIds(accountId, cat.id));
+ *     return catalog.filter((p) => ids.has(p.id));
+ *
+ * ...where buyerCatalogProductIds returns OBJECTS ({id, highlighted}), so the
+ * Set held object references and `ids.has(p.id)` -- a string -- was ALWAYS
+ * false. Every signed-in buyer's catalogue rendered EMPTY. It broke on
+ * 20 Aug 2026 in 978d415, which changed that function's return shape so the
+ * billboard page could read `highlighted`, and silently broke this caller;
+ * the filter itself (c8f0ff8, the same day) had been correct when written.
+ *
+ * The class of failure is the one this project keeps hitting: a change in
+ * RECORD SHAPE, invisible to every check that matches on names. The name was
+ * still there. The call still ran. The data still arrived.
+ */
+export async function getBuyerCatalog(accountId, catalogId) {
+  if (!accountId || !catalogId) return [];
+  const { data } = await sbCall(
+    supabase.rpc("v2_buyer_catalog_read", { p_account_id: accountId, p_catalog_id: catalogId })
+  );
+  return groupCatalogRows(data);
+}
+
+/** The flat product x variant rows the two gated RPCs return, rebuilt into the
+ *  nested shape the cards read. Shared, so the link path and the signed-in
+ *  path cannot disagree about what a product is. */
+function groupCatalogRows(data) {
+  if (!data || !data.length) return [];
+
+  const byProduct = new Map();
+  for (const r of data) {
+    let entry = byProduct.get(r.product_id);
+    if (!entry) {
+      entry = {
+        // Re-labelled to the column names shapeProduct expects. The RPC calls
+        // it product_name because `name` collides with the catalog's own name
+        // in a flat join, not because the shape differs.
+        product: {
+          id: r.product_id,
+          name: r.product_name,
+          description: r.description,
+          created_at: r.created_at,
+          selling_model: r.selling_model,
+          ratio_curve: r.ratio_curve,
+          moq_qty: r.moq_qty,
+          moq_reorder_qty: r.moq_reorder_qty,
+          base_unit: r.base_unit,
+          moq_per_colour: r.moq_per_colour,
+          catalog_only: r.catalog_only,
+          highlighted: r.highlighted,
+        },
+        variants: [],
+      };
+      byProduct.set(r.product_id, entry);
+    }
+    if (!r.variant_id) continue;   // the no-variants product -- see above
+    entry.variants.push(shapeVariant({
+      id: r.variant_id,
+      sku: r.sku,
+      price: r.price,
+      compare_at_price: r.compare_at_price,
+      retail_price: r.retail_price,
+      extra_attrs: r.extra_attrs,
+      moq_qty: r.variant_moq_qty,
+      image_url: r.image_url,
+      images: r.images,
+    }, {
+      total_available: r.total_available,
+      total_on_hand: r.total_on_hand,
+      total_reserved: r.total_reserved,
+    }));
+  }
+
+  return [...byProduct.values()].map((e) => shapeProduct(e.product, e.variants));
+}
+
+/**
+ * Every product this buyer may see, across ALL the catalogs their tier allows.
+ * Batch S / S2b.
+ *
+ * Favourites are stored as bare product ids in localStorage and a buyer may
+ * star something in one catalog and open Favourites while another is active,
+ * so this cannot read a single catalog: doing that would make a starred
+ * product silently vanish from the list, which is the failure mode this whole
+ * batch keeps guarding against.
+ *
+ * One request per visible catalog rather than one per product, de-duplicated
+ * by product id -- the same product filed in two catalogs is one product. A
+ * buyer sees a handful of catalogs at most (ten on production today, most see
+ * one or two), so this is a small fan-out, not an N+1 over the range.
+ *
+ * ⚠️ Deliberately NOT a single "everything I may see" RPC. The gate is
+ * per-catalog, and one function that answers "everything" is one function that
+ * has to re-derive the tier rule a second time -- a second place for it to be
+ * wrong. Ask the gate the question it already answers, once per catalog.
+ */
+export async function getBuyerVisibleProducts(accountId, catalogIds) {
+  if (!accountId || !catalogIds || !catalogIds.length) return [];
+  const lists = await Promise.all(
+    catalogIds.map((cid) => getBuyerCatalog(accountId, cid))
+  );
+  const byId = new Map();
+  for (const list of lists) {
+    for (const p of list) if (!byId.has(p.id)) byId.set(p.id, p);
+  }
+  return [...byId.values()];
 }
 
 export function findVariant(catalog, variantId) {
