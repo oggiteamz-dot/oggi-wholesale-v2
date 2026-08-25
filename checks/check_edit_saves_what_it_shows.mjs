@@ -119,8 +119,27 @@ ok(/draft\.photoStrip/.test(updateBody),
   "updateProduct reads the photo strip");
 ok(/uploadProductImage/.test(updateBody),
   "and uploads the new files in it");
-ok(/image_url/.test(updateBody) && /images:/.test(updateBody),
-  "and writes the resulting gallery onto the variants");
+// CR-0004, 25 Aug 2026 — this assertion was WEAKENED BY ITS OWN SHAPE and has
+// been rewritten rather than deleted.
+//
+// It used to grep updateProduct's own source slice for `image_url` and
+// `images:`. When the gallery write moved into the shared attachPhotos()
+// helper -- so that create and edit could stop disagreeing about how photos
+// are attached -- this went red while the BEHAVIOUR was strictly better. A
+// check that fails on a refactor and would also pass on a dead `import` is
+// measuring text, not truth.
+//
+// It now follows the indirection: updateProduct must hand off to attachPhotos,
+// and attachPhotos must be the thing that writes the gallery. The behavioural
+// proof -- that editing actually results in the right urls on the right
+// variants -- lives in checks/check_colour_photos.mjs, Part D, which runs the
+// real save path against a recording client and reads what was written.
+ok(/attachPhotos\(/.test(updateBody),
+  "and hands the strip to attachPhotos()");
+const attachBody = admin.slice(admin.indexOf("export async function attachPhotos"),
+                               admin.indexOf("export async function createProduct"));
+ok(/image_url/.test(attachBody) && /images:/.test(attachBody),
+  "and attachPhotos writes the resulting gallery onto the variants (behaviour proved in check_colour_photos.mjs Part D)");
 
 // ---- the fields that always worked must keep working ----------------------
 ok(captured?.name === "Heavyweight Tee", "the name is still carried");

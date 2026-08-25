@@ -138,6 +138,14 @@ const MUST = [
   [".pdrawer-backdrop", "the dimmed backdrop"],
   [".pdrawer-body",     "the drawer's internal scroller"],
   [".pf-selling-setup", "the Set ratios / Set prepacks panel at the foot of the product form"],
+  // CR-0004, 25 Aug 2026. Appended at the very end of components.css, which is
+  // precisely the position error recovery ate on 23 Aug. Without these the
+  // photo-tagging strip still RENDERS -- as an undimmed, unringed row of
+  // identical thumbnails with no way to tell tagged from untagged. It would
+  // look like a working feature and be unusable, which is the worst shape a
+  // CSS loss can take.
+  [".pb-colour-photos",  "the per-colour photo picker's container"],
+  [".pb-photo-tag",      "the tap-to-tag photo button — 46px, the thumb target"],
   [".pf-setup-warn",    "the warning that says buyers cannot order the product yet"],
   // Batch 8A. These are appended at the very END of components.css, which is
   // the exact position that got eaten last time: a stray brace earlier in the
