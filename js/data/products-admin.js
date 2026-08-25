@@ -249,7 +249,99 @@ export async function duplicateAsTemplate(productId) {
  * @param {string} [draft.catalogId]     file it here; omit for the default
  * @param {string} [draft.locationId]    where opening stock lands
  */
-export async function createProduct(wid, draft = {}) {
+
+// =============================================================================
+// PHOTOGRAPHY, PER COLOUR                                            (CR-0004)
+// =============================================================================
+// Hadi, 25 Aug 2026: "I want each color to have its own corresponding image.
+// And if it's not available, then it's not available from my client's side."
+//
+// WHAT THIS REPLACES. Both save paths used to write ONE gallery to EVERY
+// variant -- `.in("id", allIds)` on create, `.eq("product_id", id)` on edit.
+// So every colour of a product carried an identical set of photographs, and
+// the buyer card's "the picture follows the swatch" -- real, working code --
+// could never show a difference, because there was never a difference to show.
+//
+// This was a v1 REGRESSION, logged in this very file and never closed: "v1
+// attached one photo per COLOUR, which is the better end state -- noted rather
+// than half-built, since it needs the form to record which upload each colour
+// sampled from and that mapping only exists client-side today." The form has
+// recorded it all along, as `colour.photoId`. readDraft() simply never sent it.
+//
+// THE OLD BEHAVIOUR IS KEPT, DELIBERATELY. When `coloursPhotos` is absent the
+// gallery still goes on every variant exactly as before. That is not laziness:
+// the CSV importer, the AI catalog import and any older caller do not send a
+// mapping, and silently giving them zero photos would be a far worse
+// regression than the one being fixed. Absent means "not under discussion".
+// An EMPTY mapping is different, and means what it says.
+//
+// @param {Array}  created           [{ id, sku, color }]
+// @param {Array}  uploadedByIndex   urls positionally aligned to the photo
+//                                   strip; a failed upload is a null HOLE
+// @param {Array}  coloursPhotos     [{ colour, photoIndexes:[] }] or undefined
+// @returns {Promise<string[]>}      human-readable problems, never throws
+// =============================================================================
+export async function attachPhotos({ created = [], uploadedByIndex = [], coloursPhotos }) {
+  const problems = [];
+  const liveUrls = uploadedByIndex.filter(Boolean);
+  if (!created.length) return problems;
+
+  // ---- no mapping: behave exactly as this code always has -----------------
+  if (!Array.isArray(coloursPhotos)) {
+    if (!liveUrls.length) return problems;
+    const { error } = await sbCall(
+      supabase.from("v2_product_variants")
+        .update({ images: liveUrls, image_url: liveUrls[0], updated_at: new Date().toISOString() })
+        .in("id", created.map((v) => v.id))
+    );
+    if (error) problems.push(`photos uploaded but not attached: ${error.message}`);
+    return problems;
+  }
+
+  // ---- a mapping: one write per colour ------------------------------------
+  // Keyed case-insensitively because "Navy" typed in the form and "navy" on a
+  // variant are the same colour to everyone except a Map.
+  const key = (c) => String(c || "").trim().toLowerCase();
+  const wanted = new Map();
+  coloursPhotos.forEach((cp) => {
+    const urls = (cp?.photoIndexes || [])
+      .map((i) => uploadedByIndex[i])      // a hole stays a hole
+      .filter(Boolean);
+    wanted.set(key(cp?.colour), urls);
+  });
+
+  const byColour = new Map();
+  created.forEach((v) => {
+    const k = key(v.color);
+    if (!byColour.has(k)) byColour.set(k, []);
+    byColour.get(k).push(v.id);
+  });
+
+  for (const [k, ids] of byColour) {
+    // A colour the mapping never mentioned is left ALONE rather than cleared.
+    // Clearing it would let one edit of one colour wipe photography off a
+    // colour nobody touched.
+    if (!wanted.has(k)) continue;
+    const urls = wanted.get(k);
+    // An empty list is written as empty ON PURPOSE. This is the half of Hadi's
+    // sentence that is easy to miss: "if it's not available, then it's not
+    // available from my client's side." A colour with no photograph must end
+    // up with none, not keep an old one and not inherit a sibling's.
+    const { error } = await sbCall(
+      supabase.from("v2_product_variants")
+        .update({
+          images: urls,
+          image_url: urls[0] || null,
+          updated_at: new Date().toISOString(),
+        })
+        .in("id", ids)
+    );
+    if (error) problems.push(`photos for ${k || "one colour"} not attached: ${error.message}`);
+  }
+  return problems;
+}
+
+export async function createProduct(wid, draft = {}, { uploader = uploadProductImage } = {}) {
   const name = String(draft.name || "").trim();
   if (!name) return { ok: false, error: "Give the product a name." };
 
@@ -345,7 +437,10 @@ export async function createProduct(wid, draft = {}) {
       failed.push({ sku: v.sku, error: vErr?.message || "insert failed" });
       continue;
     }
-    created.push(variant);
+    // The colour travels with the created variant. Without it the photo pass
+    // below has ids and no way to know which colour each one belongs to, which
+    // is precisely why photography used to be sprayed at all of them.
+    created.push({ ...variant, color: String(v.color || "").trim() || null });
 
     const opening = Number(v.openingStock) || 0;
     if (opening > 0 && draft.locationId) {
@@ -378,24 +473,29 @@ export async function createProduct(wid, draft = {}) {
   // A failed upload does NOT fail the product. The product and its variants
   // are already real by this point, and throwing them away because a photo
   // did not reach storage would be the worst possible trade.
-  const imageUrls = [];
+  // INDEX-ALIGNED on purpose. A failed upload leaves a HOLE rather than
+  // shifting every later photo down one, because draft.coloursPhotos points at
+  // photos by their POSITION in the strip. Losing that alignment would not drop
+  // a picture -- it would silently hand Red's photograph to Blue, which is a
+  // worse failure than a missing image and an invisible one.
+  const uploadedByIndex = [];
   const photoErrors = [];
   const photos = Array.isArray(draft.photos) ? draft.photos : [];
   for (let i = 0; i < photos.length; i++) {
     draft.onProgress?.(`Uploading photo ${i + 1} of ${photos.length}…`);
-    const up = await uploadProductImage({ file: photos[i], wid, productId: product.id });
-    if (up?.ok && up.url) imageUrls.push(up.url);
-    else photoErrors.push(up?.error || `photo ${i + 1} failed`);
+    const up = await uploader({ file: photos[i], wid, productId: product.id });
+    if (up?.ok && up.url) uploadedByIndex[i] = up.url;
+    else { uploadedByIndex[i] = null; photoErrors.push(up?.error || `photo ${i + 1} failed`); }
   }
 
-  if (imageUrls.length && created.length) {
-    const { error: imgErr } = await sbCall(
-      supabase.from("v2_product_variants")
-        .update({ images: imageUrls, image_url: imageUrls[0], updated_at: new Date().toISOString() })
-        .in("id", created.map((v) => v.id))
-    );
-    if (imgErr) photoErrors.push(`photos uploaded but not attached: ${imgErr.message}`);
-  }
+  // The count the operator is shown is the number of photos that actually
+  // reached storage, holes excluded -- not the number they picked.
+  const imageUrls = uploadedByIndex.filter(Boolean);
+
+  const attachErrs = await attachPhotos({
+    created, uploadedByIndex, coloursPhotos: draft.coloursPhotos,
+  });
+  photoErrors.push(...attachErrs);
 
   // File it. A product in no catalog is a product nobody can find.
   //
@@ -514,7 +614,7 @@ export async function variantUsage(variantIds) {
  *   - otherwise it is ARCHIVED, so it stops appearing without the row (and
  *     anything that may yet reference it) being destroyed.
  */
-export async function updateProduct(productId, draft = {}) {
+export async function updateProduct(productId, draft = {}, { uploader = uploadProductImage } = {}) {
   const name = String(draft.name || "").trim();
   if (!name) return { ok: false, error: "Give the product a name." };
 
@@ -635,25 +735,39 @@ export async function updateProduct(productId, draft = {}) {
   // "remove every photo".
   let photoProblem = null;
   if (Array.isArray(draft.photoStrip)) {
-    const urls = [];
+    // CR-0004. INDEX-ALIGNED, matching the strip position for position, because
+    // draft.coloursPhotos points at photos by where they sit on screen. A
+    // failed upload leaves a null HOLE; collapsing it would shift every later
+    // photo onto the wrong colour, which loses no picture and silently swaps
+    // two garments -- the worse of the two failures, and the invisible one.
+    const urlsByIndex = [];
     let failedPhotos = 0;
-    for (const item of draft.photoStrip) {
-      if (item?.url) { urls.push(item.url); continue; }
-      if (!item?.file) continue;
-      const up = await uploadProductImage({ file: item.file, wid: current.product.wid, productId });
-      if (up?.ok && up.url) urls.push(up.url);
-      else failedPhotos++;
+    for (let i = 0; i < draft.photoStrip.length; i++) {
+      const item = draft.photoStrip[i];
+      if (item?.url) { urlsByIndex[i] = item.url; continue; }
+      if (!item?.file) { urlsByIndex[i] = null; continue; }
+      const up = await uploader({ file: item.file, wid: current.product.wid, productId });
+      if (up?.ok && up.url) urlsByIndex[i] = up.url;
+      else { urlsByIndex[i] = null; failedPhotos++; }
     }
 
-    // Every live variant carries the same gallery, the same way createProduct
-    // attaches it -- `images` is what a buyer swipes, `image_url` is the hero
-    // the cards and thumbnails read.
-    const { error: imgErr } = await sbCall(
+    // The live variants, WITH their colours, so photography can be aimed at one
+    // rather than sprayed at all of them. Read rather than assumed: an edit can
+    // add or rename a colour, so the create path's in-memory list is not
+    // available here and guessing it would attach photos to the wrong rows.
+    const { data: liveVariants } = await sbCall(
       supabase.from("v2_product_variants")
-        .update({ images: urls, image_url: urls[0] || null, updated_at: new Date().toISOString() })
+        .select("id, extra_attrs")
         .eq("product_id", productId).eq("archived", false)
     );
-    if (imgErr) photoProblem = `Photos could not be attached: ${imgErr.message}`;
+    const created = (liveVariants || []).map((v) => ({
+      id: v.id, color: v.extra_attrs?.color || null,
+    }));
+
+    const attachErrs = await attachPhotos({
+      created, uploadedByIndex: urlsByIndex, coloursPhotos: draft.coloursPhotos,
+    });
+    if (attachErrs.length) photoProblem = attachErrs.join(" ");
     else if (failedPhotos) {
       photoProblem = `${failedPhotos} photo${failedPhotos === 1 ? "" : "s"} did not upload — everything else saved.`;
     }

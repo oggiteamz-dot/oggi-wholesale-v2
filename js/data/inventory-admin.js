@@ -300,6 +300,26 @@ export async function getStockByProduct(wid) {
       outCount: list.filter((v) => statusOf(v) === "out").length,
       lowCount: list.filter((v) => { const st = statusOf(v); return st === "low" || st === "reorder"; }).length,
       neverStockedCount: list.filter((v) => statusOf(v) === "not_tracked").length,
+      // CR-0004. How many of this product's COLOURS have no photograph at all.
+      //
+      // Hadi chose the honest-placeholder route over hiding an unphotographed
+      // colour from buyers: a forgotten upload must never quietly remove stock
+      // from sale. That trade only holds if the wholesaler is TOLD, or the
+      // colour sits in the catalogue showing an empty frame forever and nobody
+      // ever finds out.
+      //
+      // Counted per COLOUR, not per variant. Four sizes of one unphotographed
+      // colour is one problem to fix, not four -- a badge reading "12 without
+      // photos" on a 3-colour product is noise that gets ignored.
+      noPhotoColours: (() => {
+        const byColour = new Map();
+        list.forEach((v) => {
+          const k = String(v.color || "").trim().toLowerCase();
+          if (!k) return;                       // an unnamed colour is a different problem
+          byColour.set(k, (byColour.get(k) || 0) + ((v.images || []).length ? 1 : 0));
+        });
+        return [...byColour.values()].filter((withPhoto) => withPhoto === 0).length;
+      })(),
     };
   }).sort((a, b) => {
     // Anything needing attention first -- out of stock, then low, then the
