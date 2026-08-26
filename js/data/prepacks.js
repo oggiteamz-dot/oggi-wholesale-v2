@@ -71,6 +71,106 @@ export async function listPacksForProduct(productId) {
   });
 }
 
+/**
+ * THE BUYER'S PACK PATH. Batch S / S3.
+ *
+ * ⛔ WHY THIS IS NOT COSMETIC. Three of the four selling models — series,
+ * prepack and ratio — can only be ordered as a pack: v2_enforce_selling_model
+ * refuses loose lines, and since 15 Aug the card hides the per-size stepper for
+ * them entirely. For those products **the pack is the buy button.**
+ *
+ * ⛔ AND IT FIXES A LIVE BUG. js/views/buyer.js:745 — the SHARE LINK view —
+ * passed `packs: []` to every card. Not "whatever it found": an empty list,
+ * unconditionally. The card took its bundle-only-with-no-packs branch and
+ * printed *"This product has no bundles set up yet, so it cannot be ordered.
+ * Ask the wholesaler to add one."* The wholesaler had. Counted on production
+ * 26 Aug: **13 of 23 live products, across five of the six wholesalers**, dead
+ * on the one channel the product is built around — and reading as the
+ * wholesaler's own mistake rather than the app's.
+ *
+ * ⚠️ `flatPackPrice` / `isFlatPrice` are NOT returned by these functions.
+ * Decision D4 (21 Aug): a flat pack price is stored, never charged, and no
+ * buyer screen may render it — verified by grep on 26 Aug, nothing outside this
+ * module reads either field. It is also the wholesaler's margin structure, and
+ * the single most sensitive number in the Batch S research. A field that is
+ * never used and must never leak does not cross this boundary.
+ */
+function assemblePackRows(rows) {
+  const byPack = new Map();
+  for (const r of rows || []) {
+    let pack = byPack.get(r.pack_id);
+    if (!pack) {
+      pack = {
+        id: r.pack_id, name: r.pack_name, color: r.pack_color, source: r.source,
+        productId: r.product_id, components: [],
+      };
+      byPack.set(r.pack_id, pack);
+    }
+    // A pack whose components have not been written yet arrives as one row
+    // with a null component. It must stay a pack with nothing in it -- a
+    // vanished pack is indistinguishable from the bug above.
+    if (!r.component_id) continue;
+    pack.components.push({
+      id: r.component_id,
+      variantId: r.variant_id,
+      qtyPerPack: r.qty_per_pack,
+      sku: r.sku,
+      price: Number(r.unit_price ?? 0),
+      color: r.extra_attrs?.color,
+      size: r.extra_attrs?.size,
+    });
+  }
+  // The database already ordered these. No re-sort here: a second sort is a
+  // second place for the order to be wrong.
+  for (const pack of byPack.values()) {
+    pack.unitCount = pack.components.reduce((s, c) => s + c.qtyPerPack, 0);
+    pack.price = pack.components.reduce((s, c) => s + c.qtyPerPack * c.price, 0);
+  }
+  return byPack;
+}
+
+/** Group assembled packs by product, the shape the catalog grid reads. */
+function packsByProduct(byPack) {
+  const out = new Map();
+  for (const pack of byPack.values()) {
+    const list = out.get(pack.productId) || [];
+    list.push(pack);
+    out.set(pack.productId, list);
+  }
+  return out;
+}
+
+/** Packs for everything behind a share LINK. Map(productId -> [pack]). */
+export async function listPacksByToken(token, accountId = null) {
+  if (!token) return new Map();
+  const { data } = await sbCall(
+    supabase.rpc("v2_catalog_packs", { p_token: token, p_account_id: accountId || null })
+  );
+  return packsByProduct(assemblePackRows(data));
+}
+
+/** Packs for a SIGNED-IN buyer's catalogue. Map(productId -> [pack]). */
+export async function listPacksForBuyerCatalog(accountId, catalogId) {
+  if (!accountId || !catalogId) return new Map();
+  const { data } = await sbCall(
+    supabase.rpc("v2_buyer_catalog_packs", { p_account_id: accountId, p_catalog_id: catalogId })
+  );
+  return packsByProduct(assemblePackRows(data));
+}
+
+/** One pack, current composition, for REORDER. Gated on the pack's product
+ *  being in a catalogue this account may still see -- so a product the
+ *  wholesaler has since pulled stops reordering, which is the same answer the
+ *  buyer would get browsing. */
+export async function getBuyerPack(accountId, packId) {
+  if (!accountId || !packId) return null;
+  const { data } = await sbCall(
+    supabase.rpc("v2_buyer_pack", { p_account_id: accountId, p_pack_id: packId })
+  );
+  const byPack = assemblePackRows(data);
+  return byPack.size ? [...byPack.values()][0] : null;
+}
+
 /** Batch version of listPacksForProduct for a whole catalog grid, fetched
  * once per catalog load (same pattern as Batch 6's getPricingContext) so
  * a product grid of N products doesn't issue N pack queries. */

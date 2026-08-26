@@ -114,6 +114,126 @@ if (/catalogProductsByToken/.test(buyerSrc)) {
   fail = 1;
 }
 
+// --- S3: packs -------------------------------------------------------------
+//
+// ⛔ THE ASSERTION THAT WOULD HAVE CAUGHT THE 26 AUG BUG.
+//
+// The share-link view passed `packs: []` to every product card — a literal
+// empty array, unconditionally. For a series/prepack/ratio product the card
+// then took its dead-end branch and told the buyer the wholesaler had not set
+// up a bundle. They had. 13 of 23 live products, five of six wholesalers.
+//
+// Nothing in this repo asserted that a buyer holding a link can reach a pack,
+// so nothing went red. This does. It is deliberately a check on the LITERAL,
+// because `packs: []` is not a bug of logic — it is a bug of nobody having
+// written the call.
+if (/packs:\s*\[\s*\]/.test(buyerCode)) {
+  problems.push(
+    "js/views/buyer.js passes a hard-coded empty `packs: []` to a product card. " +
+    "For a series/prepack/ratio product the pack IS the buy button, and an " +
+    "empty list makes the card say the wholesaler never set one up. This is " +
+    "the 26 Aug link bug — do not restore it."
+  );
+  fail = 1;
+}
+
+for (const ungated of ["listPacksForProducts(", "getPackById("]) {
+  if (buyerCode.includes(ungated)) {
+    problems.push(
+      `js/views/buyer.js calls ${ungated}) — the ungated pack read, straight off ` +
+      "v2_pack_definitions / v2_pack_components. Buyer views must use " +
+      "listPacksByToken / listPacksForBuyerCatalog / getBuyerPack."
+    );
+    fail = 1;
+  }
+}
+
+if (!buyerCode.includes("listPacksByToken(")) {
+  problems.push("the share-link route never fetches packs through the gate (listPacksByToken).");
+  fail = 1;
+}
+if (!buyerCode.includes("listPacksForBuyerCatalog(")) {
+  problems.push("the signed-in route never fetches packs through the gate (listPacksForBuyerCatalog).");
+  fail = 1;
+}
+
+// The gated pack path must not carry the flat pack price. It is never rendered
+// (D4, 21 Aug) and it is the wholesaler's margin structure.
+{
+  const packsSrc = readFileSync("js/data/prepacks.js", "utf8");
+  // Scoped to the GATED block only — from assemblePackRows() to the start of
+  // the legacy wholesaler-side readers below it. Slicing to end-of-file (the
+  // first version of this check) swept in getPackById and listPacksForProduct,
+  // which legitimately still carry flatPackPrice for the wholesaler's own
+  // screens, and reported a leak that was not there. A check that fails on
+  // code it was never meant to judge gets its assertion deleted, not fixed.
+  const from = packsSrc.indexOf("function assemblePackRows");
+  const to   = packsSrc.indexOf("/** Batch version of listPacksForProduct");
+  const gated = (from !== -1 && to > from) ? packsSrc.slice(from, to) : "";
+  if (!gated) {
+    problems.push("HARNESS BROKEN — could not locate the gated pack block in js/data/prepacks.js. This is NOT a pass.");
+    fail = 1;
+  }
+  if (/flatPackPrice|isFlatPrice/.test(gated)) {
+    problems.push(
+      "the gated pack path returns flatPackPrice / isFlatPrice. Nothing renders " +
+      "it, and it is the wholesaler's margin structure — it must not cross to the buyer."
+    );
+    fail = 1;
+  }
+}
+
+// --- S4: pricing -----------------------------------------------------------
+//
+// ⛔ Guards the 26 Aug finding: v2_catalog_discount_pct is SECURITY DEFINER,
+// granted to anon, and takes BOTH the catalogue id and the client id from the
+// caller. Signed out, from the app's own origin, it returned real negotiated
+// terms (AMANI 10.00, CEDAR 5.00) and a catalogue markup of -5.00 that the
+// project's own notes call "invisible to the buyer by design".
+//
+// The buyer path must use the account-derived functions, which take no client
+// id at all. Comments are stripped first — this file explains the old function
+// by name, and prose about a name is not a call to it.
+{
+  const pricingSrc = readFileSync("js/data/pricing.js", "utf8");
+  const pricingCode = pricingSrc
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+
+  if (/from\(\s*["']v2_pricing_tiers["']/.test(pricingCode)) {
+    problems.push(
+      "js/data/pricing.js reads the v2_pricing_tiers TABLE directly. anon holds " +
+      "SELECT on it and the read is cross-tenant — zero rows today, twenty " +
+      "wholesalers' quantity breaks at launch."
+    );
+    fail = 1;
+  }
+  if (/rpc\(\s*["']v2_catalog_discount_pct["']/.test(pricingCode)) {
+    problems.push(
+      "js/data/pricing.js calls v2_catalog_discount_pct — the UNGATED discount " +
+      "function that takes a client id from the caller. Use v2_buyer_discount_pct " +
+      "(account-derived) or v2_token_discount_pct."
+    );
+    fail = 1;
+  }
+  for (const need of ["v2_buyer_discount_pct", "v2_token_discount_pct", "v2_catalog_tiers", "v2_buyer_catalog_tiers"]) {
+    if (!pricingCode.includes(need)) {
+      problems.push(`js/data/pricing.js never calls ${need} — the gated pricing path is incomplete.`);
+      fail = 1;
+    }
+  }
+}
+
+// The link route must hand its token to the pricing call, or the database
+// cannot gate the tiers and discount on the link the buyer actually holds.
+if (!/catalogId:\s*resolved\.id,\s*token/.test(buyerCode)) {
+  problems.push(
+    "the share-link route does not pass its token to getPricingContext, so the " +
+    "tiers and discount cannot be gated on the link the buyer holds."
+  );
+  fail = 1;
+}
+
 // --- 4. one shaping function, not two --------------------------------------
 // If getCatalog and getCatalogByToken each build the buyer object by hand, the
 // two read paths WILL drift, and the buyer path is the one nobody looks at.
@@ -149,4 +269,6 @@ console.log("  ✓ NO buyer view reads the whole wholesaler's tables");
 console.log("  ✓ the id-list path is gone, not merely unused");
 console.log("  ✓ both read paths share one shaping function");
 console.log("  ✓ the signed-in route reads through the gate too (S2b)");
-console.log("\n ✓ PASS — all 6 assertions held.");
+console.log("  ✓ both routes fetch PACKS through the gate, and no hard-coded packs: []");
+console.log("  ✓ pricing is account-derived — no client id passed by the caller");
+console.log("\n ✓ PASS — all 19 assertions held.");

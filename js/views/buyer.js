@@ -10,7 +10,7 @@ import { renderBillboard, sectionHeader } from "../components/billboard.js";
 import { cart } from "../data/cart.js";
 import { getBuyerOrders, orderedTimesCount, getBuyerOrderedProductIds } from "../data/orders.js";
 import { getPricingContext, resolveClientId, tierForQty, nextTier, effectivePrice, productMoqStatus, marginPct } from "../data/pricing.js";
-import { listPacksForProducts, getPackById } from "../data/prepacks.js";
+import { listPacksByToken, listPacksForBuyerCatalog, getBuyerPack } from "../data/prepacks.js";
 // Batch 5: the one place a cart total is calculated. See js/data/line-pricing.js
 // for why the buyer app previously had two.
 import { priceCart, aggregateQtyByProduct } from "../data/line-pricing.js";
@@ -164,7 +164,7 @@ async function dashboard(outlet) {
     // v2_submit_order applies to every line whether this screen shows it or
     // not. Passing it here is what keeps the cart and the invoice agreeing.
     getPricingContext(catalog.map((p) => p.id), session.accountId, { clientId, catalogId: activeCatalog?.id || null }),
-    listPacksForProducts(catalog.map((p) => p.id)),
+    listPacksForBuyerCatalog(session.accountId, activeCatalogId),
   ]);
 
   // The customer's own share of that percentage, kept separately because it is
@@ -576,7 +576,7 @@ async function ordersView(outlet) {
           // Batch 7: re-add at the pack's CURRENT composition/price, not a
           // stale snapshot from when this order was placed -- the pack may
           // have been edited (or archived) since.
-          const pack = await getPackById(item.packId);
+          const pack = await getBuyerPack(session.accountId, item.packId);
           if (!pack) { failures++; continue; }
           // productId comes off the live pack definition (prepacks.js exposes it
           // as of Batch 5), so a reordered pack is counted toward this
@@ -733,16 +733,28 @@ async function catalogLinkView(outlet, params) {
 
   const { tiersByProduct, overridesByVariant, discountPct } =
     await getPricingContext(products.map((p) => p.id), session.accountId, {
-      clientId: session.clientId || null, catalogId: resolved.id,
+      // Batch S/S4: the link route passes its TOKEN, so the database can
+      // gate the tiers and the discount on the link the buyer actually holds.
+      clientId: session.clientId || null, catalogId: resolved.id, token,
     });
   const customerPct = Number(session.discountPct) || 0;
-  const location = await defaultLocation(wid);
+  // Batch S / S3. `packs` used to be a hard-coded [] here, and that was a live
+  // bug, not a placeholder: a series/prepack/ratio product with no packs takes
+  // the card's dead-end branch and prints "This product has no bundles set up
+  // yet, so it cannot be ordered. Ask the wholesaler to add one." The
+  // wholesaler HAD set one up. On production, 26 Aug: 13 of 23 products, five
+  // of six wholesalers, un-orderable on the share link -- the one channel this
+  // product is built around -- and blamed on the wholesaler.
+  const [location, linkPacks] = await Promise.all([
+    defaultLocation(wid),
+    listPacksByToken(token, session.accountId || null),
+  ]);
 
   const cardFor = (product) => renderProductCard({
     product, wid, locationId: location?.id, currency: "$",
     tiers: tiersByProduct.get(product.id) || [],
     overridesByVariant, discountPct, customerPct,
-    packs: [],
+    packs: linkPacks.get(product.id) || [],
     highlighted: !!product.highlighted,
   });
   // Same grid the buyer dashboard builds. Written inline there rather than as a
