@@ -53,6 +53,44 @@ file, and both re-proved red.
 
 ---
 
+## 2026-08-26 · Batch S / S3 · the buyer's ungated pack reads
+
+**Approved by:** Hadi, 26 Aug 2026 — `Finish Batch S (S3–S9)`.
+
+**Removed from `js/views/buyer.js`:**
+
+| Gone | Replaced by |
+|---|---|
+| `listPacksForProducts(...)` on the signed-in grid | `listPacksForBuyerCatalog(accountId, catalogId)` |
+| `getPackById(...)` on the reorder path | `getBuyerPack(accountId, packId)` |
+| **`packs: []`** on the share-link card | `linkPacks.get(product.id)` — real packs, through the gate |
+
+**⛔ That last line was a live bug, not a placeholder.** A series/prepack/ratio
+product with no packs takes the card's dead-end branch and prints *"This product
+has no bundles set up yet, so it cannot be ordered. Ask the wholesaler to add
+one."* Counted on production 26 Aug: **13 of 23 live products — 8 prepack, 4
+ratio, 1 series — across five of the six wholesalers**, un-orderable on the
+share link, and blamed on the wholesaler.
+
+**Also not carried across: `flatPackPrice` / `isFlatPrice`.** Decision D4
+(21 Aug) says the flat pack price is stored, never charged; a grep on 26 Aug
+confirms nothing outside `prepacks.js` reads either field. It is also the
+wholesaler's margin structure. The columns and the wholesaler-side functions are
+untouched — only the buyer path stops carrying it.
+
+**Nothing behind this was deleted.** `listPacksForProduct` (singular),
+`listPacksForProducts` and `getPackById` all remain exported and are still used
+by the wholesaler's own screens, which are `authenticated` with real RLS.
+
+**A harness bug caught in my own gate, worth recording:** the first version of
+the `flatPackPrice` assertion sliced `prepacks.js` from `assemblePackRows` to
+end-of-file, swept in the legacy wholesaler readers that legitimately carry that
+field, and reported a leak that did not exist. A check that fails on code it was
+never meant to judge gets its assertion deleted rather than fixed. Now scoped,
+and it says `HARNESS BROKEN — this is NOT a pass` if it cannot find the block.
+
+---
+
 ## 2026-08-25 · Batch S / S2b · the signed-in buyer's whole-tenant read (and a live bug with it)
 
 **Approved by:** Hadi, 25 Aug 2026 — `Go — Batch S alone`, then `go` on S2b.
