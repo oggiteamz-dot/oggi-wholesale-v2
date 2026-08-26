@@ -17,13 +17,44 @@ import { supabase, sbCall } from "../lib/supabase-client.js";
  * catalog.js, so this only needs to add tiers + (if a client is known)
  * that buyer's own overrides (keyed off their portal account, not off a
  * client id the caller chooses -- see below). */
-export async function getPricingContext(productIds, accountId, { clientId = null, catalogId = null } = {}) {
+export async function getPricingContext(productIds, accountId, { clientId = null, catalogId = null, token = null } = {}) {
+  // Batch S / S4. Everything here now comes through a gated function.
+  //
+  // WHAT WAS WRONG, and it was two separate things:
+  //
+  // (a) tiers were read straight off v2_pricing_tiers, which anon holds SELECT
+  //     on, cross-tenant. There are zero tier rows on production today, so
+  //     nothing leaked yet -- but at launch twenty wholesalers in one trade
+  //     fill that table with their quantity breaks.
+  //
+  // (b) ⛔ the discount came from v2_catalog_discount_pct(catalogId, clientId),
+  //     which is SECURITY DEFINER, granted to anon, and takes BOTH IDS FROM
+  //     THE CALLER with no check. Proven live from the app's own origin,
+  //     signed out, 26 Aug: AMANI Stores 10.00, CEDAR Shops 5.00, Boutique
+  //     Farah 10.00, catalog 'test432' -5.00 -- real negotiated terms, and a
+  //     price INCREASE this project's notes call "invisible to the buyer by
+  //     design". A buyer holds their own client id in their session, so
+  //     reading their own markup needed no guessing at all.
+  //
+  // The replacement takes NO client id. The database reads the client off the
+  // validated account row -- the same fix migration 048 already made once, for
+  // overrides, and the same rule stated in js/data/catalogs.js: "a parameter
+  // you can change is a parameter someone will change."
+  //
+  // `clientId` is still accepted because order submission needs it downstream,
+  // but it no longer influences pricing and is not sent anywhere.
   const tiersByProduct = new Map();
   if (productIds.length) {
-    const { data: tiers } = await sbCall(
-      supabase.from("v2_pricing_tiers").select("*").in("product_id", productIds).order("min_qty", { ascending: true })
-    );
+    const { data: tiers } = token
+      ? await sbCall(supabase.rpc("v2_catalog_tiers", { p_token: token, p_account_id: accountId || null }))
+      : (accountId && catalogId)
+        ? await sbCall(supabase.rpc("v2_buyer_catalog_tiers", { p_account_id: accountId, p_catalog_id: catalogId }))
+        : { data: [] };
+    const wanted = new Set(productIds);
     (tiers || []).forEach((t) => {
+      // The gate already scopes to one catalogue; this only narrows to the
+      // products actually on screen.
+      if (!wanted.has(t.product_id)) return;
       const list = tiersByProduct.get(t.product_id) || [];
       list.push({ minQty: t.min_qty, unitPrice: Number(t.unit_price) });
       tiersByProduct.set(t.product_id, list);
@@ -46,17 +77,22 @@ export async function getPricingContext(productIds, accountId, { clientId = null
     (overrides || []).forEach((o) => overridesByVariant.set(o.variant_id, Number(o.override_price)));
   }
 
-  // Migration 053. The server applies a discount percentage AFTER the
-  // override/tier/list decision, and v2_submit_order re-prices every line with
-  // it -- so a screen that does not apply the same percentage shows a cart
-  // that disagrees with the invoice. It is fetched here, from the same
-  // function the server itself calls, rather than recomputed from a catalog
-  // row and a client row in JavaScript: two implementations of one arithmetic
-  // rule is how the cart and the invoice drift apart.
+  // Migration 053, re-gated in 083. The server applies a discount percentage
+  // AFTER the override/tier/list decision and v2_submit_order re-prices every
+  // line with it, so a screen that does not apply the same percentage shows a
+  // cart that disagrees with the invoice. Both gated functions DELEGATE to
+  // v2_catalog_discount_pct with ids the database resolved itself -- the
+  // arithmetic stays in one place. Two implementations of one rule is how the
+  // cart and the invoice drift apart.
   let discountPct = 0;
-  if (clientId || catalogId) {
+  if (token) {
     const { data } = await sbCall(
-      supabase.rpc("v2_catalog_discount_pct", { p_catalog_id: catalogId || null, p_client_id: clientId || null })
+      supabase.rpc("v2_token_discount_pct", { p_token: token, p_account_id: accountId || null })
+    );
+    discountPct = Number(data) || 0;
+  } else if (accountId) {
+    const { data } = await sbCall(
+      supabase.rpc("v2_buyer_discount_pct", { p_account_id: accountId, p_catalog_id: catalogId || null })
     );
     discountPct = Number(data) || 0;
   }
