@@ -114,6 +114,75 @@ if (/catalogProductsByToken/.test(buyerSrc)) {
   fail = 1;
 }
 
+// --- S3: packs -------------------------------------------------------------
+//
+// ⛔ THE ASSERTION THAT WOULD HAVE CAUGHT THE 26 AUG BUG.
+//
+// The share-link view passed `packs: []` to every product card — a literal
+// empty array, unconditionally. For a series/prepack/ratio product the card
+// then took its dead-end branch and told the buyer the wholesaler had not set
+// up a bundle. They had. 13 of 23 live products, five of six wholesalers.
+//
+// Nothing in this repo asserted that a buyer holding a link can reach a pack,
+// so nothing went red. This does. It is deliberately a check on the LITERAL,
+// because `packs: []` is not a bug of logic — it is a bug of nobody having
+// written the call.
+if (/packs:\s*\[\s*\]/.test(buyerCode)) {
+  problems.push(
+    "js/views/buyer.js passes a hard-coded empty `packs: []` to a product card. " +
+    "For a series/prepack/ratio product the pack IS the buy button, and an " +
+    "empty list makes the card say the wholesaler never set one up. This is " +
+    "the 26 Aug link bug — do not restore it."
+  );
+  fail = 1;
+}
+
+for (const ungated of ["listPacksForProducts(", "getPackById("]) {
+  if (buyerCode.includes(ungated)) {
+    problems.push(
+      `js/views/buyer.js calls ${ungated}) — the ungated pack read, straight off ` +
+      "v2_pack_definitions / v2_pack_components. Buyer views must use " +
+      "listPacksByToken / listPacksForBuyerCatalog / getBuyerPack."
+    );
+    fail = 1;
+  }
+}
+
+if (!buyerCode.includes("listPacksByToken(")) {
+  problems.push("the share-link route never fetches packs through the gate (listPacksByToken).");
+  fail = 1;
+}
+if (!buyerCode.includes("listPacksForBuyerCatalog(")) {
+  problems.push("the signed-in route never fetches packs through the gate (listPacksForBuyerCatalog).");
+  fail = 1;
+}
+
+// The gated pack path must not carry the flat pack price. It is never rendered
+// (D4, 21 Aug) and it is the wholesaler's margin structure.
+{
+  const packsSrc = readFileSync("js/data/prepacks.js", "utf8");
+  // Scoped to the GATED block only — from assemblePackRows() to the start of
+  // the legacy wholesaler-side readers below it. Slicing to end-of-file (the
+  // first version of this check) swept in getPackById and listPacksForProduct,
+  // which legitimately still carry flatPackPrice for the wholesaler's own
+  // screens, and reported a leak that was not there. A check that fails on
+  // code it was never meant to judge gets its assertion deleted, not fixed.
+  const from = packsSrc.indexOf("function assemblePackRows");
+  const to   = packsSrc.indexOf("/** Batch version of listPacksForProduct");
+  const gated = (from !== -1 && to > from) ? packsSrc.slice(from, to) : "";
+  if (!gated) {
+    problems.push("HARNESS BROKEN — could not locate the gated pack block in js/data/prepacks.js. This is NOT a pass.");
+    fail = 1;
+  }
+  if (/flatPackPrice|isFlatPrice/.test(gated)) {
+    problems.push(
+      "the gated pack path returns flatPackPrice / isFlatPrice. Nothing renders " +
+      "it, and it is the wholesaler's margin structure — it must not cross to the buyer."
+    );
+    fail = 1;
+  }
+}
+
 // --- 4. one shaping function, not two --------------------------------------
 // If getCatalog and getCatalogByToken each build the buyer object by hand, the
 // two read paths WILL drift, and the buyer path is the one nobody looks at.
@@ -149,4 +218,5 @@ console.log("  ✓ NO buyer view reads the whole wholesaler's tables");
 console.log("  ✓ the id-list path is gone, not merely unused");
 console.log("  ✓ both read paths share one shaping function");
 console.log("  ✓ the signed-in route reads through the gate too (S2b)");
-console.log("\n ✓ PASS — all 6 assertions held.");
+console.log("  ✓ both routes fetch PACKS through the gate, and no hard-coded packs: []");
+console.log("\n ✓ PASS — all 12 assertions held.");
