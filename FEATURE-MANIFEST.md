@@ -199,6 +199,11 @@ broke · ❌ not built
 | 112 | **`pack_price` never reaches a buyer** — the flat pack price is stored, never charged (D4), never rendered, and is the wholesaler's margin structure | `082` — absent from every gated return type | `check_catalog_packs.sql` — row 5, asserted on the **return type**, because a definer function outranks the grants that protect it | ✅ |
 | 113 | **Reorder re-reads the CURRENT pack**, gated on the product still being in a catalogue this buyer may see — a product the wholesaler has pulled stops reordering, the same answer they'd get browsing | `082` (`v2_buyer_pack`), `js/views/buyer.js` | `check_catalog_packs.sql` — rows 12–14 | ✅ |
 | 114 | **A pack with no components still appears** — as an empty pack, never vanishing, because a vanished pack is indistinguishable from feature 110's bug | `082` (LEFT JOIN) | `check_catalog_packs.sql` — row 11, red-proved by making it an inner join | ✅ |
+| 115 | **A buyer's discount is derived from their account, not asked for** — `v2_buyer_discount_pct` takes **no client id at all**, so there is no different question to ask | `supabase/migrations/083_v2_buyer_pricing.sql` | `check_buyer_pricing.sql` — row 2 asserts the parameter **does not exist**, red-proved by re-introducing it. ⛔ Replaces `v2_catalog_discount_pct`, which took both ids from the caller and returned real negotiated terms to a signed-out stranger | ✅ |
+| 116 | **A catalogue markup still reaches the buyer it applies to** — a negative discount is real pricing; hiding it from the app would make the cart disagree with the invoice. What changed is that only that buyer can read it | `083` | `check_buyer_pricing.sql` — row 4 | ✅ |
+| 117 | **One arithmetic rule for the discount** — the gated function delegates to the same `v2_catalog_discount_pct` the server uses, with ids the database resolved itself | `083` | `check_buyer_pricing.sql` — row 9 asserts the two agree exactly | ✅ |
+| 118 | **Quantity breaks come through the gate**, scoped to one catalogue and to the products on screen | `083`, `js/data/pricing.js` | `check_buyer_pricing.sql` (16) — incl. a second product whose breaks must never appear, added *because* a one-product fixture could not detect an unscoped join | ✅ |
+| 119 | **A deactivated buyer account prices at zero** — not at their old terms | `083` | `check_buyer_pricing.sql` — row 6, red-proved by removing the account validation | ✅ |
 
 ---
 
@@ -206,8 +211,8 @@ broke · ❌ not built
 
 | | |
 |---|---|
-| Features listed | **114** |
-| Enforced and proven (✅) | **104** |
+| Features listed | **119** |
+| Enforced and proven (✅) | **109** |
 | Present but unproven (⚠️) | **10** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |

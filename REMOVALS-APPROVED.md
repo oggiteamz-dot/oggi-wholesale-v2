@@ -53,6 +53,55 @@ file, and both re-proved red.
 
 ---
 
+## 2026-08-26 · Batch S / S4 · the buyer's ungated pricing reads
+
+**Approved by:** Hadi, 26 Aug 2026 — `Finish Batch S (S3–S9)`.
+
+**Removed from `js/data/pricing.js`:**
+
+| Gone | Replaced by |
+|---|---|
+| `supabase.from("v2_pricing_tiers")` — a direct, cross-tenant table read | `v2_catalog_tiers` / `v2_buyer_catalog_tiers` |
+| `v2_catalog_discount_pct(catalogId, clientId)` — **both ids from the caller** | `v2_buyer_discount_pct(accountId, catalogId)` / `v2_token_discount_pct(token, accountId)` |
+
+**⛔ The second line was a live leak.** That function is `SECURITY DEFINER`,
+granted to `anon`, and checks nothing. Called from the app's own origin, signed
+out, on 26 Aug:
+
+| Asked for | Returned |
+|---|---|
+| AMANI Stores (`sq`) | **10.00** |
+| CEDAR Shops (`sq`) | **5.00** |
+| Boutique Farah (`test`) | **10.00** |
+| catalogue `test432` | **−5.00** |
+
+Real negotiated terms. And the last one is a **price increase** that this
+project's own notes describe as *"invisible to the buyer by design"* — a buyer
+holds their own client id in their session, so reading their own markup required
+**no guessing at all**.
+
+There was also an existence oracle: a real catalogue id returned `0.00`, a
+made-up one returned `0`, which is how guessing a uuid stops being hopeless.
+
+**`clientId` is still accepted by `getPricingContext`** because order submission
+needs it downstream — but it no longer influences pricing and is not sent
+anywhere. **`v2_catalog_discount_pct` itself is untouched and still granted**;
+revoking it before the app has moved is the ordering mistake this batch exists
+to avoid. It goes in S7 with the table grants.
+
+**Two false greens in my own red-proofs, both caught, both mine:**
+
+- A mutation that removed the account validation **never applied** — a quoting
+  error made the string replace a silent no-op, so the check reported green
+  while testing nothing. Every mutation is now verified by comparing the
+  function's `md5(prosrc)` before and after.
+- A mutation that made the tier join ignore `product_id` **could not be
+  detected**, because the fixture had only one product with breaks. A second
+  product with different breaks now exists purely so that leak has somewhere to
+  show up.
+
+---
+
 ## 2026-08-26 · Batch S / S3 · the buyer's ungated pack reads
 
 **Approved by:** Hadi, 26 Aug 2026 — `Finish Batch S (S3–S9)`.
