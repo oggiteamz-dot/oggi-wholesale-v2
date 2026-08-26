@@ -11,6 +11,101 @@ the removal was not approved; it was forgotten.
 
 ---
 
+## 2026-08-25 · Batch S / S2 · the buyer's whole-tenant table read
+
+**Approved by:** Hadi, 25 Aug 2026 — `Go — Batch S alone` on the plan in
+`[C] BATCH S — PLAN, PROOF & FEATURE LIST (Aug 25 2026).md`, which names this
+removal as S2 and shows the measurement that justifies it.
+
+**Removed from `js/views/buyer.js` (15 lines):**
+
+| Gone | Replaced by |
+|---|---|
+| `catalogProductsByToken()` call + the `order` Map + the `pinned` Set | the row order and the `highlighted` flag now arrive from `v2_catalog_read` |
+| `const everything = await getCatalog(wid)` on the token route | `getCatalogByToken(token, accountId)` |
+| `.filter(...).sort(...)` over the whole wholesaler's catalogue | the database's `order by highlighted desc, sort_order, added_at` |
+
+**Removed from `js/data/catalog.js` (28 lines):** the inline variant-shaping
+object literal and the inline product-shaping map body. **Neither was deleted —
+both were EXTRACTED**, unchanged field for field, into `shapeVariant()` and
+`shapeProduct()`, which both read paths now call. `checks/check_buyer_reads_are_gated.mjs`
+asserts they are shared, and that assertion is red-proved by rewriting one call
+site by hand.
+
+**Why, in one line:** `getCatalog(wid)` read `v2_products`,
+`v2_product_variants` and `v2_inventory_by_variant` **for the entire
+wholesaler**, and the share-token gate had no say over any of it — measured
+signed-out against production on 25 Aug, the same key that ships in the app
+returned 23 products, 264 variants and 143 stock rows across **six different
+wholesalers**.
+
+**Nothing behind it was deleted.** `catalogProductsByToken()` and
+`v2_catalog_products_by_token` are both untouched and still exported — the
+wholesaler-side catalog builder uses the same gate. Only the buyer route stopped
+calling it.
+
+**One gate was REWRITTEN, not softened** — two assertions in
+`check_billboard_and_highlights.mjs` named the control (`order.get(a.id) -
+order.get(b.id)` and `pinned.has(product.id)`) rather than the capability, and
+went red on a change that makes the guarantee *stronger*: the app now has no
+sort to get wrong. Both were rewritten in this commit with the reason in the
+file, and both re-proved red.
+
+---
+
+## 2026-08-25 · Batch S / S2b · the signed-in buyer's whole-tenant read (and a live bug with it)
+
+**Approved by:** Hadi, 25 Aug 2026 — `Go — Batch S alone`, then `go` on S2b.
+
+**Removed from `js/views/buyer.js`:**
+
+| Gone | Replaced by |
+|---|---|
+| `narrowTo()` and its `new Set(...)` / `.filter()` | `v2_buyer_catalog_read` returns this buyer's catalogue directly — there is no wider list left to narrow |
+| `getCatalog(wid)` in `catalogView()` | `getBuyerCatalog(accountId, catalogId)` |
+| `getCatalog(wid)` in `favouritesView()` | `getBuyerVisibleProducts(accountId, catalogIds)` — unions every catalogue the buyer may see, so a favourite starred in one does not vanish when another is active |
+| the `buyerCatalogProductIds` import | the ids are no longer fetched separately at all |
+
+**⛔ The `narrowTo` removal also fixes a LIVE PRODUCTION BUG, unrelated to
+Batch S.** It read:
+
+```js
+const ids = new Set(await buyerCatalogProductIds(session.accountId, cat.id));
+return catalog.filter((p) => ids.has(p.id));
+```
+
+`buyerCatalogProductIds` returns **objects** (`{id, highlighted}`), so the Set
+held object references and `ids.has(p.id)` — a string — was **always false**.
+**Every signed-in buyer's catalogue rendered empty.**
+
+Dated from git: `c8f0ff8` (20 Aug) wrote the filter when that call returned
+plain text ids and was correct; `978d415`, later the same day, changed the
+return shape so the billboard page could read `highlighted`, and silently broke
+this caller. Verified against production 25 Aug: the test buyer's Main Catalog
+holds 4 products, none of which would have rendered. The `/c/:token` page was
+never affected, which is why link testing looked fine.
+
+Same class as the 2.0 rewrite losing the size axis: **the record SHAPE
+changed**, and nothing checks shapes. The name was still there, the call still
+ran, the data still arrived.
+
+**Nothing behind it was deleted.** `buyerCatalogProductIds` and
+`v2_buyer_catalog_products` are both untouched and still exported.
+`getCatalog()` is also kept — now caller-less on purpose, with a header
+explaining it is wholesaler-side only, and a gate that fails the build if
+`buyer.js` names it.
+
+**One gate was WIDENED, not softened:** `check_buyer_reads_are_gated.mjs`
+asserted only that *the token route* stopped reading tables. Scoped that way it
+would have stayed green while the signed-in route and favourites kept reading
+the whole wholesaler forever — and there turned out to be **three** such reads
+in that file, not one. It now judges the whole file. Two of its own assertions
+were also found to be unfalsifiable and fixed: one counted a function's own
+declaration as a call site, and one was satisfied by a **comment** mentioning
+the function's name.
+
+---
+
 ## 2026-08-24 · CR-0001 · `renderRatioSection()` and the 64-row pack builder
 
 **Approved by:** Hadi, 24 Aug 2026 — *"if you want merge the ratio and prepack

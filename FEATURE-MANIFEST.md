@@ -188,18 +188,35 @@ broke · ❌ not built
 | 101 | **One warehouse ⇒ the step never appears** — nothing changes for anyone who does not need it | `js/components/product-form.js` (`paintWarehouses`) | `check_multi_warehouse.mjs` — WH-04 | ✅ |
 | 102 | **The step comes AFTER the grid**, as a second pass over numbers that already exist | `js/components/product-form.js` | `check_css_parses.mjs` — `.pb-wh-item` survives parsing | ✅ |
 | 103 | **A variant absent from the split keeps its stock** at the default warehouse — absent is not empty | `js/data/products-admin.js` | `check_multi_warehouse.mjs` — WH-05, red-proved | ✅ |
+| 104 | **A stranger with the app's own key gets nothing from the buyer tables** — products, variants, packs, pack components and stock all refuse an anonymous caller | the database's grants, not `js/**` | `check_anon_scope.sh` — asks production signed out with the key read out of `supabase-client.js`, so it follows a key rotation instead of testing a dead one. **RED as of 25 Aug: 23 products / 264 variants / 143 stock rows across 6 wholesalers.** Turns green at S7. ⚠️ **RED on purpose until then** — it is the measurement Batch S exists to change, and it is listed here precisely so that nobody reads its redness as a broken build | ⚠️ |
+| 105 | **One catalogue's worth of data, and no more** — `v2_catalog_read` returns products, buyer-safe variant columns and live availability for exactly the catalogue the token names, gate re-checked inside the function | `supabase/migrations/080_v2_catalog_read.sql` | `check_catalog_read.sql` (12) — every row red-proved by five mutations; the refused catalogues in the fixture are deliberately STOCKED, because empty ones passed while the gate was ripped out | ✅ |
+| 106 | **`cost` cannot come back in through a definer function** — asserted against the function's return type, not against a row | `supabase/migrations/080_v2_catalog_read.sql` | `check_catalog_read.sql` — row 9, red-proved by adding `cost` back | ✅ |
+| 107 | **A product with no variants still appears to the buyer** — a catalogue-only product, or one whose colours are not added yet, is shown un-orderable rather than vanishing | `supabase/migrations/080_v2_catalog_read.sql` (the LEFT JOIN) | `check_catalog_read.sql` — row 10, red-proved by making it an inner join | ✅ |
+| 108 | **The buyer's link route reads no tables at all** — every product, price and stock number on `/c/:token` arrives through the gated function | `js/data/catalog.js` (`getCatalogByToken`), `js/views/buyer.js` | `check_buyer_reads_are_gated.mjs` (4) — all four red-proved. Structural on purpose: until S7 the grants are still open, so a missed table read still WORKS and nothing else goes red | ✅ |
+| 109 | **Both read paths build the same buyer object from one place** — `shapeVariant`/`shapeProduct` are shared, so the wholesaler path and the buyer path cannot drift apart | `js/data/catalog.js` | `check_buyer_reads_are_gated.mjs` — assertion 4. ⚠️ Its first version counted the function's own DECLARATION as a call site and could not go red — the identical mistake made on 23 Aug | ✅ |
 
 ---
 
-## Reconciliation — 25 August 2026 (CR-0006, warehouses)
+## Reconciliation — 25 August 2026 (Batch S, S0–S2)
 
 | | |
 |---|---|
-| Features listed | **103** |
-| Enforced and proven (✅) | **94** |
-| Present but unproven (⚠️) | **9** |
+| Features listed | **109** |
+| Enforced and proven (✅) | **99** |
+| Present but unproven (⚠️) | **10** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
+
+Row 104 is the only ⚠️ added by Batch S, and it is ⚠️ **because it is red on
+purpose**. `check_anon_scope.sh` asks production, signed out, what it will hand
+a stranger; today the honest answer is 23 products, 264 variants and 143 stock
+rows across six different wholesalers. It goes green at S7 and not before,
+because the revoke is the LAST step — moving it earlier takes every catalogue
+on the platform blank in the same second.
+
+Rows 105–109 are the first two steps of that work: one function that returns a
+single catalogue's worth of data with the share-token gate re-checked inside
+it, and the buyer's link route moved onto it. **No grant has changed yet.**
 
 Row 100 is the one that earns this change. A split is numbers typed into
 several boxes that nobody re-adds; if 60 pieces can be saved as 40 + 30, twenty
