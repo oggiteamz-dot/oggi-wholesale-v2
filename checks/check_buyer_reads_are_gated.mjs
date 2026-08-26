@@ -183,6 +183,57 @@ if (!buyerCode.includes("listPacksForBuyerCatalog(")) {
   }
 }
 
+// --- S4: pricing -----------------------------------------------------------
+//
+// ⛔ Guards the 26 Aug finding: v2_catalog_discount_pct is SECURITY DEFINER,
+// granted to anon, and takes BOTH the catalogue id and the client id from the
+// caller. Signed out, from the app's own origin, it returned real negotiated
+// terms (AMANI 10.00, CEDAR 5.00) and a catalogue markup of -5.00 that the
+// project's own notes call "invisible to the buyer by design".
+//
+// The buyer path must use the account-derived functions, which take no client
+// id at all. Comments are stripped first — this file explains the old function
+// by name, and prose about a name is not a call to it.
+{
+  const pricingSrc = readFileSync("js/data/pricing.js", "utf8");
+  const pricingCode = pricingSrc
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+
+  if (/from\(\s*["']v2_pricing_tiers["']/.test(pricingCode)) {
+    problems.push(
+      "js/data/pricing.js reads the v2_pricing_tiers TABLE directly. anon holds " +
+      "SELECT on it and the read is cross-tenant — zero rows today, twenty " +
+      "wholesalers' quantity breaks at launch."
+    );
+    fail = 1;
+  }
+  if (/rpc\(\s*["']v2_catalog_discount_pct["']/.test(pricingCode)) {
+    problems.push(
+      "js/data/pricing.js calls v2_catalog_discount_pct — the UNGATED discount " +
+      "function that takes a client id from the caller. Use v2_buyer_discount_pct " +
+      "(account-derived) or v2_token_discount_pct."
+    );
+    fail = 1;
+  }
+  for (const need of ["v2_buyer_discount_pct", "v2_token_discount_pct", "v2_catalog_tiers", "v2_buyer_catalog_tiers"]) {
+    if (!pricingCode.includes(need)) {
+      problems.push(`js/data/pricing.js never calls ${need} — the gated pricing path is incomplete.`);
+      fail = 1;
+    }
+  }
+}
+
+// The link route must hand its token to the pricing call, or the database
+// cannot gate the tiers and discount on the link the buyer actually holds.
+if (!/catalogId:\s*resolved\.id,\s*token/.test(buyerCode)) {
+  problems.push(
+    "the share-link route does not pass its token to getPricingContext, so the " +
+    "tiers and discount cannot be gated on the link the buyer holds."
+  );
+  fail = 1;
+}
+
 // --- 4. one shaping function, not two --------------------------------------
 // If getCatalog and getCatalogByToken each build the buyer object by hand, the
 // two read paths WILL drift, and the buyer path is the one nobody looks at.
@@ -219,4 +270,5 @@ console.log("  ✓ the id-list path is gone, not merely unused");
 console.log("  ✓ both read paths share one shaping function");
 console.log("  ✓ the signed-in route reads through the gate too (S2b)");
 console.log("  ✓ both routes fetch PACKS through the gate, and no hard-coded packs: []");
-console.log("\n ✓ PASS — all 12 assertions held.");
+console.log("  ✓ pricing is account-derived — no client id passed by the caller");
+console.log("\n ✓ PASS — all 19 assertions held.");
