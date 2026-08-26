@@ -733,7 +733,9 @@ async function catalogLinkView(outlet, params) {
 
   const { tiersByProduct, overridesByVariant, discountPct } =
     await getPricingContext(products.map((p) => p.id), session.accountId, {
-      clientId: session.clientId || null, catalogId: resolved.id,
+      // Batch S/S4: the link route passes its TOKEN, so the database can
+      // gate the tiers and the discount on the link the buyer actually holds.
+      clientId: session.clientId || null, catalogId: resolved.id, token,
     });
   const customerPct = Number(session.discountPct) || 0;
   // Batch S / S3. `packs` used to be a hard-coded [] here, and that was a live
