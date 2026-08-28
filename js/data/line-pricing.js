@@ -49,7 +49,23 @@ export function linePieces(line) {
     return (line.components || []).map((c) => ({
       variantId: c.variantId,
       qty: c.qtyPerPack * line.packQty,
-      basePrice: Number(c.price ?? 0),
+      // CR-0008, 28 Aug 2026. This was `Number(c.price ?? 0)`.
+      //
+      // priceLine() only consults ctx.basePriceFor when basePrice IS NULL, and
+      // `0` is not null -- so a component with no price of its own became a
+      // component priced at ZERO, and the lookup that would have found the
+      // real price was never reached. cart.addPack() writes its components as
+      // { variantId, qtyPerPack, sku, color, size, reservationId, expiresAt }
+      // and has never written a price, so EVERY pack line in EVERY real cart
+      // priced at 0.00 while v2_submit_order charged the true amount: the
+      // buyer approved a subtotal with their packs missing from it and was
+      // invoiced for them anyway.
+      //
+      // checks/check_line_pricing.mjs stayed green the whole time because
+      // every one of its pack fixtures adds a `price` to each component -- a
+      // shape the application does not produce. Null now means "ask", and an
+      // explicit 0 still means free.
+      basePrice: c.price != null ? Number(c.price) : null,
       color: c.color,
       size: c.size,
       sku: c.sku,
