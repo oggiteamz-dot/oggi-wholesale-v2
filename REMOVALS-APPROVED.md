@@ -339,3 +339,52 @@ wholesaler. Creating the first test rep account is the step before it.
 
 **Proven by:** `checks/check_anon_grants.sql` (anon holds nothing) and
 `checks/check_anon_scope.sh` (production, signed out, with the app's own key).
+
+
+---
+
+## CR-0009 — the idle control bar at the foot of the order sheet
+**29 August 2026 · approved by Hadi, 28 August**
+
+**Two lines removed from `js/components/product-card.js`:**
+
+```
+sheet.appendChild(pad);
+pad.innerHTML = `<div class="os-what"><b>Tap a box above</b><span>then use + and − here</span></div>`;
+```
+
+**Hadi's words, choosing the matrix as the ordering screen:** *"I don't like the
+idea that when they click, the number change appears at the bottom, because
+there's a very high chance that it might not be seen."*
+
+He is right, and the reason is worse than "might not be seen." On a six-colour
+product the foot of the sheet sits roughly 250–300px below the cell being
+tapped, with the running total in between — frequently **below the fold on a
+phone**. The buyer taps a number, nothing visibly happens, and the honest
+conclusion to draw is that the app is broken.
+
+The original reasoning — *"one large control at the foot, which never moves, so
+the thumb never hunts"* — was **right about the thumb and wrong about the eye.**
+A control the eye cannot find is not found by the thumb either.
+
+**Nothing was lost.** The control is the same element with the same class names
+and the same behaviour; only where it is mounted changed. It now appears as a
+full-width row directly beneath the colour being edited, and is left-sticky so
+that scrolling sideways on a wide size range cannot scroll it off screen.
+
+The idle instruction it used to draw is now `.os-hint`, a single quiet line
+under the grid rather than a permanent bar — furniture the eye learns to skip
+is furniture that goes unread on the one occasion it matters.
+
+**Gated:** `check_buyer_product_card.mjs` gained 13 assertions, red-proved by
+putting the control back at the foot (6 named failures). They assert
+**adjacency**, not merely that a control exists somewhere — "there is a stepper
+on the card" was already true when the complaint was made, so a check asserting
+only that would have been green throughout.
+
+⚠️ **One existing assertion had to be corrected, not weakened.**
+`check_buyer_card_capabilities.mjs` proved "one row per colour" by counting
+`tbody tr`, which the inserted edit row took to 3. The intent was unchanged;
+the proxy was wrong. It now counts `tr:not(.os-editrow)` and cross-checks
+`tr[data-colour]`, which states the intent directly and cannot be satisfied by
+rows that are not colours.
