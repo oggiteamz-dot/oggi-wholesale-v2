@@ -301,7 +301,7 @@ red-proved by putting it back and watching the gate fail.
 
 ## CR-0007 — the sales rep's product picker stops working, on purpose
 
-**Approved by:** Hadi, 26 August 2026 — *"Every single wholesaler we have is a
+**Approved by:** Hadi, 28 August 2026 — *"Every single wholesaler we have is a
 test one. We don't have an actual wholesaler using the system yet. We're still
 building it."* and, on the order of work, *"as you see fit."*
 
@@ -319,7 +319,7 @@ After 085 it returns nothing.
 filter of any kind. It was handing a rep — and, because reps are the `anon`
 role, anyone at all — the variant list of **every wholesaler on the platform**.
 It is the single worst read in the product and the one the S0 gate has been
-pointing at since Monday. Repairing it in place would mean keeping the table
+pointing at since the batch began. Repairing it in place would mean keeping the table
 open while a gated replacement is written; taking the grant away first means
 S6 gets built once, against the doors as they will actually be.
 
