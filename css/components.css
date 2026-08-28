@@ -2484,6 +2484,18 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   color: var(--text-secondary); background: var(--bg-sunken);
   border-top: 1px solid var(--border-subtle); }
 .os-grid tfoot td.os-cc { text-align: left; }
+/* GAP-2 (28 Aug 2026) — the running total, between the grid and the control.
+   The mockup's "48 pieces (4 × 12) = $456.00", which the sheet never had: it
+   showed piece counts and priced only the single aimed cell, so the cost of a
+   product was invisible until the cart screen. Sits ABOVE the control so it
+   stays readable while the thumb is on the stepper. */
+.os-total { padding: 8px 11px; font-size: 13px; line-height: 1.4;
+  background: var(--bg-surface-2); border-top: 1px solid var(--border-subtle);
+  color: var(--text-primary); }
+.os-total.os-total-idle { color: var(--text-tertiary); font-size: 12px; }
+.os-total strong { font-weight: 800; }
+.os-total .pc-multiplier { margin-left: 2px; }
+
 /* ONE control, at the foot, that never moves — so the thumb never hunts and no
    cell has to be wide enough to hold its own buttons. */
 .os-pad { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -2521,3 +2533,36 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 .pb-wh-loc { font-size: 12px; color: var(--text-secondary); }
 .pb-wh-qty { width: 88px; text-align: right; }
 @media (max-width: 420px) { .pb-wh-qty { width: 72px; } }
+
+
+/* ===========================================================================
+   THE ORDER BAR                                          GAP-4, 28 Aug 2026
+   ===========================================================================
+   Pinned to the bottom of the catalogue, where ~85% of phone touches happen
+   (Hoober, 1,333 field observations) -- the same measurement that put the
+   navigation down there. It clears the bottom nav and the iOS safe area, or
+   it would sit under both and be unreadable on exactly the device it is for.
+   =========================================================================== */
+.order-bar {
+  position: sticky; bottom: 0; z-index: 40;
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 16px; padding: 10px 14px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--accent-700); color: #fff;
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -6px 24px rgba(10, 30, 20, .18);
+}
+.order-bar.order-bar-empty { background: var(--bg-sunken); color: var(--text-secondary); box-shadow: none; }
+.order-bar-summary { flex: 1 1 auto; min-width: 0; font-size: 14px; }
+.order-bar-pieces, .order-bar-total { font-weight: 800; }
+.order-bar-sep { opacity: .55; margin: 0 7px; }
+.order-bar-idle { font-size: 13px; }
+.order-bar-cta { flex: none; min-height: 44px; }
+.order-bar-cta:disabled { opacity: .5; }
+
+/* Below the breakpoint where the bottom navigation appears, the bar has to sit
+   above it rather than behind it. 64px is the bar's 48px targets plus its own
+   padding -- see js/components/bottomnav.js. */
+@media (max-width: 880px) {
+  .order-bar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+}

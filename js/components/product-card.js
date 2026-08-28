@@ -10,7 +10,7 @@ import { tierForQty, nextTier, effectivePrice, productMoqStatus, variantMoqStatu
 import { flyToCart } from "../lib/animations/fly-to-cart.js";
 import { openHologramModal } from "../lib/animations/product-hologram.js";
 
-import { priceLine, aggregateQtyByProduct } from "../data/line-pricing.js";
+import { priceLine, priceCart, aggregateQtyByProduct } from "../data/line-pricing.js";
 
 import { esc, money } from "../lib/utils.js";
 /** Sum of this product's qty already in the cart, across every colour/
@@ -428,8 +428,10 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
         packQtyInput.value = "0";
         renderPackInfo();
         // The header price can change once a pack pushes the cart over a
-        // quantity break, so it is repainted rather than left stale.
+        // quantity break, so it is repainted rather than left stale -- and so
+        // can the running total, since a pack's pieces belong to this product.
         renderHeader();
+        renderTotals();
         if (onCartChange) onCartChange();
       });
       renderPackInfo();
@@ -516,6 +518,22 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   grid.className = "os-grid";
   sheetScroll.appendChild(grid);
   sheet.appendChild(sheetScroll);
+  // ------------------------------------------------------------- GAP-2 ----
+  // THE RUNNING TOTAL.                                          28 Aug 2026
+  //
+  // The approved mockup keeps a live line under the colours -- "48 pieces
+  // (4 x 12) = $456.00" -- that moves on every press. What shipped gave piece
+  // counts in the sheet's footer and money for ONLY the one cell the foot
+  // control was aimed at, so a buyer filling sixteen cells watched a number
+  // climb that was not money and did not learn the cost of the product until
+  // they left the catalogue for the cart.
+  //
+  // It sits between the grid and the control, which is where the mockup puts
+  // it and the only place it is readable without moving the thumb.
+  const totalLine = document.createElement("div");
+  totalLine.className = "os-total";
+  sheet.appendChild(totalLine);
+
   const pad = document.createElement("div");
   pad.className = "os-pad";
   sheet.appendChild(pad);
@@ -529,8 +547,78 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
    *  grid stops being a grid. */
   const allSizes = [...new Set(product.variants.map((v) => v.size).filter(Boolean))];
 
+  // -------------------------------------------------------------- GAP-1 ----
+  // A PRODUCT THAT HAS NO COLOURS AT ALL.                        28 Aug 2026
+  //
+  // product.colors is built in js/data/catalog.js by de-duplicating variant
+  // colours and filtering out the falsy ones. A product whose variants carry
+  // no colour therefore arrives here with colors: [], and every row of this
+  // sheet was drawn by iterating that array -- so the grid came out with a
+  // header, a footer and NOT ONE ROW. The card still drew its name, its price
+  // and its photo frame. It looked finished. There was simply nothing to press,
+  // and no error anywhere to say so.
+  //
+  // The approved buyer mockup (24 Aug) names this as one of its three fixes:
+  // "the last product genuinely has no colours, so it shows none -- colours
+  // appear only when a product has them."
+  //
+  // So the sheet now draws ONE row for such a product and drops the colour
+  // column with it. Not a blank column headed "Colour" -- a blank column reads
+  // as data that failed to load, which is the exact confusion an honest empty
+  // state exists to prevent.
+  const hasColours = product.colors.length > 0;
+  const sheetRows = hasColours ? product.colors : [{ name: null, hex: null }];
+
   function variantAt(colour, size) {
-    return product.variants.find((v) => v.color === colour && v.size === size);
+    // Normalised on both sides. A colourless variant may carry null, undefined
+    // or "" depending on which import wrote it, and `undefined === null` is
+    // false -- which would leave the single row empty for the exact products
+    // this block exists to rescue.
+    const want = colour || null;
+    return product.variants.find((v) => (v.color || null) === want && v.size === size);
+  }
+
+  /** Every cart line that belongs to THIS product, loose or packed.
+   *  Mirrors cartQtyForProduct's two ways of recognising one, including the
+   *  fallback for pack lines written before they recorded a productId. */
+  function linesForProduct() {
+    const variantIds = new Set(product.variants.map((v) => v.id));
+    return cart.get(wid).filter((l) => {
+      if (l.productId === product.id) return true;
+      if (l.isPack) return (l.components || []).some((c) => variantIds.has(c.variantId));
+      return variantIds.has(l.variantId);
+    });
+  }
+
+  /** What this product currently costs, in the buyer's order.
+   *
+   *  Deliberately priceCart() and not a sum of the numbers already on screen.
+   *  priceCart's subtotal is the value that has to equal v2_orders.subtotal, so
+   *  routing through it is what makes this line agree with the invoice by
+   *  construction rather than by coincidence. A hand-rolled multiply is exactly
+   *  how the pack row came to display 96.00 on an order the server charged
+   *  72.00 for (checks/check_line_pricing.sql, proven on production 21 Aug). */
+  function renderTotals() {
+    const lines = linesForProduct();
+    if (!lines.length) {
+      totalLine.className = "os-total os-total-idle";
+      totalLine.textContent = "Nothing selected yet.";
+      return;
+    }
+    totalLine.className = "os-total";
+    const { subtotal } = priceCart(lines, {
+      basePriceFor: (vid) => product.variants.find((v) => v.id === vid)?.price || 0,
+      tiersByProduct: tiersByProductLocal, overridesByVariant, discountPct, customerPct,
+    });
+    const pieces = lines.reduce((n, l) => n + (l.isPack
+      ? (l.components || []).reduce((s, c) => s + c.qtyPerPack * l.packQty, 0)
+      : l.qty), 0);
+    // The multiplication is written out only when a base unit makes it mean
+    // something. "12 pieces (1 x 12)" earns its space; "12 pieces (12 x 1)"
+    // is noise dressed as arithmetic.
+    const mult = baseUnit > 1 && pieces % baseUnit === 0
+      ? ` <span class="pc-multiplier">(${pieces / baseUnit} × ${baseUnit})</span>` : "";
+    totalLine.innerHTML = `<strong>${pieces}</strong> pieces${mult} = <strong>${money(subtotal, currency)}</strong>`;
   }
 
   function renderSizes() {
@@ -539,29 +627,59 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
     // turns into a regression. It draws the sheet now.
     if (isBundleOnly) { sheet.innerHTML = ""; return; }
     grid.innerHTML = "";
+    renderTotals();
 
     const thead = document.createElement("thead");
-    thead.innerHTML = `<tr><th class="os-cch">Colour</th>${
+    thead.innerHTML = `<tr>${hasColours ? '<th class="os-cch">Colour</th>' : ""}${
       allSizes.map((sz) => `<th data-size="${esc(sz)}">${esc(sz)}</th>`).join("")
     }<th class="os-tch">Total</th></tr>`;
     grid.appendChild(thead);
 
     const tbody = document.createElement("tbody");
-    product.colors.forEach((c) => {
+    sheetRows.forEach((c) => {
       const tr = document.createElement("tr");
-      tr.dataset.colour = c.name;
-      const photo = photosFor(c.name)[0];
-      const head = document.createElement("td");
-      head.className = "os-cc";
-      head.innerHTML = `<div class="os-ccwrap">${
-        photo ? `<img src="${esc(photo)}" alt="" class="os-cthumb">`
-              : `<span class="os-cdot" style="background:${esc(c.hex)}"></span>`
-      }<span class="os-cname">${esc(c.name)}</span></div>`;
-      // The thumbnail is the swatch's job too: tapping a colour's picture sets
-      // the hero, so the big image follows what the buyer just looked at.
-      const th = head.querySelector(".os-cthumb");
-      if (th) th.addEventListener("click", () => { selectedColor = c.name; renderPhoto(); });
-      tr.appendChild(head);
+      if (c.name) tr.dataset.colour = c.name;
+      // No colours means no colour column, so no row head either -- see the
+      // GAP-1 block above.
+      if (hasColours) {
+        const photo = photosFor(c.name)[0];
+        const head = document.createElement("td");
+        head.className = "os-cc";
+        head.innerHTML = `<div class="os-ccwrap">${
+          photo ? `<img src="${esc(photo)}" alt="" class="os-cthumb">`
+                : `<span class="os-cdot" style="background:${esc(c.hex)}"></span>`
+        }<span class="os-cname">${esc(c.name)}</span></div>`;
+        // The thumbnail is the swatch's job too: tapping a colour's picture sets
+        // the hero, so the big image follows what the buyer just looked at.
+        //
+        // GAP-3, 28 Aug 2026: it now also OPENS. The approved mockup says
+        // "thumbnails click to expand"; what shipped set the hero and stopped,
+        // so the only routes to a big picture were the "+N more" badge and the
+        // 360° button -- both at the top of the card, neither where the thumb
+        // already is when a buyer is reading down the colour column deciding
+        // what to take. The viewer was already built. This was a wire, not a
+        // build. The thumbnail only exists when this colour HAS a photograph
+        // (a colour without one draws a dot instead), so there is no case where
+        // this opens an empty viewer.
+        const th = head.querySelector(".os-cthumb");
+        if (th) {
+          th.setAttribute("role", "button");
+          th.setAttribute("tabindex", "0");
+          th.setAttribute("aria-label", `See ${c.name} full size`);
+          th.style.cursor = "pointer";
+          const openColour = () => {
+            selectedColor = c.name;
+            renderPhoto();
+            const source = product.variants.find((v) => (v.color || null) === c.name) || product.variants[0];
+            openHologramModal({ images: photosFor(c.name), colorHex: source?.colorHex || c.hex, productName: product.name });
+          };
+          th.addEventListener("click", openColour);
+          th.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openColour(); }
+          });
+        }
+        tr.appendChild(head);
+      }
 
       allSizes.forEach((sz) => {
         const v = variantAt(c.name, sz);
@@ -572,7 +690,7 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
           // never a zero, which would read as "available, none taken".
           td.classList.add("os-none");
           td.textContent = "";
-          td.setAttribute("aria-label", `${c.name} is not made in size ${sz}`);
+          td.setAttribute("aria-label", c.name ? `${c.name} is not made in size ${sz}` : `Size ${sz} is not made`);
         } else {
           const q = cellQty(v);
           td.textContent = String(q);
@@ -583,11 +701,11 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
             // buyer think the size does not exist; the server would refuse the
             // line anyway, so offering it is worse than showing it greyed.
             td.classList.add("os-out");
-            td.setAttribute("aria-label", `${c.name} size ${sz} is out of stock`);
+            td.setAttribute("aria-label", c.name ? `${c.name} size ${sz} is out of stock` : `Size ${sz} is out of stock`);
           } else {
             td.setAttribute("role", "button");
             td.setAttribute("tabindex", "0");
-            td.setAttribute("aria-label", `${c.name}, size ${sz}, ${q} pieces. Tap to change.`);
+            td.setAttribute("aria-label", `${c.name ? `${c.name}, ` : ""}size ${sz}, ${q} pieces. Tap to change.`);
             const aim = () => { aimed = v; selectedColor = c.name; renderSizes(); renderPhoto(); };
             td.addEventListener("click", aim);
             td.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); aim(); } });
@@ -618,18 +736,25 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
 
     // Per-size totals. The reason the columns were worth building: a buyer can
     // see they have taken forty 32s and twelve 36s without adding it up.
-    const tfoot = document.createElement("tfoot");
-    let grand = 0;
-    const cells = allSizes.map((sz) => {
-      const n = product.colors.reduce((sum, c) => {
-        const v = variantAt(c.name, sz);
-        return sum + (v ? cellQty(v) : 0);
-      }, 0);
-      grand += n;
-      return `<td data-total-size="${esc(sz)}">${n}</td>`;
-    }).join("");
-    tfoot.innerHTML = `<tr><td class="os-cc">Per size</td>${cells}<td class="os-gt" data-grand>${grand}</td></tr>`;
-    grid.appendChild(tfoot);
+    //
+    // GAP-1: skipped entirely for a colourless product. With one row, a "Per
+    // size" footer is that same row printed twice -- which teaches the reader
+    // that the footer means nothing, and costs them the vertical space on a
+    // phone for the privilege.
+    if (hasColours) {
+      const tfoot = document.createElement("tfoot");
+      let grand = 0;
+      const cells = allSizes.map((sz) => {
+        const n = sheetRows.reduce((sum, c) => {
+          const v = variantAt(c.name, sz);
+          return sum + (v ? cellQty(v) : 0);
+        }, 0);
+        grand += n;
+        return `<td data-total-size="${esc(sz)}">${n}</td>`;
+      }).join("");
+      tfoot.innerHTML = `<tr><td class="os-cc">Per size</td>${cells}<td class="os-gt" data-grand>${grand}</td></tr>`;
+      grid.appendChild(tfoot);
+    }
 
     sheetScroll.classList.toggle("os-wide", allSizes.length > 5);
     renderPad();
@@ -664,7 +789,10 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
     feedback.className = "os-feedback";
 
     function paint() {
-      what.innerHTML = `<b>${esc(variant.color || "")} · size ${esc(variant.size || "")}</b>` +
+      // GAP-1: "" · size M -- a leading separator with nothing before it -- is
+      // how a colourless product used to read here. The colour is printed only
+      // when there is one.
+      what.innerHTML = `<b>${variant.color ? `${esc(variant.color)} · ` : ""}size ${esc(variant.size || "")}</b>` +
         `<span>${baseUnit > 1 ? `each press is ${baseUnit} pieces · ` : ""}${variant.available} available${
           variant.retailPrice ? ` · MSRP ${money(variant.retailPrice, currency)}${
             marginPct(variant.price, variant.retailPrice) != null ? ` (${marginPct(variant.price, variant.retailPrice)}% margin)` : ""}` : ""}</span>`;
@@ -734,10 +862,10 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
       }, draft);
       commit.disabled = false;
       if (!result.ok) {
-        toast(`Only ${variant.available} available in ${variant.color} / ${variant.size}`, { type: "danger" });
+        toast(`Only ${variant.available} available in ${[variant.color, variant.size].filter(Boolean).join(" / ")}`, { type: "danger" });
         return;
       }
-      toast(draft > 0 ? `Cart updated — ${product.name} (${variant.color}, ${variant.size})` : "Removed from cart", { type: "success" });
+      toast(draft > 0 ? `Cart updated — ${product.name} (${[variant.color, variant.size].filter(Boolean).join(", ")})` : "Removed from cart", { type: "success" });
       if (draft > 0) flyToCart({ sourceEl: commit, color: variant.colorHex });
       // The sheet is the record of the order, so it is repainted from the cart
       // rather than trusted to still match it.

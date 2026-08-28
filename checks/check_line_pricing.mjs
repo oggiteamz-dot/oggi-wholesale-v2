@@ -205,6 +205,67 @@ for (const id of ["pack-discount", "pack-crosses-tier", "pack-plus-loose-share-a
   ok(sql.includes(id), `checks/check_line_pricing.sql still covers "${id}" against the real database`);
 }
 
+// =========================================================================
+// THE CART LINE AS THE CART ACTUALLY WRITES IT             CR-0008, 28 Aug 2026
+// =========================================================================
+// Every pack fixture above builds its components with a `price` on each one.
+// cart.addPack() does not. Its `reserved` array is
+//     { variantId, qtyPerPack, sku, color, size, reservationId, expiresAt }
+// and that array is what becomes `components` on the stored line.
+//
+// linePieces() reads `basePrice: Number(c.price ?? 0)`, and priceLine() only
+// consults basePriceFor when basePrice IS NULL -- so a missing price became a
+// price of ZERO, and the fallback that would have found the real one was never
+// reached. Every pack line in every real buyer's cart priced at 0.00, while
+// v2_submit_order charged the real amount: the buyer approved a subtotal that
+// left their packs out and was invoiced for them anyway.
+//
+// This whole file was GREEN throughout, because it only ever priced a shape
+// the application does not produce. That is the failure this project has now
+// hit four times -- searching for a name, or asserting on a fixture, instead
+// of on the thing the app really builds. The fixture below is copied
+// field-for-field from cart.addPack() and must never gain a `price`.
+{
+  const asAddPackWritesIt = {
+    isPack: true, packLineId: "pl-1", packId: "pk-1",
+    packName: "Boutique Pack", packColor: "Blue", price: 50, locationId: "loc-1",
+    productId: "p1", unitCount: 12, packQty: 2,
+    components: [
+      { variantId: V.S, qtyPerPack: 6, sku: "B-S", color: "Blue", size: "S", reservationId: "r1", expiresAt: "z" },
+      { variantId: V.M, qtyPerPack: 6, sku: "B-M", color: "Blue", size: "M", reservationId: "r2", expiresAt: "z" },
+    ],
+  };
+  const ctx = {
+    basePriceFor: (vid) => LIST[vid] ?? 0,
+    tiersByProduct: new Map(), overridesByVariant: new Map(),
+    discountPct: 0, customerPct: 0,
+  };
+  const { subtotal } = priceCart([asAddPackWritesIt], ctx);
+  const expected = 12 * LIST[V.S] + 12 * LIST[V.M];
+  ok(subtotal === expected,
+     `a pack line shaped as cart.addPack() writes it prices at ${expected}, not 0 (got ${subtotal})`);
+  ok(subtotal !== 0,
+     "and specifically NOT zero — a cart that silently drops the money for every pack it contains");
+
+  // A component that really does carry its own price still wins: that is the
+  // whole reason the field is read first, and packs saved by a future writer
+  // that records prices must keep working.
+  const withOwnPrices = {
+    ...asAddPackWritesIt,
+    components: asAddPackWritesIt.components.map((c) => ({ ...c, price: 5 })),
+  };
+  ok(priceCart([withOwnPrices], ctx).subtotal === 24 * 5,
+     "a component that carries its own price still overrides the lookup");
+
+  // An explicit zero is a real price, not a missing one.
+  const freeGift = {
+    ...asAddPackWritesIt,
+    components: asAddPackWritesIt.components.map((c) => ({ ...c, price: 0 })),
+  };
+  ok(priceCart([freeGift], ctx).subtotal === 0,
+     "and an explicit price of 0 is honoured as free rather than re-looked-up");
+}
+
 console.log(pass.map((m) => `  ✓ ${m}`).join("\n"));
 if (fail.length) console.log(fail.map((m) => `  ✗ ${m}`).join("\n"));
 console.log("----------------------------------------------------------------");

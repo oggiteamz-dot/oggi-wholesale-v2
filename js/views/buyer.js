@@ -17,6 +17,7 @@ import { priceCart, aggregateQtyByProduct } from "../data/line-pricing.js";
 import { renderCatalogToolbar } from "../components/catalog-toolbar.js";
 import { filterAndSortCatalog, defaultCatalogFilters } from "../data/catalog-filter.js";
 import { renderTrustBadges } from "../components/trust-badges.js";
+import { renderOrderBar } from "../components/order-bar.js";
 import { showOrderCelebration } from "../lib/animations/order-celebration.js";
 
 import { esc, pageHeader } from "../lib/utils.js";
@@ -227,6 +228,33 @@ async function dashboard(outlet) {
   });
   outlet.insertBefore(toolbar.el, gridWrap);
   renderGrid(defaultCatalogFilters());
+
+  // ------------------------------------------------------------- GAP-4 ----
+  // THE ORDER BAR.                                             28 Aug 2026
+  //
+  // The approved mockup pins one to the bottom of the catalogue; nothing like
+  // it shipped. The only running count was a topbar badge, which sits out of
+  // thumb reach and adds packs and pieces together as though they were the
+  // same unit -- so two boxes of twelve and two loose shirts both read "2".
+  //
+  // It is given the SAME pricing context the cards are given, so the bar and
+  // the card cannot quote different numbers, and it prices through priceCart()
+  // so neither can disagree with the invoice.
+  const orderBar = renderOrderBar({
+    wid, currency: wholesaler.currency || "$",
+    pricingCtx: {
+      basePriceFor: (vid) => {
+        for (const p of catalog) {
+          const v = (p.variants || []).find((x) => x.id === vid);
+          if (v) return v.price || 0;
+        }
+        return 0;
+      },
+      tiersByProduct, overridesByVariant, discountPct, customerPct,
+    },
+    onReview: () => { window.location.hash = "#/buyer/cart"; },
+  });
+  outlet.appendChild(orderBar);
 }
 
 // =============================================================================
@@ -315,7 +343,19 @@ async function cartView(outlet) {
   // Authoritative list prices for the loose lines. A cart line's stored
   // `price` is already effective, so it cannot be re-priced from; see
   // getVariantListPrices in js/data/catalog.js.
-  const listPriceByVariant = await getVariantListPrices(session.accountId, lines.filter((l) => !l.isPack).map((l) => l.variantId));
+  //
+  // CR-0008, 28 Aug 2026: pack lines used to be FILTERED OUT of this lookup
+  // (`lines.filter((l) => !l.isPack)`), which was consistent only while
+  // linePieces() silently priced their components at zero. With that fixed,
+  // a pack's component variants must be in this map or basePriceFor falls
+  // through to a loose cart line that does not exist and answers 0 -- the
+  // same bug moved one function along. Both halves are needed; either alone
+  // still prices a pack at nothing.
+  const priceVariantIds = [
+    ...lines.filter((l) => !l.isPack).map((l) => l.variantId),
+    ...lines.filter((l) => l.isPack).flatMap((l) => (l.components || []).map((c) => c.variantId)),
+  ].filter(Boolean);
+  const listPriceByVariant = await getVariantListPrices(session.accountId, [...new Set(priceVariantIds)]);
 
   /** Everything priceCart needs, rebuilt per render because the cart changes. */
   function pricingCtx() {

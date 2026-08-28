@@ -281,6 +281,169 @@ function render(over = {}, opts = {}) {
      "a per-colour minimum is stated up front — the server enforces it (migration 063) and no screen used to mention it, so buyers met the product MOQ and were refused at checkout by a rule they had never seen");
 }
 
+// ------------------------------------------- a product with NO colours at all --
+// GAP-1, 28 Aug 2026. The approved mockup names this as one of its three fixes:
+// "the last product genuinely has no colours, so it shows none -- colours
+// appear only when a product has them."
+//
+// product.colors is built by de-duplicating variant colours and FILTERING OUT
+// the falsy ones, and renderSizes() iterates product.colors to build the body
+// rows. A product whose variants carry no colour therefore produced a grid with
+// a header, a footer, and NOT ONE ROW -- a card that draws its name, its price
+// and its photo frame, looks completely finished, and cannot be pressed.
+//
+// Every one of the 46 assertions above passed while that was true, because not
+// one of them rendered a colourless product. The gate was green on a card a
+// buyer could not use. This is the assertion that was missing, and it was
+// red-proved against the unfixed file before the fix was written.
+{
+  const variants = ["S", "M", "L", "XL"].map((size, i) => ({
+    id: `nc-${i}`, sku: `NC-${size}`, price: 11, color: null, colorHex: null,
+    size, available: 50, moqQty: 1, retailPrice: null, imageUrl: null, images: [],
+  }));
+  const card = render({
+    id: "p-nocolour", name: "Essential Crew Sweat",
+    colors: [], sizes: ["S", "M", "L", "XL"], variants,
+    imagesByColor: new Map(), primaryImage: null, minPrice: 11, maxPrice: 11,
+  });
+
+  const cells = card.querySelectorAll(".os-cell:not(.os-none)");
+  ok(cells.length === 4,
+     `a product with no colours is still orderable — 4 tappable size cells (got ${cells.length})`);
+  // cells.length > 0 is not redundant: [].every() is TRUE, so without it this
+  // assertion goes GREEN on a card with no cells at all -- a gate that reports
+  // success precisely when the feature is most broken.
+  ok(cells.length > 0 && [...cells].every((c) => c.getAttribute("role") === "button"),
+     "and every one of them can actually be aimed at");
+
+  // The colour column must not survive as an empty stub. A blank first column
+  // headed "Colour" on a product that has none reads as data that failed to
+  // load, which is the thing an honest empty state exists to avoid.
+  ok(!card.querySelector(".os-cch"),
+     "the Colour column is gone entirely rather than left blank and headed");
+
+  // One row is its own per-size total. A "Per size" footer under a single row
+  // repeats that row, so it is dropped.
+  ok(!card.querySelector(".os-grid tfoot"),
+     "and no per-size footer repeating the only row back at the reader");
+
+  // The swatch bar has nothing to show; it must not leave an empty rail.
+  ok(card.querySelectorAll(".color-swatch").length === 0,
+     "no colour swatches are drawn for a product that has no colours");
+
+  // The control still has to work, which is the whole point.
+  // Guarded. Run against the UNFIXED file there are no cells at all, and a gate
+  // that dies on cells[0] reports NONE of the findings above it -- which is the
+  // "a check that only asserts something failed will eventually lie" trap this
+  // file's own header warns about. It bit me here on the first red proof.
+  const first = cells[0];
+  if (first) first.dispatchEvent(new window.Event("click", { bubbles: true }));
+  const pad = card.querySelector(".os-pad");
+  ok(!!first && pad && !pad.classList.contains("os-pad-idle"),
+     "tapping a size arms the foot control on a colourless product");
+  ok(!!first && /size S/.test(text(pad)),
+     "and the control names the size without inventing a colour to sit in front of it");
+}
+
+// ---------------------------- the running total while the sheet is filled --
+// GAP-2, 28 Aug 2026. The approved mockup keeps a live line under the colours
+// -- "48 pieces (4 x 12) = $456.00" -- that moves on every press. The shipped
+// sheet gave piece counts in its footer and money ONLY for the single cell the
+// foot control was aimed at, so a buyer filling sixteen cells watched a number
+// climb that was not money, and did not learn the cost of the product until
+// they left the catalogue for the cart.
+//
+// The number MUST come from priceCart(), the same function whose subtotal has
+// to equal v2_orders.subtotal. A hand-rolled sum here is exactly how the pack
+// row came to quote $96.00 on an order the server charged $72.00 for.
+//
+// The cart is seeded through localStorage, which is where cart.get() reads
+// from, rather than by driving the commit button. Committing calls
+// cart.setLineQty(), which reserves stock over the network -- so a gate that
+// drove the button would be asserting that jsdom can reach Supabase, and would
+// report this feature broken for a reason that has nothing to do with it.
+const CART_KEY = (wid) => `oggi-v2-cart-${wid}`;
+function seedCart(wid, lines) { localStorage.setItem(CART_KEY(wid), JSON.stringify(lines)); }
+
+{
+  const card = render();
+  const totals = card.querySelector(".os-total");
+  ok(!!totals, "the sheet carries a running total line");
+  ok(/Nothing selected yet/i.test(text(totals)),
+     "and it says so in words on an empty order rather than showing a bare 0.00");
+}
+
+{
+  // 3 of Red/S at $8.00 list.
+  localStorage.clear();
+  seedCart("w1", [{ variantId: "v-r-s", productId: "p1", qty: 3, price: 8, listPrice: 8 }]);
+  const card = renderProductCard({
+    product: makeProduct(), wid: "w1", locationId: "loc1", currency: "USD", packs: [],
+  });
+  const after = text(card.querySelector(".os-total"));
+  ok(/3\s*pieces/i.test(after), `the total counts the pieces taken (got "${after.trim()}")`);
+  ok(/24\.00/.test(after), `and prices them the way the invoice will -- 3 x $8.00 = $24.00 (got "${after.trim()}")`);
+}
+
+{
+  // The same three pieces in a 25%-off catalog. THIS is the assertion that
+  // would have caught the pack row quoting an undiscounted number: the card
+  // must quote what the server charges, not what the price list says.
+  localStorage.clear();
+  seedCart("w1", [{ variantId: "v-r-s", productId: "p1", qty: 4, price: 8, listPrice: 8 }]);
+  const card = renderProductCard({
+    product: makeProduct(), wid: "w1", locationId: "loc1", currency: "USD", packs: [],
+    discountPct: 25, customerPct: 25,
+  });
+  const after = text(card.querySelector(".os-total"));
+  ok(/24\.00/.test(after),
+     `in a 25% catalog, 4 pieces of an $8.00 item total $24.00 and not $32.00 (got "${after.trim()}")`);
+  ok(!/32\.00/.test(after), "and the undiscounted $32.00 appears nowhere in that line");
+}
+
+{
+  // A base unit makes the multiplication worth writing out; without one it is
+  // noise dressed as arithmetic, so it must NOT appear.
+  localStorage.clear();
+  seedCart("w1", [{ variantId: "v-r-s", productId: "p1", qty: 24, price: 8, listPrice: 8 }]);
+  const withUnit = renderProductCard({
+    product: makeProduct({ baseUnit: 12 }), wid: "w1", locationId: "loc1", currency: "USD", packs: [],
+  });
+  ok(/\(2 × 12\)/.test(text(withUnit.querySelector(".os-total"))),
+     "with a base unit of 12, 24 pieces is written out as (2 × 12)");
+
+  localStorage.clear();
+  seedCart("w1", [{ variantId: "v-r-s", productId: "p1", qty: 24, price: 8, listPrice: 8 }]);
+  const noUnit = renderProductCard({
+    product: makeProduct(), wid: "w1", locationId: "loc1", currency: "USD", packs: [],
+  });
+  ok(!/×/.test(text(noUnit.querySelector(".os-total"))),
+     "and with no base unit there is no (24 × 1) noise");
+}
+
+// ------------------------- tapping a colour's thumbnail opens it full size --
+// GAP-3, 28 Aug 2026. The approved mockup: "thumbnails click to expand". The
+// row thumbnail set the hero and stopped there, so the only way to a big
+// picture was the "+N more" badge or the 360° button -- neither of which is
+// where a buyer's thumb already is when they are reading down the colour
+// column deciding what to take. The viewer was already built; this was a
+// wiring gap, not a feature.
+{
+  localStorage.clear();
+  document.body.innerHTML = "";
+  const card = render();
+  document.body.appendChild(card);
+  const thumbs = card.querySelectorAll(".os-cthumb");
+  ok(thumbs.length > 0, "the sheet's colour rows carry thumbnails to tap");
+  if (thumbs[0]) thumbs[0].dispatchEvent(new window.Event("click", { bubbles: true }));
+  const modal = document.querySelector(".v2-hologram-modal-backdrop");
+  ok(!!modal, "tapping a colour's thumbnail opens the full-size viewer");
+  ok(!!thumbs[0] && attr(thumbs[0], "role") === "button",
+     "and the thumbnail says it is pressable, so it is reachable by keyboard too");
+  if (modal) modal.remove();
+  document.body.innerHTML = "";
+}
+
 console.log(pass.map((m) => `  ✓ ${m}`).join("\n"));
 if (fail.length) console.log(fail.map((m) => `  ✗ ${m}`).join("\n"));
 console.log("----------------------------------------------------------------");
