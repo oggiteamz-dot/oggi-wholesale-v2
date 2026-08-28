@@ -9,7 +9,7 @@ import { buyerCatalogs, catalogByToken } from "../data/catalogs.js";
 import { renderBillboard, sectionHeader } from "../components/billboard.js";
 import { cart } from "../data/cart.js";
 import { getBuyerOrders, orderedTimesCount, getBuyerOrderedProductIds } from "../data/orders.js";
-import { getPricingContext, resolveClientId, tierForQty, nextTier, effectivePrice, productMoqStatus, marginPct } from "../data/pricing.js";
+import { getPricingContext, tierForQty, nextTier, effectivePrice, productMoqStatus, marginPct } from "../data/pricing.js";
 import { listPacksByToken, listPacksForBuyerCatalog, getBuyerPack } from "../data/prepacks.js";
 // Batch 5: the one place a cart total is calculated. See js/data/line-pricing.js
 // for why the buyer app previously had two.
@@ -121,7 +121,13 @@ async function dashboard(outlet) {
   // suppliers() handler below) and always resolves to null under the Batch 14
   // RLS pass, which is the safe default rather than a crash.
   const [clientId, orderedProductIds] = await Promise.all([
-    session.clientId || resolveClientId(wid, label),
+    // Batch S/S5: resolveClientId() is gone from the buyer path. It read
+    // v2_clients directly, and under RLS an anon buyer has ALWAYS got nothing
+    // back -- so it has only ever resolved to null here. After S7 revokes the
+    // grant it would raise rather than return null. The real client id comes
+    // from the login response (session.clientId); this was a fallback that
+    // never once fired.
+    session.clientId || null,
     getBuyerOrderedProductIds(session.accountId),
   ]);
   // Migration 055: which catalogs this buyer's tier allows, and which products
@@ -309,7 +315,7 @@ async function cartView(outlet) {
   // Authoritative list prices for the loose lines. A cart line's stored
   // `price` is already effective, so it cannot be re-priced from; see
   // getVariantListPrices in js/data/catalog.js.
-  const listPriceByVariant = await getVariantListPrices(lines.filter((l) => !l.isPack).map((l) => l.variantId));
+  const listPriceByVariant = await getVariantListPrices(session.accountId, lines.filter((l) => !l.isPack).map((l) => l.variantId));
 
   /** Everything priceCart needs, rebuilt per render because the cart changes. */
   function pricingCtx() {
@@ -482,7 +488,12 @@ async function cartView(outlet) {
       submitBtn.disabled = true;
       submitBtn.textContent = "Submitting…";
       const label = buyerLabel();
-      const clientId = session.clientId || (await resolveClientId(wid, label));
+      // Batch S/S5: was `session.clientId || await resolveClientId(wid, label)`.
+      // resolveClientId read v2_clients directly and, under RLS, an anon buyer
+      // has always got nothing back -- so the fallback has only ever produced
+      // null. After S7 it would raise instead. The server re-derives the client
+      // from the validated account anyway (migration 048), so nothing is lost.
+      const clientId = session.clientId || null;
       const result = await cart.submit(wid, {
         buyerLabel: label, locationId: location.id, clientId,
         accountId: session.accountId,

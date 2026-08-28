@@ -188,7 +188,7 @@ broke · ❌ not built
 | 101 | **One warehouse ⇒ the step never appears** — nothing changes for anyone who does not need it | `js/components/product-form.js` (`paintWarehouses`) | `check_multi_warehouse.mjs` — WH-04 | ✅ |
 | 102 | **The step comes AFTER the grid**, as a second pass over numbers that already exist | `js/components/product-form.js` | `check_css_parses.mjs` — `.pb-wh-item` survives parsing | ✅ |
 | 103 | **A variant absent from the split keeps its stock** at the default warehouse — absent is not empty | `js/data/products-admin.js` | `check_multi_warehouse.mjs` — WH-05, red-proved | ✅ |
-| 104 | **A stranger with the app's own key gets nothing from the buyer tables** — products, variants, packs, pack components and stock all refuse an anonymous caller | the database's grants, not `js/**` | `check_anon_scope.sh` — asks production signed out with the key read out of `supabase-client.js`, so it follows a key rotation instead of testing a dead one. **RED as of 25 Aug: 23 products / 264 variants / 143 stock rows across 6 wholesalers.** Turns green at S7. ⚠️ **RED on purpose until then** — it is the measurement Batch S exists to change, and it is listed here precisely so that nobody reads its redness as a broken build | ⚠️ |
+| 104 | **A stranger with the app's own key gets nothing from the buyer tables** — products, variants, packs, pack components and stock all refuse an anonymous caller | the database's grants, not `js/**` | `check_anon_scope.sh` — asks production signed out with the key read out of `supabase-client.js`, so it follows a key rotation instead of testing a dead one. **RED 25 Aug: 23 products / 264 variants / 143 stock rows across 6 wholesalers. GREEN 28 Aug after `085`: all seven denied outright, HTTP 401, and a stranger can enumerate no wholesaler's products.** ⛔ Never read alone — see row 125 | ✅ |
 | 105 | **One catalogue's worth of data, and no more** — `v2_catalog_read` returns products, buyer-safe variant columns and live availability for exactly the catalogue the token names, gate re-checked inside the function | `supabase/migrations/080_v2_catalog_read.sql` | `check_catalog_read.sql` (12) — every row red-proved by five mutations; the refused catalogues in the fixture are deliberately STOCKED, because empty ones passed while the gate was ripped out | ✅ |
 | 106 | **`cost` cannot come back in through a definer function** — asserted against the function's return type, not against a row | `supabase/migrations/080_v2_catalog_read.sql` | `check_catalog_read.sql` — row 9, red-proved by adding `cost` back | ✅ |
 | 107 | **A product with no variants still appears to the buyer** — a catalogue-only product, or one whose colours are not added yet, is shown un-orderable rather than vanishing | `supabase/migrations/080_v2_catalog_read.sql` (the LEFT JOIN) | `check_catalog_read.sql` — row 10, red-proved by making it an inner join | ✅ |
@@ -204,37 +204,90 @@ broke · ❌ not built
 | 117 | **One arithmetic rule for the discount** — the gated function delegates to the same `v2_catalog_discount_pct` the server uses, with ids the database resolved itself | `083` | `check_buyer_pricing.sql` — row 9 asserts the two agree exactly | ✅ |
 | 118 | **Quantity breaks come through the gate**, scoped to one catalogue and to the products on screen | `083`, `js/data/pricing.js` | `check_buyer_pricing.sql` (16) — incl. a second product whose breaks must never appear, added *because* a one-product fixture could not detect an unscoped join | ✅ |
 | 119 | **A deactivated buyer account prices at zero** — not at their old terms | `083` | `check_buyer_pricing.sql` — row 6, red-proved by removing the account validation | ✅ |
+| 120 | **The cart's price lookup is gated too** — a cart line stores the price it was priced AT, discount and break already applied, so re-pricing from that number would apply them twice; the list price is the only correct input and it now arrives scoped to variants this account may actually see | `supabase/migrations/084_v2_buyer_list_prices.sql`, `js/data/catalog.js` (`getVariantListPrices`) | verified in production: `md5(prosrc)` matches the repo byte-for-byte, `prosecdef` true, anon may execute. A variant the buyer may not see is ABSENT rather than an error — the caller already falls back to the line's stored price | ✅ |
+| 121 | **anon holds no table, view, column or sequence privilege anywhere in the schema** — buyers and sales reps get a browser-local session and no Supabase one, so `auth.uid()` is null for them and RLS cannot scope them; the grant is the only lock they have, and it is now shut | `supabase/migrations/085_v2_anon_loses_the_tables.sql` | `check_anon_grants.sql` — reads `pg_class.relacl` **and** `pg_attribute.attacl`, red-proved with a table grant, a column grant, a view grant and a sequence grant | ✅ |
+| 122 | **The rule that opened every new table is gone** — `026:173` set `alter default privileges … grant select, insert, update, delete on tables to anon`, so every table created since arrived readable AND writable by a stranger on its first day, before anyone wrote a policy for it. That standing rule, not seven forgotten grants, is what S0 was measuring | `085` | `check_anon_grants.sql` — red-proved by re-adding the default privilege and watching the gate fail. ⛔ **This is the half that matters in six months**: revoking today's grants without this makes the next `create table` reopen the leak silently, with every gate green | ✅ |
+| 123 | **The ungated discount oracle is unreachable signed out** — `v2_catalog_discount_pct(catalog, client)` took both ids from the caller and answered any stranger with a real percentage; it also told you whether an id existed (real → `0.00`, invented → `0`) | `085` revokes EXECUTE from anon; `083` supplies the gated replacements | `check_anon_grants.sql`. `authenticated` KEEPS execute — a wholesaler is allowed to know their own discounts — and the arithmetic still lives in one function, reached with ids the database resolved itself | ✅ |
+| 124 | **The grant gate can see a COLUMN grant** — a table-level grant lands in `pg_class.relacl`, a column-level one in `pg_attribute.attacl`, and a check that reads only the first calls the schema clean while every price and SKU is still readable | `checks/check_anon_grants.sql` | ⚠️ **Found the hard way**: the first draft read only `relacl`, and a deliberate `grant select (price) on v2_product_variants to anon` sailed straight past it. Migration `032` uses exactly that form — fourteen columns granted back after a table-level revoke — so the blind spot was aimed directly at the real defect | ✅ |
+| 125 | **With the door shut, the buyer can still shop** — signed-in catalogues, products, prices, the discount, the share link and the cart's price lookup all answer over REST with nothing but the key that ships in the app | `080`–`084`, `js/data/*.js` | `check_buyer_path_survives.sh` (S8) — the **pair** to row 104 and never to be read without it. A shut door and a shut shop are indistinguishable from outside; only this gate tells them apart. Measured 28 Aug: 4 catalogues, 74 catalogue rows, 44 rows through the link, 3 cart prices | ✅ |
+| 126 | **None of it crosses a tenant boundary** — the same buyer, pointed at another wholesaler's share link, another wholesaler's catalogue id, or another wholesaler's variant id, gets **nothing** back; and an invented token gets nothing too | `080`–`084` | `check_buyer_path_survives.sh` — four negative assertions, red-proved by pointing the gate at the buyer's OWN link and watching it report *RETURNED 44 ROWS ACROSS A TENANT BOUNDARY*. Silence rather than an error is deliberate: an error is an existence oracle | ✅ |
+| 127 | **A variant the buyer may not see is ABSENT from the cart's prices, not an error** — so a cart that somehow holds a foreign line still renders, falling back to that line's own stored price instead of throwing | `084` | `check_buyer_path_survives.sh` — measured: her own three variants priced, another wholesaler's variant returns `[]` | ✅ |
 
 ---
 
-## Reconciliation — 25 August 2026 (Batch S, S0–S2)
+## Reconciliation — 28 August 2026 (Batch S, S0–S9)
 
 | | |
 |---|---|
-| Features listed | **119** |
-| Enforced and proven (✅) | **109** |
-| Present but unproven (⚠️) | **10** |
+| Features listed | **127** |
+| Enforced and proven (✅) | **118** |
+| Present but unproven (⚠️) | **9** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
 
-Row 104 is the only ⚠️ added by Batch S, and it is ⚠️ **because it is red on
-purpose**. `check_anon_scope.sh` asks production, signed out, what it will hand
-a stranger; today the honest answer is 23 products, 264 variants and 143 stock
-rows across six different wholesalers. It goes green at S7 and not before,
-because the revoke is the LAST step — moving it earlier takes every catalogue
-on the platform blank in the same second.
+> **A note on the dates in this batch.** Everything above `085` — migrations
+> `080`–`083`, their gates, and the CR-0007 entry as first written — carries
+> *25/26 August* because the session clock was running behind. The real date of
+> this reconciliation, and of the S7/S8/S9 measurements in it, is **28 August
+> 2026**, confirmed against the machine clock, the container clock and an HTTP
+> `Date` header from the database's own host, which agree. The earlier files are
+> left as they are: rewriting merged history to chase a date does more damage to
+> a ledger than a known-wrong date does, and this note is the correction.
 
-Rows 105–109 are the first two steps of that work: one function that returns a
-single catalogue's worth of data with the share-token gate re-checked inside
-it, and the buyer's link route moved onto it. **No grant has changed yet.**
+**Row 104 is the one to read first, and it is now ✅.** It is the signed-out
+probe: what production hands a stranger who has nothing but the key that ships
+inside the app. On 25 August the honest answer was 23 products, 264 variants and
+143 stock rows across **six different wholesalers**. On 28 August, after `085`
+was applied to production, all seven tables answer **HTTP 401, denied outright**,
+and a stranger can enumerate no wholesaler's products at all.
 
-Row 100 is the one that earns this change. A split is numbers typed into
-several boxes that nobody re-adds; if 60 pieces can be saved as 40 + 30, twenty
-pieces have been invented, silently, in a system whose entire job is knowing how
-much you have. It is checked before the product row, before a variant, before
-any stock moves — and red-proved twice: once by removing the arithmetic, once by
-keeping the arithmetic but checking it too late to stop the write. Both left
-three receive calls behind.
+**It flipped only because the probe was re-run against production and answered
+with nothing** — not because `085` exists, and not because the local replay was
+clean. The replay could never have proved this: the repo's own migrations never
+granted those tables, so the replay was green on them from the start while
+production leaked. That gap between "the repo says" and "the database does" is
+the whole reason row 104 is a live probe and not a code check.
+
+**Row 125 is the other half and must never be separated from it.** A shut door
+and a shut shop look identical from outside. `check_buyer_path_survives.sh` asks
+the opposite question through the same front door — and answers it: 4 catalogues,
+74 catalogue rows, 44 rows through a share link, 3 cart prices, and **nothing at
+all** in every direction that crosses a tenant boundary.
+
+**What S7 turned out to be about.** S0 read like seven forgotten `grant`
+statements. It was not. Grep the whole migration folder and there is no
+`grant select on v2_products to anon` — the repo never granted those tables.
+`026_v2_move_to_dedicated_schema.sql:173` did, once, and not as a grant:
+
+    alter default privileges in schema wholesale_v2
+      grant select, insert, update, delete on tables to anon, authenticated;
+
+That is a standing rule. Every table created in this schema since has arrived
+readable **and writable** by a signed-out stranger on its first day, before
+anyone wrote a policy for it. So `085` does two separate things — revoke what is
+open today (row 121) and revoke the rule that opens tomorrow's table (row 122) —
+and doing only the first would have been worse than useless: the next
+`create table` reopens the leak with every gate still green.
+
+**Rows 105–120 are the shop being rebuilt before the door was shut.** Every read
+the buyer app makes — catalogue, packs, tiers, discounts, and finally the cart's
+price lookup — moved onto a `SECURITY DEFINER` function that re-checks the share
+token or the validated portal account inside itself. The revoke is last on
+purpose: run it earlier and every catalogue on the platform goes blank in the
+same second.
+
+**Row 124 is the gate's own near-miss, kept because it was nearly a false
+green.** The first draft of `check_anon_grants.sql` read only `pg_class.relacl`.
+A deliberate `grant select (price) on v2_product_variants to anon` passed it
+without a murmur — column grants live in `pg_attribute.attacl`, and migration
+`032` uses precisely that form. A gate nobody has watched fail is not a gate;
+this one has now been made to fail eight different ways, each undone before the
+next was tried.
+
+**One capability is deliberately removed and is recorded as CR-0007**: the sales
+rep's product picker (`listVariantsForPicker`) read `v2_product_variants` with
+no wholesaler filter at all and stops returning rows. Zero salesperson accounts
+exist, and every wholesaler in the system is a test one. S6 rebuilds it gated.
 
 ## Reconciliation — 25 August 2026 (CV-01, the order sheet, superseded)
 

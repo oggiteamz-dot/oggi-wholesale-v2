@@ -296,3 +296,46 @@ wholesaler is told instead, in the product form, as they build.
 
 **Proven by:** `checks/check_colour_photos.mjs` — C1 asserts the borrow is gone;
 red-proved by putting it back and watching the gate fail.
+
+---
+
+## CR-0007 — the sales rep's product picker stops working, on purpose
+
+**Approved by:** Hadi, 28 August 2026 — *"Every single wholesaler we have is a
+test one. We don't have an actual wholesaler using the system yet. We're still
+building it."* and, on the order of work, *"as you see fit."*
+
+**Removed:** nothing from `js/**`. What is removed is a **grant**: migration
+`085_v2_anon_loses_the_tables.sql` takes every table, view and sequence
+privilege in `wholesale_v2` away from the `anon` role.
+
+**What that breaks, precisely.** One function:
+`listVariantsForPicker()` in `js/data/client-pricing.js`, which reads
+`v2_product_variants` and `v2_products` directly. It is called from
+`js/views/salesperson.js` when a rep sets a client-specific price override.
+After 085 it returns nothing.
+
+**Why that is the point and not a casualty.** That query has no wholesaler
+filter of any kind. It was handing a rep — and, because reps are the `anon`
+role, anyone at all — the variant list of **every wholesaler on the platform**.
+It is the single worst read in the product and the one the S0 gate has been
+pointing at since the batch began. Repairing it in place would mean keeping the table
+open while a gated replacement is written; taking the grant away first means
+S6 gets built once, against the doors as they will actually be.
+
+**What is NOT lost.** Nothing else in the sales app changes state, because
+nothing else in the sales app was working: clients, orders, order items and
+visits already returned zero rows for a rep, for the same reason — `auth.uid()`
+is null for them, so every `v2_is_owner() OR wid = v2_my_wid()` policy
+evaluates false. The rep app has been inert since it shipped.
+
+**Who is affected today: nobody.** There are zero salesperson accounts in the
+database. Every wholesaler in the system is a test one. This is pre-launch
+hardening, not incident response.
+
+**What replaces it.** S6 — the salesperson app rebuilt on gated reads, R1–R12,
+starting with a validated-account variant picker scoped to the rep's own
+wholesaler. Creating the first test rep account is the step before it.
+
+**Proven by:** `checks/check_anon_grants.sql` (anon holds nothing) and
+`checks/check_anon_scope.sh` (production, signed out, with the app's own key).

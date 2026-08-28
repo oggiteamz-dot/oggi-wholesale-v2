@@ -452,11 +452,16 @@ export function findVariant(catalog, variantId) {
  * simply absent from the map; the caller falls back to the line's own stored
  * listPrice, which is why cart lines carry one.
  */
-export async function getVariantListPrices(variantIds) {
+export async function getVariantListPrices(accountId, variantIds) {
   const ids = [...new Set((variantIds || []).filter(Boolean))];
-  if (!ids.length) return new Map();
+  if (!accountId || !ids.length) return new Map();
+  // Batch S / S5. Was a direct read of v2_product_variants -- the last one the
+  // buyer app made, and the reason S7 could not revoke the variant grant.
+  // Scoped now to variants in a catalogue this account may see; anything else
+  // is simply absent, and the caller falls back to the line's stored
+  // listPrice, which is why cart lines carry one.
   const { data } = await sbCall(
-    supabase.from("v2_product_variants").select("id,price").in("id", ids)
+    supabase.rpc("v2_buyer_list_prices", { p_account_id: accountId, p_variant_ids: ids })
   );
-  return new Map((data || []).map((v) => [v.id, Number(v.price ?? 0)]));
+  return new Map((data || []).map((v) => [v.variant_id, Number(v.price ?? 0)]));
 }
