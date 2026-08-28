@@ -2566,3 +2566,101 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 @media (max-width: 880px) {
   .order-bar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
 }
+
+
+/* ===========================================================================
+   THE ORDER SHEET                            Batch N step 4, 28 August 2026
+   ===========================================================================
+   The page a warehouse, a driver or a buyer opens from a link, with no
+   account, usually on a phone, and often prints.
+
+   The print rules are the reason this section exists. `break-inside: avoid`
+   on every line is not a nicety: a picking sheet that splits a size away from
+   its quantity across a page break is a picking sheet that gets picked wrong,
+   and nobody notices until the box arrives.
+   =========================================================================== */
+.po-page { max-width: 720px; margin: 0 auto; padding: 20px 16px 120px; }
+.po-loading { padding: 48px 0; text-align: center; color: var(--text-secondary); }
+
+.po-empty { padding: 64px 20px; text-align: center; max-width: 420px; margin: 0 auto; }
+.po-empty-icon { font-size: 34px; opacity: .55; }
+.po-empty h1 { font-size: 20px; margin: 12px 0 8px; }
+.po-empty p { color: var(--text-secondary); font-size: 14px; line-height: 1.55; }
+
+.po-sheet { background: var(--bg-surface); border: 1px solid var(--border-subtle);
+  border-radius: 14px; overflow: hidden; }
+.po-head { display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 16px; padding: 18px 18px 16px; border-bottom: 1px solid var(--border-subtle); }
+.po-eyebrow { font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+  font-weight: 700; color: var(--text-tertiary); }
+.po-head h1 { font-size: 20px; margin: 4px 0 2px; }
+.po-sub { margin: 0; font-size: 12.5px; color: var(--text-secondary); }
+.po-status { text-transform: capitalize; font-weight: 600; }
+.po-tally { text-align: right; flex: none; }
+.po-tally strong { display: block; font-size: 26px; line-height: 1;
+  font-variant-numeric: tabular-nums; }
+.po-tally span { font-size: 11px; color: var(--text-tertiary); }
+
+.po-note { padding: 12px 18px; background: var(--accent-50);
+  border-bottom: 1px solid var(--border-subtle); }
+.po-note-label { display: block; font-size: 10.5px; letter-spacing: .09em;
+  text-transform: uppercase; font-weight: 700; color: var(--accent-700); margin-bottom: 3px; }
+.po-note p { margin: 0; font-size: 14px; }
+
+.po-pack { border-bottom: 1px solid var(--border-subtle); }
+.po-pack-head { padding: 10px 18px; background: var(--bg-sunken); font-size: 12.5px;
+  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.po-pack-head span { color: var(--text-secondary); }
+
+.po-lines { list-style: none; margin: 0; padding: 0; }
+.po-line { display: grid; grid-template-columns: 46px 1fr auto auto; gap: 12px;
+  align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--border-subtle); }
+.po-line:last-child { border-bottom: 0; }
+.po-thumb { width: 46px; height: 58px; object-fit: cover; border-radius: 6px;
+  background: var(--bg-sunken); display: block; }
+.po-thumb-none { display: flex; align-items: center; justify-content: center;
+  font-size: 18px; opacity: .45; }
+.po-line-what { min-width: 0; }
+.po-line-name { font-weight: 600; font-size: 14.5px; }
+.po-line-variant { font-size: 12.5px; color: var(--text-secondary);
+  display: flex; align-items: center; gap: 6px; margin-top: 1px; }
+.po-line-note { margin-top: 5px; font-size: 12.5px; background: var(--accent-50);
+  border-radius: 6px; padding: 5px 8px; }
+.po-line-note span { display: block; font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; font-weight: 700; color: var(--accent-700); }
+.po-line-qty { text-align: center; font-variant-numeric: tabular-nums; }
+.po-line-qty strong { display: block; font-size: 19px; line-height: 1; }
+.po-line-qty span { font-size: 10px; color: var(--text-tertiary); }
+.po-line-money { text-align: right; font-size: 12px; color: var(--text-secondary);
+  font-variant-numeric: tabular-nums; }
+.po-line-money strong { display: block; font-size: 14px; color: var(--text-primary); }
+
+.po-foot { padding: 16px 18px; }
+.po-total { display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 15px; }
+.po-total strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.po-terms { margin: 8px 0 0; font-size: 12px; color: var(--text-tertiary); }
+
+.po-actions { position: sticky; bottom: 0; display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, var(--bg-page) 70%, transparent); }
+.po-actions .btn { flex: 1 1 auto; min-height: 46px; display: inline-flex;
+  align-items: center; justify-content: center; }
+
+/* --------------------------------------------------------------- printing --
+   Save-as-PDF is the browser's own print dialog. It is already correct on
+   every phone and desktop, it renders exactly what was on screen, and the
+   person names the file themselves. */
+@media print {
+  .no-print, .po-actions { display: none !important; }
+  body { background: #fff !important; }
+  .po-page { max-width: none; padding: 0; }
+  .po-sheet { border: 0; border-radius: 0; }
+  .po-head, .po-note, .po-pack, .po-line, .po-foot { background: #fff !important; }
+  /* ROW-ATOMIC. A line must never be split across a page break. */
+  .po-line, .po-pack-head, .po-note, .po-total { break-inside: avoid; page-break-inside: avoid; }
+  .po-pack-head { break-after: avoid; page-break-after: avoid; }
+  .po-head { break-after: avoid; page-break-after: avoid; }
+  .po-thumb { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  a[href]::after { content: ""; }
+}

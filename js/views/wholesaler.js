@@ -16,6 +16,8 @@ import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, s
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
 // AC-01, 28 Aug 2026 — the wholesaler's own access-request queue.
 import { listMySignupRequests, countMyPendingRequests, approveMySignupRequest, rejectMySignupRequest } from "../data/wholesaler-admin.js";
+// Batch N step 4, 28 Aug 2026 — handing one order to someone outside the app.
+import { orderLink, whatsappHref, rotateOrderToken } from "../data/order-handoff.js";
 import { getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
 import { getInventorySignals, getVariantStatuses } from "../data/inventory-signals.js";
 import { getMovementLedger, movementTypeLabel, referenceLabel, MOVEMENT_TYPES } from "../data/inventory-movements.js";
@@ -435,6 +437,93 @@ async function orderDetailView(outlet, orderId) {
   back.textContent = "← All orders";
   back.style.marginBottom = "12px";
   outlet.appendChild(back);
+
+  // =======================================================================
+  // HAND THIS ORDER TO SOMEONE OUTSIDE THE APP    Batch N step 4, 28 Aug
+  // =======================================================================
+  // Until now an order existed here and nowhere else. The warehouse got a
+  // screenshot, and a screenshot of a scrolling order is several
+  // screenshots, each one stale the moment anything changes.
+  //
+  // The link opens with NO ACCOUNT, which is the entire point: a driver, a
+  // picker and an accountant do not have logins and should never be shown a
+  // sign-in form.
+  //
+  // WHAT IT DOES NOT CARRY: the note written below on this same screen to
+  // your own warehouse. Migration 087 made that a separate column so an
+  // internal instruction could never reach a customer, and 088 does not
+  // return it at all. The wall is in the database, not in a filter here --
+  // which is why it holds even if someone later writes a second screen.
+  if (order.orderToken) {
+    const share = document.createElement("div");
+    share.className = "card no-print";
+    share.style.cssText = "padding:14px 16px;margin-bottom:14px;";
+    const link = orderLink(order.orderToken);
+    const ref = String(order.id || "").slice(0, 8).toUpperCase();
+    // The wholesaler's own name, from their session -- so the WhatsApp message
+    // opens "Order from SQUARE Denim" rather than a bare URL. A link with no
+    // sentence around it reads as spam in a chat thread.
+    const myName = session?.wholesalerName || "";
+    share.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+        <strong style="font-size:14px;">Send this order</strong>
+        <span style="font-size:11.5px;color:var(--text-tertiary);">Opens without a login. Your warehouse note is not included.</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a class="btn btn-primary btn-sm" href="${esc(whatsappHref(order.orderToken, { orderRef: ref, wholesalerName: myName }))}" target="_blank" rel="noopener">WhatsApp</a>
+        <button type="button" class="btn btn-secondary btn-sm" data-a="copy">Copy link</button>
+        <a class="btn btn-secondary btn-sm" href="#/o/${esc(order.orderToken)}" target="_blank" rel="noopener">Open it</a>
+        <button type="button" class="btn btn-ghost btn-sm" data-a="rotate" style="margin-left:auto;">New link</button>
+      </div>
+      <div data-slot="msg" style="font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
+    `;
+    const msg = share.querySelector('[data-slot="msg"]');
+
+    share.querySelector('[data-a="copy"]').addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(link);
+        msg.textContent = "Link copied.";
+      } catch {
+        // clipboard.writeText needs a secure context and a permission some
+        // in-app browsers refuse -- and in-app browsers are where a WhatsApp
+        // link gets opened. execCommand still works in all of them.
+        // Mounted INSIDE this card, not on document.body. execCommand needs
+        // the element in the document, but check_route_state.mjs rightly
+        // refuses anything appended straight to body from this file -- that
+        // rule is what stops the next dialog forgetting "closes on
+        // navigation", and it should not have to distinguish a dialog from a
+        // scratch textarea. Inside the card works identically.
+        const ta = document.createElement("textarea");
+        ta.value = link;
+        ta.setAttribute("aria-hidden", "true");
+        ta.tabIndex = -1;
+        ta.style.cssText = "position:absolute;left:-9999px;opacity:0;height:1px;width:1px;";
+        share.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); msg.textContent = "Link copied."; }
+        catch { msg.textContent = link; }
+        ta.remove();
+      }
+    });
+
+    share.querySelector('[data-a="rotate"]').addEventListener("click", async () => {
+      // Rotation is destructive to every link already sent, and that is
+      // precisely what it is for -- so it asks first, and says plainly what
+      // breaks. "Are you sure?" would not have told them.
+      const yes = await confirmAction({
+        title: "Replace this order's link?",
+        body: "Every link you have already sent for this order stops working immediately — including any a driver or your warehouse is holding. Use this if a link reached someone it should not have.",
+        confirmLabel: "Replace the link",
+        danger: true,
+      });
+      if (!yes) return;
+      const r = await rotateOrderToken(order.id);
+      if (!r.ok) { toast(r.error || "Could not replace the link", { type: "danger" }); return; }
+      toast("New link issued — the old one is dead", { type: "success" });
+      router.go(`/wholesaler/orders/${order.id}`);
+    });
+
+    outlet.appendChild(share);
+  }
 
   // ---- the header card ----------------------------------------------------
   const head = document.createElement("div");

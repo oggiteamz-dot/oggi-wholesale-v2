@@ -124,6 +124,16 @@ export async function getWholesalerOrder(wid, orderId) {
     clientId: o.client_id || null, locationId: o.location_id || null,
     catalogId: o.catalog_id || null,
     fulfilNote: o.fulfil_note || null,
+    // Migration 088 -- the shareable half of /o/<token>.
+    //
+    // The select above is `*`, so this column was ALREADY arriving on every
+    // one of these requests and being dropped one line later by this mapper.
+    // That is the exact shape of the Batch-19 defect where the buyer's card
+    // fetched photography on every request and discarded it, and of CR-0008
+    // where the cart fetched a pack and dropped its price. Fetched-and-
+    // discarded is this codebase's most repeated bug; naming it here so the
+    // next person adding a column to v2_orders remembers to come down here.
+    orderToken: o.order_token || null,
     // Both shapes, deliberately. `items` is the collapsed view a human reads
     // ("2 x Boutique Pack"); `rawLines` is every real row, which is what a
     // warehouse actually picks. A pack shown only as a pack tells the person
