@@ -35,6 +35,13 @@ function readCart(scope) {
   }
 }
 
+function orderNoteKey(scope) {
+  // Deliberately a SEPARATE key from the cart array: rewriting the whole
+  // cart on every keystroke of a long note would be wasteful, and a parse
+  // failure on one must never take the other down with it.
+  return `${cartKey(scope)}::order-note`;
+}
+
 function writeCart(scope, lines) {
   localStorage.setItem(cartKey(scope), JSON.stringify(lines));
 }
@@ -56,6 +63,52 @@ export const cart = {
 
   count(wid, scopeSuffix) {
     return readCart(scopeOf(wid, scopeSuffix)).reduce((sum, l) => sum + (l.isPack ? l.packQty : l.qty), 0);
+  },
+
+  /** Migration 086 -- the buyer's note for ONE cart line.
+   *
+   * Identity differs by line kind and this is the only place that has to know:
+   * a loose line is identified by variantId, a pack line by packLineId (a pack
+   * is one line to the buyer and N rows underneath). Passing the line object
+   * itself rather than an id keeps that knowledge here instead of at every
+   * call site.
+   *
+   * The note lives in the SAME localStorage cart as the quantity, so it
+   * survives a page reload for free -- notes going missing after a reload is
+   * one of the documented ways this feature fails in the wild.
+   *
+   * Stored trimmed; an all-whitespace note is stored as no note at all, so a
+   * buyer who taps into the box and back out does not put an empty grey box on
+   * the warehouse's sheet. (The server normalises this too -- migration 086 --
+   * because a client-side-only rule is not a rule.) */
+  setLineNote(wid, line, note, scopeSuffix) {
+    const scope = scopeOf(wid, scopeSuffix);
+    const lines = readCart(scope);
+    const clean = typeof note === "string" && note.trim() ? note.trim() : null;
+    const match = (l) => (line.isPack
+      ? l.isPack && l.packLineId === line.packLineId
+      : !l.isPack && l.variantId === line.variantId);
+    const found = lines.some(match);
+    if (!found) return { ok: false, reason: "line_not_in_cart" };
+    writeCart(scope, lines.map((l) => (match(l) ? { ...l, note: clean } : l)));
+    return { ok: true, note: clean };
+  },
+
+  /** The order-level note (v2_orders.notes). Kept beside the cart under its
+   * own key so it survives a reload exactly like the lines do, and is cleared
+   * with them on a successful submit. */
+  getOrderNote(wid, scopeSuffix) {
+    try { return localStorage.getItem(orderNoteKey(scopeOf(wid, scopeSuffix))) || ""; }
+    catch { return ""; }
+  },
+
+  setOrderNote(wid, note, scopeSuffix) {
+    const key = orderNoteKey(scopeOf(wid, scopeSuffix));
+    try {
+      const clean = typeof note === "string" && note.trim() ? note.trim() : "";
+      if (clean) localStorage.setItem(key, clean); else localStorage.removeItem(key);
+      return { ok: true };
+    } catch { return { ok: false }; }
   },
 
   /** Add a new line, or update an existing line for the same variant to a
@@ -288,7 +341,7 @@ export const cart = {
     // migrations/012_v2_prepack_enforcement.sql.
     const payload = lines.flatMap((l) => {
       if (l.isPack) {
-        return l.components.map((c) => ({
+        return l.components.map((c, ci) => ({
           reservation_id: c.reservationId,
           variant_id: c.variantId,
           qty: c.qtyPerPack * l.packQty,
@@ -296,6 +349,14 @@ export const cart = {
           pack_id: l.packId,
           pack_line_id: l.packLineId,
           pack_qty: l.packQty,
+          // Migration 086. A pack is ONE line to the buyer but N rows in
+          // v2_order_items, so the note goes on the first component only.
+          // Writing it to all N would store the same sentence N times and
+          // then need de-duplicating on the way back out -- and any reader
+          // that missed the de-dup would print it N times on the warehouse
+          // sheet. groupPackLines() re-collapses these rows by pack_line_id,
+          // so the note is picked up from whichever row in the group has one.
+          note: ci === 0 ? (l.note || null) : null,
         }));
       }
       return [{
@@ -303,6 +364,9 @@ export const cart = {
         variant_id: l.variantId,
         qty: l.qty,
         unit_price: l.price,
+        // Migration 086: the buyer's note for this line. Rides inside p_lines,
+        // which is why adding it did not change the RPC's argument list.
+        note: l.note || null,
       }];
     });
 
@@ -314,6 +378,10 @@ export const cart = {
         p_lines: payload,
         p_client_id: clientId || null,
         p_account_id: accountId || null,
+        // Migration 086. `notes` has been in this function's options since
+        // Batch 2 and NO CALLER HAS EVER PASSED IT -- v2_orders.notes has
+        // been null for every order ever placed. It is wired now.
+        p_notes: notes || null,
         // Migration 055. The catalog decides the discount, so the order has to
         // say which one it came through -- and the RPC checks the claim
         // against what this account is actually allowed to see, because
@@ -328,6 +396,7 @@ export const cart = {
     }
 
     writeCart(scope, []);
+    try { localStorage.removeItem(orderNoteKey(scope)); } catch { /* private mode */ }
     return { ok: true, order };
   },
 };
