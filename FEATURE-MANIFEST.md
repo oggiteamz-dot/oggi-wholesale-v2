@@ -212,18 +212,31 @@ broke · ❌ not built
 | 125 | **With the door shut, the buyer can still shop** — signed-in catalogues, products, prices, the discount, the share link and the cart's price lookup all answer over REST with nothing but the key that ships in the app | `080`–`084`, `js/data/*.js` | `check_buyer_path_survives.sh` (S8) — the **pair** to row 104 and never to be read without it. A shut door and a shut shop are indistinguishable from outside; only this gate tells them apart. Measured 28 Aug: 4 catalogues, 74 catalogue rows, 44 rows through the link, 3 cart prices | ✅ |
 | 126 | **None of it crosses a tenant boundary** — the same buyer, pointed at another wholesaler's share link, another wholesaler's catalogue id, or another wholesaler's variant id, gets **nothing** back; and an invented token gets nothing too | `080`–`084` | `check_buyer_path_survives.sh` — four negative assertions, red-proved by pointing the gate at the buyer's OWN link and watching it report *RETURNED 44 ROWS ACROSS A TENANT BOUNDARY*. Silence rather than an error is deliberate: an error is an existence oracle | ✅ |
 | 127 | **A variant the buyer may not see is ABSENT from the cart's prices, not an error** — so a cart that somehow holds a foreign line still renders, falling back to that line's own stored price instead of throwing | `084` | `check_buyer_path_survives.sh` — measured: her own three variants priced, another wholesaler's variant returns `[]` | ✅ |
+| 128 | **A buyer can leave a note on any single item** — free text, no length limit, on a loose line and on a pack line alike. The requirement in Hadi's words: *"every product, every item will have a place to write whatever they want, unlimited amount of text"* | `086`, `js/data/cart.js` (`setLineNote`), `js/views/buyer.js` (`noteEditor`) | `check_order_notes.sql` — submits a REAL order through `v2_submit_order` and reads back what the server stored. Red-proved by dropping the note on ingest (3 cases failed) | ✅ |
+| 129 | **One buyer's note per ORDER, and `v2_orders.notes` is finally written** — the column has existed since migration `004` and **nothing had ever written to it**; `v2_get_buyer_orders` has been faithfully returning `null` for it ever since. Adopted rather than dropped, because dropping it breaks every buyer's order history | `086`, `js/views/buyer.js` | `check_order_notes.sql` case 3. ⚠️ Same shape as `v2_clients.discount_pct`, dead from `006` to `058` while a 10% client paid full price on screen **and** on the invoice for two months | ✅ |
+| 130 | **A note stays on its own line and does not bleed into the others** — one shared note field serving two lines (or two audiences) is the documented real-world failure: a merchant's internal picker note reached a customer-facing shipping label because both surfaces read one column | `086` | `check_order_notes.sql` case 2, **red-proved** by making every line take the order-level note and watching it report *line 1 note is `deliver before Thursday please`, expected the darker-blue note* | ✅ |
+| 131 | **A pack's note is stored once, not once per component** — a pack is one line to the buyer and N rows in `v2_order_items`; the note rides on the first component only, so the warehouse sheet cannot print the same sentence N times | `js/data/cart.js` | `check_order_notes.sql`. The alternative (write to all N, de-duplicate on read) fails the moment one reader forgets the de-dup | ✅ |
+| 132 | **An empty or whitespace-only note is stored as no note at all** — otherwise a buyer who taps into the box and back out puts a blank grey box on the warehouse's sheet. Normalised on BOTH sides, because a client-side-only rule is not a rule | `086`, `js/data/cart.js` | `check_order_notes.sql` cases 5 and 6 | ✅ |
+| 133 | **Notes survive a page reload** — they live in the same `localStorage` cart as the quantities, and the order-level note beside it under its own key | `js/data/cart.js` | ⚠️ *(no automated assertion yet — the cart's persistence is covered, the note's is not. Marked unproven on purpose rather than claimed.)* | ⚠️ |
+| 134 | **The checkout signature did not lose a security parameter while gaining the note** — `p_account_id` (migration `024`, closes "submit an order as any buyer") and `p_catalog_id` (closes "name the deepest-discounted catalogue") both survive | `086` | `check_order_notes.sql` case 4 + five in-migration assertions. ⛔ **This is why `086` reads the installed body out of `pg_proc` instead of pasting a copy**: the newest `create or replace function v2_submit_order` in this repo declares SIX parameters and the live one has SEVEN — `p_catalog_id` was added by a body patch, invisible to grep. Anchoring on any file here would have silently dropped catalogue scoping, exactly as the 15 Aug draft would have dropped `p_account_id` | ✅ |
 
 ---
 
-## Reconciliation — 28 August 2026 (Batch S, S0–S9)
+## Reconciliation — 28 August 2026 (Batch S S0–S9, then Batch N step 1)
 
 | | |
 |---|---|
-| Features listed | **127** |
-| Enforced and proven (✅) | **118** |
-| Present but unproven (⚠️) | **9** |
+| Features listed | **134** |
+| Enforced and proven (✅) | **124** |
+| Present but unproven (⚠️) | **10** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
+
+> **Rows 128–134 are Batch N step 1 — the buyer's note.** Seven features, one
+> migration (`086`), one new gate (`check_order_notes.sql`, seven cases,
+> red-proved twice). Row 133 is deliberately ⚠️: notes surviving a page reload
+> is real behaviour with no automated assertion behind it yet, and marking it ✅
+> would be the kind of claim this file exists to stop.
 
 > **A note on the dates in this batch.** Everything above `085` — migrations
 > `080`–`083`, their gates, and the CR-0007 entry as first written — carries
