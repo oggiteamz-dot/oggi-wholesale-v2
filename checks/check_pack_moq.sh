@@ -58,6 +58,51 @@ preflight() {
     echo "                 REPLAY_DB=wtest ./checks/replay_migrations.sh"
     exit 2
   fi
+
+  # ---- the fixture is CONSUMABLE, so top it up before asserting on it ------
+  # Each run submits three real orders, and a confirmed reservation decrements
+  # qty_on_hand for keeps: one run of this file eats ~64 units. A fixture
+  # seeded once at 1000 therefore works about fifteen times and then starts
+  # reporting SETUP FAILED for no reason a reader could act on -- a slow fuse
+  # lit by the check itself. Topping up first makes every run start from the
+  # same known state and makes the file safely re-runnable.
+  #
+  # This is a top-up, not a substitute for the assertion below: `update`
+  # touches zero rows when the balances do not exist at all, so a fixture that
+  # never had stock still fails the check that follows.
+  $PSQL -c "update wholesale_v2.v2_inventory_balances set qty_on_hand = 1000, qty_reserved = 0
+             where variant_id in (select id from wholesale_v2.v2_product_variants
+                                   where product_id = '11111111-1111-1111-1111-111111111111');" >/dev/null 2>&1
+
+  # ---- added 29 Aug 2026, after this gate spent weeks reporting 8/11 --------
+  # The three probes above prove the database is REACHABLE. They do not prove
+  # the fixture inside it still satisfies the schema. On 29 Aug all three were
+  # green while every acceptance case died before reaching a single MOQ rule --
+  # once on a location added by migration 047, once on a reservation the check
+  # never created, once on a price the seed never set. The output read
+  # "expected ACCEPTED" three times, which is indistinguishable from the MOQ
+  # rule wrongly refusing legitimate orders, and is the most alarming thing
+  # this suite can say.
+  #
+  # So: assert the fixture carries the things an order NEEDS in order to be
+  # writable at all. Each of these has already been the cause once.
+  local loc stock priced
+  loc=$($PSQL -c "select count(*) from wholesale_v2.v2_locations where wid='WS-001';" 2>&1)
+  stock=$($PSQL -c "select coalesce(min(qty_on_hand),0) from wholesale_v2.v2_inventory_balances b
+                     join wholesale_v2.v2_product_variants v on v.id = b.variant_id
+                    where v.product_id = '11111111-1111-1111-1111-111111111111';" 2>&1)
+  priced=$($PSQL -c "select count(*) from wholesale_v2.v2_product_variants
+                      where product_id = '11111111-1111-1111-1111-111111111111'
+                        and price is null;" 2>&1)
+  if [ "$loc" = "0" ] || [ "$stock" = "0" ] || [ "$priced" != "0" ]; then
+    echo "  SETUP FAILED — the 'wtest' fixture is behind the schema."
+    echo "                 WS-001 locations: $loc (need >=1)"
+    echo "                 lowest SKU stock: $stock (need >0, orders confirm a reservation)"
+    echo "                 SKUs with no price: $priced (need 0, unit_price is NOT NULL)"
+    echo "                 This is NOT a finding about the MOQ rules. Nothing was tested."
+    echo "                 Reload it:  psql $CONN_ARGS -d wtest -f checks/seed.sql"
+    exit 2
+  fi
 }
 preflight
 
@@ -93,7 +138,26 @@ rejected_case() {
 accepted_case() {
   local name="$1" lines="$2"
   local out
-  out=$($PSQL -c "select (v2_submit_order('WS-001','Check Buyer',null,'${lines}'::jsonb)).id;" 2>&1)
+  # A REAL location, not null. Migration 047 made v2_orders.location_id NOT
+  # NULL; an order with no location is refused by the column, never reaching
+  # the MOQ logic this check exists to test. Passing null here made all three
+  # acceptance cases fail with "expected ACCEPTED" -- indistinguishable, in the
+  # output, from the MOQ rule wrongly rejecting a good order. The rejection
+  # half is unaffected and still passes null, deliberately: those orders must
+  # die on the MOQ rule, and each one asserts the exact reason string, so a
+  # not-null error would show up as "rejected for the WRONG reason".
+  # Every line needs a live reservation: v2_submit_order confirms one per line
+  # and raises "reservation not active or not found" if it cannot. Reserving
+  # here, inline, keeps the case's INPUT identical to what it always was -- the
+  # same lines, the same quantities -- and only supplies the cart step the real
+  # buyer flow performs before checkout. Stock is seeded at 1000/SKU so this
+  # can never fail for scarcity; if a reservation does come back null, .id is
+  # null and the submit fails loudly rather than quietly testing nothing.
+  out=$($PSQL -c "select (v2_submit_order('WS-001','Check Buyer','$LOC'::uuid,
+          (select jsonb_agg(e || jsonb_build_object('reservation_id',
+             (v2_reserve_stock((e->>'variant_id')::uuid, '$LOC'::uuid,
+                               (e->>'qty')::int, gen_random_uuid(), null, 15)).id))
+           from jsonb_array_elements('${lines}'::jsonb) e))).id;" 2>&1)
   if echo "$out" | grep -q "ERROR"; then
     printf "  FAIL  %-58s expected ACCEPTED\n" "$name"; FAIL=$((FAIL+1))
     echo "        server said: $(echo "$out" | grep ERROR | head -1)"
@@ -107,6 +171,7 @@ M=22222222-2222-2222-2222-222222222202   # TEE-BLUE-M, per-SKU minimum 12
 L=22222222-2222-2222-2222-222222222203   # TEE-BLUE-L, per-SKU minimum 12
 PACK=33333333-3333-3333-3333-333333333333  # Boutique Pack = 1xS, 2xM, 2xL
 LINE=44444444-4444-4444-4444-444444444444  # an arbitrary per-order pack line id
+LOC=55555555-5555-5555-5555-555555555555   # WS-001's default location (seed.sql)
 
 echo "MOQ / pack-line integrity checks"
 echo

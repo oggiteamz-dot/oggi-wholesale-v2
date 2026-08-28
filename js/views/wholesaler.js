@@ -18,6 +18,8 @@ import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesa
 import { listMySignupRequests, countMyPendingRequests, approveMySignupRequest, rejectMySignupRequest } from "../data/wholesaler-admin.js";
 // Batch N step 4, 28 Aug 2026 — handing one order to someone outside the app.
 import { orderLink, whatsappHref, rotateOrderToken } from "../data/order-handoff.js";
+// AC-03, 29 Aug 2026 — Door A: inviting a shop into this store.
+import { listMyInvites, issueInvite, revokeInvite, inviteLink, inviteWhatsappHref } from "../data/buyer-invites.js";
 import { getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
 import { getInventorySignals, getVariantStatuses } from "../data/inventory-signals.js";
 import { getMovementLedger, movementTypeLabel, referenceLabel, MOVEMENT_TYPES } from "../data/inventory-movements.js";
@@ -2690,6 +2692,110 @@ async function clientsView(outlet) {
     banner.addEventListener("click", () => { window.location.hash = "#/wholesaler/requests"; });
     outlet.insertBefore(banner, outlet.children[1] || null);
   })();
+
+  // =======================================================================
+  // DOOR A — INVITE A SHOP                            AC-03, 29 Aug 2026
+  // =======================================================================
+  // Sits on Clients because an accepted invitation IS a client, the same
+  // reasoning that put the access-request queue here.
+  //
+  // THERE IS NO SEND BUTTON, AND THAT IS DELIBERATE. This system has no
+  // transactional email -- migration 024 says so in its own comment rather
+  // than pretending -- and the 28 Aug research found the same complaint on
+  // every platform surveyed: an activation email that never arrives is a
+  // customer lost silently. So the wholesaler gets a LINK and sends it
+  // themselves, in the WhatsApp thread they are already having with that
+  // shop. Cin7 does exactly this, and it is how every credential in this
+  // product is already relayed.
+  const invites = document.createElement("div");
+  invites.className = "card no-print";
+  invites.style.cssText = "padding:14px 16px;margin-bottom:14px;";
+  outlet.insertBefore(invites, outlet.children[1] || null);
+
+  async function paintInvites() {
+    const rows = await listMyInvites();
+    const waiting = rows.filter((r) => r.state === "waiting");
+    invites.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+        <strong style="font-size:14px;">Invite a shop</strong>
+        <span style="font-size:11.5px;color:var(--text-tertiary);">You send the link yourself — nothing is emailed.</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <label style="flex:1 1 180px;min-width:0;">
+          <span style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:2px;">Shop name (optional)</span>
+          <input class="input" data-f="shop" type="text" placeholder="Maison Rita">
+        </label>
+        <button type="button" class="btn btn-primary btn-sm" data-a="new">Create invitation</button>
+      </div>
+      <div data-slot="msg" style="font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
+      ${rows.length ? `
+        <div style="margin-top:12px;border-top:1px solid var(--border-subtle);padding-top:10px;">
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--text-tertiary);margin-bottom:6px;">
+            ${waiting.length ? `${waiting.length} waiting to be accepted` : "Sent invitations"}
+          </div>
+          ${rows.slice(0, 8).map((r) => `
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;flex-wrap:wrap;border-bottom:1px solid var(--border-subtle);">
+              <span style="flex:1 1 120px;min-width:0;">${esc(r.shopName || "Unnamed shop")}</span>
+              <span class="badge ${r.state === "accepted" ? "badge-success" : r.state === "waiting" ? "badge-info" : "badge-neutral"}">${
+                r.state === "waiting" ? "Waiting" : r.state === "accepted" ? "Accepted" : r.state === "withdrawn" ? "Withdrawn" : "Expired"
+              }</span>
+              <span style="font-size:11px;color:var(--text-tertiary);">sent ${new Date(r.createdAt).toLocaleDateString()}</span>
+              ${r.state === "waiting" ? `
+                <a class="btn btn-secondary btn-sm" href="${esc(inviteWhatsappHref(r.token, { wholesalerName: session?.wholesalerName || "", shopName: r.shopName }))}" target="_blank" rel="noopener">WhatsApp</a>
+                <button type="button" class="btn btn-ghost btn-sm" data-copy="${esc(r.token)}">Copy link</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-revoke="${esc(r.id)}">Withdraw</button>
+              ` : ""}
+            </div>`).join("")}
+        </div>` : ""}
+    `;
+
+    const msg = invites.querySelector('[data-slot="msg"]');
+
+    invites.querySelector('[data-a="new"]').addEventListener("click", async () => {
+      const shop = invites.querySelector('[data-f="shop"]').value.trim();
+      const r = await issueInvite({ shopName: shop || null });
+      if (!r.ok) { toast(r.error || "Could not create the invitation", { type: "danger" }); return; }
+      await paintInvites();
+      // Shown, not toasted. This link is the whole deliverable, and a
+      // notification that fades is the wrong container for something the
+      // wholesaler has to copy somewhere else.
+      const m2 = invites.querySelector('[data-slot="msg"]');
+      m2.innerHTML = `<strong>Invitation ready.</strong> Send it on WhatsApp, or copy the link — it works for 30 days and once only.`;
+    });
+
+    invites.querySelectorAll("[data-copy]").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const link = inviteLink(b.getAttribute("data-copy"));
+        try { await navigator.clipboard.writeText(link); msg.textContent = "Link copied."; }
+        catch {
+          const ta = document.createElement("textarea");
+          ta.value = link; ta.setAttribute("aria-hidden", "true"); ta.tabIndex = -1;
+          ta.style.cssText = "position:absolute;left:-9999px;opacity:0;height:1px;width:1px;";
+          invites.appendChild(ta); ta.select();
+          try { document.execCommand("copy"); msg.textContent = "Link copied."; }
+          catch { msg.textContent = link; }
+          ta.remove();
+        }
+      });
+    });
+
+    invites.querySelectorAll("[data-revoke]").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const yes = await confirmAction({
+          title: "Withdraw this invitation?",
+          body: "The link stops working immediately. If the shop has already opened it but not finished, they will be told it was withdrawn rather than left guessing.",
+          confirmLabel: "Withdraw it",
+          danger: true,
+        });
+        if (!yes) return;
+        const r = await revokeInvite(b.getAttribute("data-revoke"));
+        if (!r.ok) { toast(r.error || "Could not withdraw it", { type: "danger" }); return; }
+        toast("Invitation withdrawn", { type: "default" });
+        await paintInvites();
+      });
+    });
+  }
+  paintInvites();
 
   // REPLACED 20 Aug 2026 (migration 060). The old form here asked for four
   // things -- shop name, phone, note, discount -- and created a CRM row with

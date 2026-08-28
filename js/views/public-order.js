@@ -34,6 +34,7 @@
 // =============================================================================
 
 import { getOrderByToken, orderLink, whatsappHref } from "../data/order-handoff.js";
+import { inviteByToken, redeemBuyerInvite } from "../data/buyer-invites.js";
 import { esc, money } from "../lib/utils.js";
 import { toast } from "../components/toast.js";
 
@@ -181,6 +182,160 @@ export async function orderSheetView(outlet, params) {
   });
 }
 
+// =============================================================================
+// ACCEPTING AN INVITATION                                 AC-03, 29 Aug 2026
+// =============================================================================
+// The page an invited shop lands on. They have no account -- that is the
+// entire point -- so this must work with no session, which is why it lives
+// beside the order sheet in the public routes rather than anywhere behind the
+// login gate.
+//
+// FOUR THINGS FROM THE 28 AUG COMPLAINT RESEARCH
+//
+//  1. IT SAYS WHO INVITED THEM, FIRST. A link arriving on WhatsApp with no
+//     context is a link nobody taps. The wholesaler's name is the only reason
+//     to trust it.
+//
+//  2. A DEAD LINK SAYS WHICH KIND OF DEAD. Withdrawn, already used, and
+//     expired read differently, because each one tells the shop something they
+//     can act on. This is the OPPOSITE of the order sheet, deliberately: an
+//     order link may be in a stranger's hands, so a dead one and a fake one
+//     must read alike. An invitation is held by someone the wholesaler chose
+//     to contact.
+//
+//  3. THE FORM IS THREE FIELDS. Cartona's number, from the research: before
+//     they moved verification after login, only 14.24% of installs became
+//     registrations and 99% of the rest left. Every field is a place to leave.
+//
+//  4. IT NEVER SAYS "ERROR". It says what happened and what to do next, which
+//     is the only useful thing a failure can do.
+// =============================================================================
+export async function inviteView(outlet, params) {
+  const token = params?.token;
+  outlet.className = "po-page";
+  outlet.innerHTML = `<div class="po-loading">Opening your invitation…</div>`;
+
+  const inv = await inviteByToken(token);
+
+  const dead = {
+    withdrawn: {
+      icon: "🔒",
+      title: "This invitation was withdrawn",
+      body: (w) => `${w || "The wholesaler"} cancelled this invitation. If you think that was a mistake, message them and ask for a new link.`,
+    },
+    used: {
+      icon: "✅",
+      title: "This invitation has already been used",
+      body: (w) => `An account was created with this link. If it was you, sign in instead. If it was not, tell ${w || "the wholesaler"} straight away.`,
+    },
+    expired: {
+      icon: "⌛",
+      title: "This invitation has expired",
+      body: (w) => `Links last 30 days. Ask ${w || "the wholesaler"} to send you a new one — it takes them a moment.`,
+    },
+    not_found: {
+      icon: "🔗",
+      title: "This link doesn't work",
+      body: () => "It may have been typed slightly wrong, or it may never have been a real link. Ask whoever sent it to you for a fresh one.",
+    },
+  };
+
+  if (inv.status !== "ok") {
+    const d = dead[inv.status] || dead.not_found;
+    outlet.innerHTML = `
+      <div class="po-empty">
+        <div class="po-empty-icon">${d.icon}</div>
+        <h1>${esc(d.title)}</h1>
+        <p>${esc(d.body(inv.wholesalerName))}</p>
+      </div>`;
+    return;
+  }
+
+  outlet.innerHTML = `
+    <article class="po-sheet inv-card">
+      <header class="po-head">
+        <div>
+          <div class="po-eyebrow">Invitation</div>
+          <h1>${esc(inv.wholesalerName)}</h1>
+          <p class="po-sub">has set up an account for you to order online.</p>
+        </div>
+      </header>
+      <form class="inv-form" novalidate>
+        <label class="inv-field">
+          <span>Your shop's name</span>
+          <input class="input" name="shop" type="text" autocomplete="organization"
+                 value="${esc(inv.shopName || "")}" required>
+        </label>
+        <label class="inv-field">
+          <span>Choose a username</span>
+          <input class="input" name="username" type="text" autocomplete="username"
+                 autocapitalize="none" spellcheck="false" required>
+        </label>
+        <label class="inv-field">
+          <span>Choose a password</span>
+          <input class="input" name="password" type="password" autocomplete="new-password" required>
+          <small>At least 6 characters.</small>
+        </label>
+        <div class="inv-msg" data-slot="msg" role="alert"></div>
+        <button type="submit" class="btn btn-primary inv-go">Create my account</button>
+        <p class="po-terms">Nothing is paid here. ${esc(inv.wholesalerName)} invoices you the way they always do.</p>
+      </form>
+    </article>
+  `;
+
+  const form = outlet.querySelector("form");
+  const msg = outlet.querySelector('[data-slot="msg"]');
+  const go = outlet.querySelector(".inv-go");
+
+  // Looked up explicitly rather than through form.shop / form.username.
+  //
+  // Named form access is a real browser feature, but it is a footgun -- a
+  // field named "submit" or "action" shadows the form's own method or
+  // property, and the failure is silent. It is also not implemented by jsdom,
+  // so it cannot be exercised by a gate: code no check can reach is code that
+  // drifts. Explicit lookups fix both at once.
+  const fShop = form.querySelector('[name="shop"]');
+  const fUser = form.querySelector('[name="username"]');
+  const fPass = form.querySelector('[name="password"]');
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const shop = fShop.value.trim();
+    const username = fUser.value.trim();
+    const password = fPass.value;
+
+    // Checked here so the answer is instant, and checked again in the database
+    // so a stray call cannot make a half-record. The message names the field.
+    if (!shop) { msg.textContent = "Please give your shop's name."; fShop.focus(); return; }
+    if (username.length < 3) { msg.textContent = "Your username needs at least 3 characters."; fUser.focus(); return; }
+    if (password.length < 6) { msg.textContent = "Your password needs at least 6 characters."; fPass.focus(); return; }
+
+    go.disabled = true;
+    const before = go.textContent;
+    go.textContent = "Creating your account…";
+    msg.textContent = "";
+
+    const res = await redeemBuyerInvite(token, { shopName: shop, username, password });
+    if (!res.ok) {
+      // The server's own words. It knows things this form cannot -- that the
+      // username is taken for this store, that the link was used while they
+      // were typing -- and it says them in plain language.
+      msg.textContent = res.error || "That did not work. Please try again.";
+      go.disabled = false;
+      go.textContent = before;
+      return;
+    }
+
+    outlet.innerHTML = `
+      <div class="po-empty">
+        <div class="po-empty-icon">🎉</div>
+        <h1>You're in</h1>
+        <p>Your account with ${esc(inv.wholesalerName)} is ready. Sign in with the username and password you just chose.</p>
+        <a class="btn btn-primary" href="#/" style="margin-top:14px;display:inline-flex;">Sign in</a>
+      </div>`;
+  });
+}
+
 /** Routes that work with NO SESSION AT ALL.
  *
  *  Registered by js/app.js BEFORE the login gate. Until this existed, every
@@ -191,11 +346,15 @@ export async function orderSheetView(outlet, params) {
  *  had been live since share links shipped on 19 Aug. */
 export function registerPublicRoutes(router) {
   router.register("/o/:token", (outlet, params) => orderSheetView(outlet, params));
+  // AC-03: accepting an invitation. No session, by definition.
+  router.register("/i/:token", (outlet, params) => inviteView(outlet, params));
 }
 
 /** Does this path need no session? Asked by app.js before it decides to show
  *  the login screen. Kept here, beside the routes, so a new public route
  *  cannot be added without the answer changing with it. */
 export function isPublicPath(path) {
-  return /^\/o\/[^/]+$/.test(path || "") || /^\/c\/[^/]+$/.test(path || "");
+  return /^\/o\/[^/]+$/.test(path || "")   // an order handed to a warehouse
+      || /^\/c\/[^/]+$/.test(path || "")   // a catalogue share link
+      || /^\/i\/[^/]+$/.test(path || "");  // an invitation to join a store
 }

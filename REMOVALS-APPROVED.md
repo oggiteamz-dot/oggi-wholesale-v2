@@ -388,3 +388,55 @@ only that would have been green throughout.
 the proxy was wrong. It now counts `tr:not(.os-editrow)` and cross-checks
 `tr[data-colour]`, which states the intent directly and cannot be satisfied by
 rows that are not colours.
+
+---
+
+## AC-03 — `isPublicPath` widened to admit the invitation route
+
+**Date:** 29 Aug 2026
+**File:** `js/views/public-order.js`
+**Gate 1 report:** `+160 / -1`
+
+The single removed line is:
+
+```js
+return /^\/o\/[^/]+$/.test(path || "") || /^\/c\/[^/]+$/.test(path || "");
+```
+
+replaced by:
+
+```js
+return /^\/o\/[^/]+$/.test(path || "")   // an order handed to a warehouse
+    || /^\/c\/[^/]+$/.test(path || "")   // a catalogue share link
+    || /^\/i\/[^/]+$/.test(path || "");  // an invitation to join a store
+```
+
+**Nothing was removed — a third route was added.** Both original patterns
+survive verbatim, in the same order, with the same semantics; the line was
+split across three so each public path could carry the note explaining *what
+kind of link it is*, which is the thing a future reader needs and the
+one-liner had nowhere to put.
+
+This is a line-count artefact of Gate 1 comparing lines rather than behaviour.
+The behaviour is strictly a superset: every path that was public before is
+public now, plus `/i/:token`.
+
+**Gated:** `check_order_handoff.mjs` asserts all three patterns individually
+(60 assertions total). Red-proved by neutralising each arm in turn — rewriting
+its regex to one that can never match, which leaves the file syntactically
+valid. Each produces exactly one named failure:
+
+| arm neutralised | failures | the assertion that fired |
+|---|---|---|
+| `/o/` | 1 of 60 | *an order link is a public path* |
+| `/c/` | 1 of 60 | *a catalogue link is a public path* |
+| `/i/` | 1 of 60 | *and an invitation is too — the person holding one has no account, which is the point* |
+
+⚠️ **The first attempt at this proof was invalid and is recorded here because
+the failure is instructive.** Deleting each arm's *line* took the `return`
+keyword with it on the first arm, so Node threw `SyntaxError: Unexpected token
+'||'` before the gate ran a single assertion — and a crashed gate printed zero
+failures, which reads exactly like *"the gate does not cover this."* It nearly
+went into this document as a discovered hole in the gate. It was not a hole;
+it was a broken proof. **A red proof that produces no failures has not proven
+the gate is blind — it has to be shown to have run at all first.**
