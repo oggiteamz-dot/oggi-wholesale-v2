@@ -18,11 +18,51 @@ import { registerMobileOpsRoutes } from "./views/mobile-ops.js";
 import { registerImportRoutes } from "./views/import-catalog.js";
 import { registerIntegrationsRoutes } from "./views/integrations.js";
 
+import { registerPublicRoutes, isPublicPath } from "./views/public-order.js";
+
 const root = document.getElementById("app-root");
 
 function mountShell() {
   const session = devAuth.getSession();
   root.innerHTML = "";
+
+  // ---------------------------------------------------------------------
+  // PUBLIC LINKS, BEFORE THE LOGIN GATE.            Batch N step 4, 28 Aug
+  // ---------------------------------------------------------------------
+  // This block also fixes a bug that had been live since share links
+  // shipped on 19 August, and that nothing had caught.
+  //
+  // The early return below renders the login screen and RETURNS -- before a
+  // single route is registered. registerBuyerRoutes(), which owns
+  // /c/:token, is called further down and was therefore never reached for
+  // anyone without a session. So the catalogue share link -- the ENTIRE
+  // delivery mechanism for a catalogue, and the reason 056 exists -- opened
+  // to nothing for exactly the person it was built for: someone who has not
+  // signed in. Every `login_required`, `not_found` and public-catalogue
+  // branch inside catalogLinkView was unreachable code.
+  //
+  // An order link has the same requirement and a wider audience still: a
+  // warehouse, a driver, an accountant. None of them have accounts and none
+  // of them should be shown a sign-in form.
+  //
+  // So a public path renders in a BARE outlet: no topbar, no sidebar, no
+  // bottom navigation, no cart badge. Whoever opened this is not a user of
+  // this product and should not be handed its furniture.
+  const path = router.currentPath();
+  if (isPublicPath(path)) {
+    const outlet = document.createElement("div");
+    outlet.id = "public-outlet";
+    root.appendChild(outlet);
+    registerPublicRoutes(router);
+    // Buyer routes come too, because /c/:token lives there. Registering is
+    // just adding handlers; the ones needing a session still ask for one.
+    registerBuyerRoutes(router);
+    router.notFound((o) => {
+      o.innerHTML = `<div class="empty-state card"><h4>Page not found</h4><p>That link doesn't exist.</p></div>`;
+    });
+    router.init(outlet);
+    return;
+  }
 
   // A session with role === null means bootstrap() found a real,
   // signed-in Supabase Auth identity that hasn't redeemed an invite yet
