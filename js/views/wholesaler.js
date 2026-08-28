@@ -14,6 +14,8 @@ import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, s
 // and suggestPackRatio for "Suggest from what sells". Nothing was removed
 // from the data layer; only this view stopped being the thing that used it.
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
+// AC-01, 28 Aug 2026 — the wholesaler's own access-request queue.
+import { listMySignupRequests, countMyPendingRequests, approveMySignupRequest, rejectMySignupRequest } from "../data/wholesaler-admin.js";
 import { getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
 import { getInventorySignals, getVariantStatuses } from "../data/inventory-signals.js";
 import { getMovementLedger, movementTypeLabel, referenceLabel, MOVEMENT_TYPES } from "../data/inventory-movements.js";
@@ -2571,6 +2573,35 @@ async function clientsView(outlet) {
   const wid = session.wid;
   outlet.appendChild(pageHeader("Clients", "Your buyer directory, sorted by most recent order first."));
 
+  // AC-01, 28 Aug 2026 — the way in to the access-request queue.
+  //
+  // It lives here rather than in the navigation because the sidebar is capped
+  // at nine entries (Hadi: fifteen was two screens of scrolling), and because
+  // this is where it belongs: approving a request IS creating a client.
+  //
+  // The banner only appears when somebody is actually waiting. A permanent
+  // "0 requests" row teaches the eye to skip it, and then the one week it says
+  // 3 it gets skipped too. The count is fetched head-only -- no rows, just the
+  // number.
+  (async () => {
+    const waiting = await countMyPendingRequests();
+    if (!waiting) return;
+    const banner = document.createElement("button");
+    banner.type = "button";
+    banner.className = "card";
+    banner.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px 16px;margin-bottom:14px;border:1px solid var(--accent-500);background:var(--accent-50);cursor:pointer;font:inherit;color:inherit;";
+    banner.innerHTML = `
+      <span style="font-size:20px;flex:none;">🙋</span>
+      <span style="flex:1;min-width:0;">
+        <strong style="display:block;">${waiting} ${waiting === 1 ? "shop is" : "shops are"} waiting for access</strong>
+        <span style="font-size:12px;color:var(--text-secondary);">Approving one creates their login on the spot.</span>
+      </span>
+      <span class="btn btn-primary btn-sm" style="flex:none;pointer-events:none;">Review</span>
+    `;
+    banner.addEventListener("click", () => { window.location.hash = "#/wholesaler/requests"; });
+    outlet.insertBefore(banner, outlet.children[1] || null);
+  })();
+
   // REPLACED 20 Aug 2026 (migration 060). The old form here asked for four
   // things -- shop name, phone, note, discount -- and created a CRM row with
   // NO LOGIN. A client who cannot sign in is not a client; that is the same
@@ -4565,6 +4596,124 @@ async function pricingRulesPane(outlet) {
   outlet.appendChild(orderMinCard);
 }
 
+// =============================================================================
+// WHO IS ASKING TO GET IN                                   AC-01, 28 Aug 2026
+// =============================================================================
+// The buyer's side of this has worked since Batch 14. The wholesaler's side
+// was an owner-console screen, which meant OGGI had to approve every buyer for
+// every wholesaler by hand. `v2_approve_signup_request` has authorised the
+// wholesaler from the day it was written; there was simply nothing to press.
+//
+// THREE THINGS THIS SCREEN DOES THAT THE COMPETITION DOES NOT, each taken from
+// a real complaint in the research (28 Aug):
+//
+//   * IT SHOWS THE PASSWORD, ON THE PAGE, AND SAYS IT WILL NOT COME BACK.
+//     There is no email anywhere in this system — migration 024 says so in its
+//     own comment. The generated password is returned exactly once and is
+//     unrecoverable. A toast auto-dismisses; a card does not. So the card is
+//     replaced in place, which is also the only honest way to say "copy this
+//     now".
+//
+//   * DECLINING IS A STATE, NOT A DELETION. Shopify's reject IS "delete the
+//     company"; B2B Wave's is "click X to decline and delete". Both lose the
+//     history, so the same applicant can loop forever and nobody can see they
+//     were here before. We keep the row.
+//
+//   * IT SAYS OUT LOUD THAT THE BUYER WILL NOT BE TOLD AUTOMATICALLY.
+//     NuORDER, verbatim: "If you Decline or Archive a connection request, the
+//     buyer doesn't receive a rejection email." The difference between them and
+//     us is not that we send one — we cannot yet — it is that we do not let a
+//     wholesaler believe we did.
+// =============================================================================
+async function requestsView(outlet) {
+  const session = devAuth.getSession();
+  outlet.appendChild(pageHeader(
+    "Access requests",
+    "Shops that have asked to buy from you. Approving one creates their login."
+  ));
+
+  const requests = await listMySignupRequests("pending");
+
+  if (!requests.length) {
+    outlet.appendChild(emptyState({
+      icon: "📭",
+      title: "Nobody is waiting",
+      body: "When a shop asks for access to your store, they appear here. You approve them, and their login is created on the spot.",
+    }));
+    return;
+  }
+
+  const note = document.createElement("div");
+  note.className = "card";
+  note.style.cssText = "padding:12px 14px;margin-bottom:14px;font-size:13px;color:var(--text-secondary);";
+  note.textContent = "Approving creates the shop's account and shows you a password once. Nothing is emailed — you send it to them yourself, on WhatsApp or however you already talk to them.";
+  outlet.appendChild(note);
+
+  requests.forEach((r) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.style.cssText = "padding:16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;";
+
+    const who = [r.location, r.volume ? `Volume: ${r.volume}` : null, r.sells ? `Sells: ${r.sells}` : null]
+      .filter(Boolean).map(esc).join(" · ") || "No details given";
+
+    card.innerHTML = `
+      <div style="min-width:0;flex:1 1 240px;">
+        <div style="font-weight:650;">${esc(r.buyer_name)}</div>
+        <div style="font-size:12px;color:var(--text-secondary);">${who}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">Asked ${new Date(r.created_at).toLocaleDateString()}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex:none;">
+        <button class="btn btn-secondary btn-sm" data-action="reject">Decline</button>
+        <button class="btn btn-primary btn-sm" data-action="approve">Approve</button>
+      </div>
+    `;
+
+    card.querySelector('[data-action="approve"]').addEventListener("click", async () => {
+      const btn = card.querySelector('[data-action="approve"]');
+      btn.disabled = true;
+      btn.textContent = "Approving…";
+      const result = await approveMySignupRequest(r.id);
+      if (!result.ok) {
+        toast(result.error || "Could not approve this request", { type: "danger" });
+        btn.disabled = false;
+        btn.textContent = "Approve";
+        return;
+      }
+      // The card is REPLACED rather than toasted. This is the only moment the
+      // password will ever be visible; a notification that fades is the wrong
+      // container for a string nothing can recover.
+      card.innerHTML = `
+        <div style="width:100%;">
+          <div style="font-weight:650;margin-bottom:6px;">✅ ${esc(r.buyer_name)} can now buy from you</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Copy these now — <strong>the password will not be shown again.</strong> Send them to the shop yourself; nothing is emailed automatically.</div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:monospace;font-size:13px;background:var(--bg-sunken);border-radius:8px;padding:10px 12px;">
+            <div><span style="color:var(--text-tertiary);">Username</span> <strong>${esc(result.username)}</strong></div>
+            <div><span style="color:var(--text-tertiary);">Password</span> <strong>${esc(result.tempPassword)}</strong></div>
+          </div>
+          <button class="btn btn-secondary btn-sm" data-action="dismiss" style="margin-top:10px;">Done</button>
+        </div>
+      `;
+      card.querySelector('[data-action="dismiss"]').addEventListener("click", () => card.remove());
+    });
+
+    card.querySelector('[data-action="reject"]').addEventListener("click", async () => {
+      const yes = await confirmAction({
+        title: `Decline ${r.buyer_name}?`,
+        body: "They will not get access, and they are not told automatically — there is no email in the system yet. They can ask again later, and you will see it as a new request.",
+        confirmLabel: "Decline",
+        danger: true,
+      });
+      if (!yes) return;
+      await rejectMySignupRequest(r.id, session?.actorLabel || "Wholesaler");
+      toast(`${r.buyer_name} declined`, { type: "default" });
+      card.remove();
+    });
+
+    outlet.appendChild(card);
+  });
+}
+
 export function registerWholesalerRoutes(router) {
   router.register("/wholesaler", (outlet) => dashboard(outlet));
   // Batch 6: Products folded into Inventory. This route is KEPT and lands on
@@ -4575,6 +4724,8 @@ export function registerWholesalerRoutes(router) {
   router.register("/wholesaler/orders", (outlet) => ordersView(outlet));
   router.register("/wholesaler/orders/:id", (outlet, params) => orderDetailView(outlet, params.id));
   router.register("/wholesaler/clients", (outlet) => clientsView(outlet));
+  // AC-01: the wholesaler's own access-request queue.
+  router.register("/wholesaler/requests", (outlet) => requestsView(outlet));
   router.register("/wholesaler/team", (outlet) => teamView(outlet));
   router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));
   // Batch 8A. One catalog, by id. The OLD bare path above is deliberately kept

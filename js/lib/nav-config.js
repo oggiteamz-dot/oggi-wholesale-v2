@@ -25,6 +25,20 @@ export const NAV_BY_ROLE = {
     // real rather than at nothing. It simply has no entry in the navigation.
     { icon: "📥", label: "Orders", path: "/wholesaler/orders" },
     { icon: "👥", label: "Clients", path: "/wholesaler/clients" },
+    // AC-01, 28 Aug 2026 — "Access requests" deliberately has NO nav entry.
+    //
+    // It had one for about ten minutes, and check_inventory_module.mjs caught
+    // it: the wholesaler sidebar is capped at NINE entries, because Hadi said
+    // fifteen was two screens of scrolling before you reached Settings. That
+    // cap is his requirement; a tenth entry for my own new screen is not a
+    // reason to raise it, and raising it would be the 25 Aug mistake again --
+    // writing the gate to match my design instead of his requirement.
+    //
+    // The screen is reached from CLIENTS instead, which is where it belongs
+    // anyway: an approved request IS a new client. The Clients screen shows a
+    // live count of who is waiting, so a request cannot sit unseen. The route
+    // /wholesaler/requests still exists and is asserted by
+    // checks/check_wholesaler_onboarding.mjs.
     { icon: "🗂", label: "Catalogs", path: "/wholesaler/catalogs" },
     { icon: "🔑", label: "Team & Buyers", path: "/wholesaler/team" },
     { icon: "📊", label: "Inventory", path: "/wholesaler/inventory" },
