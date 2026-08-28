@@ -262,14 +262,20 @@ broke · ❌ not built
 | 172 | **Copy-link survives an in-app browser** — `clipboard.writeText` needs a secure context and a permission Instagram's and Facebook's in-app browsers refuse, and an in-app browser is exactly where a WhatsApp link gets opened. Falls back to `execCommand`, and shows the raw link if even that fails | `js/views/public-order.js`, `js/views/wholesaler.js` | — the fallback path has no automated assertion; behaviour is real, proof is not | ⚠️ |
 | 173 | **`orderToken` is carried through the mapper** — `select("*")` was already fetching it and this mapper dropped it one line later. That is the third instance of fetched-and-discarded in this codebase: the buyer card's photography (Batch 19) and the pack's price (CR-0008). Named in a comment so the next person adding a column to `v2_orders` comes down here | `js/data/wholesaler-orders.js` | Exercised by `check_order_handoff.mjs` via the share panel | ✅ |
 
+| 174 | ⛔ **THE QUANTITY CONTROL MOVED OFF THE FOOT AND ONTO THE ROW.** Hadi, 28 Aug, having chosen the matrix as the ordering screen: *"I don't like the idea that when they click, the number change appears at the bottom, because there's a very high chance that it might not be seen."* He is right, and the reason is worse than that: on a six-colour product the foot sits ~250–300px below the tapped cell with the running total in between — **frequently below the fold on a phone.** The buyer taps a number, nothing visibly happens, and the honest conclusion is that the app is broken. The original reasoning (*"a control that never moves, so the thumb never hunts"*) was **right about the thumb and wrong about the eye** | `js/components/product-card.js` — the pad mounts into an `.os-editrow` beneath the aimed colour | `check_buyer_product_card.mjs` (77) — **red-proved** by putting it back at the foot: 6 named failures | ✅ |
+| 175 | **The control is asserted ADJACENT, not merely present** — "there is a stepper on the card" was already true when Hadi complained, so a check asserting only that would have been green throughout. The gate proves the control row is the **immediate next sibling** of the row being edited, on the **second** colour row (the first would pass even if the control were still at the top), and that only one is ever open | `check_buyer_product_card.mjs` | ⚠️ The assertion first failed against **working code**: it held a `<tr>` reference from before the click, and `renderSizes()` rebuilds the tbody, so it pointed at a detached node. Re-queried from `.os-cell.os-aim` after the repaint | ✅ |
+| 176 | **The control is left-sticky inside the horizontal scroller** — on a product with more sizes than fit, which is the case this grid exists for, scrolling sideways to reach a size must not scroll the control off the screen | `css/components.css` `.os-editstick` | `check_buyer_product_card.mjs`; `check_css_parses.mjs` | ✅ |
+| 177 | **The idle instruction is one quiet line, not a permanent bar** — furniture the eye learns to skip is furniture that goes unread on the one occasion it matters. It hides the moment the control opens | `js/components/product-card.js` `.os-hint` | `check_buyer_product_card.mjs` | ✅ |
+| 178 | ⚠️ **A correction to an existing gate, recorded because the temptation was to weaken it.** `check_buyer_card_capabilities.mjs` proved "one row per colour" by counting `tbody tr`, which the inserted edit row took from 2 to 3. **The intent was unchanged; the proxy was wrong.** It now counts `tr:not(.os-editrow)` and cross-checks `tr[data-colour]` — stating the intent directly, and unable to be satisfied by rows that are not colours. Logged as CR-0009 | `checks/check_buyer_card_capabilities.mjs` (37) | This row is the record | ✅ |
+
 ---
 
 ## Reconciliation — 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01)
 
 | | |
 |---|---|
-| Features listed | **173** |
-| Enforced and proven (✅) | **161** |
+| Features listed | **178** |
+| Enforced and proven (✅) | **166** |
 | Present but unproven (⚠️) | **12** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |

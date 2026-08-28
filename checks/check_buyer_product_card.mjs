@@ -444,6 +444,86 @@ function seedCart(wid, lines) { localStorage.setItem(CART_KEY(wid), JSON.stringi
   document.body.innerHTML = "";
 }
 
+// ------------------ the control appears ON the row, not at the foot --------
+// Hadi, 28 Aug, having chosen the matrix as the ordering screen: "I don't like
+// the idea that when they click, the number change appears at the bottom,
+// because there's a very high chance that it might not be seen."
+//
+// The original design put one control at the foot on the reasoning that a
+// control which never moves is one the thumb never hunts for. That was right
+// about the thumb and wrong about the eye: on a six-colour product the foot is
+// ~250-300px below the tapped cell, frequently below the fold on a phone. The
+// buyer taps a number, nothing visibly happens, and the honest conclusion to
+// draw is that the app is broken.
+//
+// These assert the ADJACENCY, not merely that a control exists somewhere --
+// "there is a stepper on the card" was already true when the complaint was
+// made, so a check that only asserted that would have been green throughout.
+{
+  localStorage.clear();
+  const card = render();
+
+  ok(!!card.querySelector(".os-hint"),
+     "before anything is aimed, one quiet line says what to do");
+  ok(!card.querySelector(".os-editrow"),
+     "and there is no control row at all until a cell is tapped");
+
+  const cells = [...card.querySelectorAll('.os-cell[role="button"]')];
+  ok(cells.length > 1, "there is more than one tappable cell to choose between");
+
+  // Tap a cell in the SECOND colour row -- the case the complaint is about.
+  const secondRow = card.querySelectorAll(".os-grid tbody tr")[1];
+  const cellInSecondRow = secondRow && secondRow.querySelector('.os-cell[role="button"]');
+  if (cellInSecondRow) cellInSecondRow.dispatchEvent(new window.Event("click", { bubbles: true }));
+
+  const editRow = card.querySelector(".os-editrow");
+  ok(!!editRow, "tapping a number opens a control row");
+  ok(!!editRow && editRow.querySelector(".os-pad"),
+     "and the control is inside it");
+
+  // THE ASSERTION THAT MATTERS: the control row is the IMMEDIATE next sibling
+  // of the row being edited. Anywhere else and the complaint stands.
+  //
+  // Re-queried AFTER the click, not held from before it: renderSizes() rebuilds
+  // the whole tbody, so a reference captured beforehand points at a detached
+  // node and this assertion failed against working code. The aimed cell is the
+  // reliable handle, because it is the thing the component itself marks.
+  const aimedCell = card.querySelector(".os-cell.os-aim");
+  const tapped = aimedCell ? aimedCell.closest("tr") : null;
+  ok(!!aimedCell, "the tapped cell is marked as aimed, so the row can be found again after the repaint");
+  ok(!!tapped && tapped.nextElementSibling === editRow,
+     "and the control sits directly beneath the row being edited — not at the foot of the card");
+  ok(!!tapped && tapped !== card.querySelector(".os-grid tbody tr"),
+     "proven on the SECOND colour row, not the first — the first row would pass even if the control were still at the top");
+
+  // It must span the whole grid, or the table renders ragged and reads as a bug.
+  const td = editRow && editRow.querySelector("td");
+  const cols = card.querySelectorAll(".os-grid thead th").length;
+  ok(!!td && td.colSpan === cols,
+     `and spans the full width of the grid (colspan ${td ? td.colSpan : "?"} vs ${cols} columns)`);
+
+  ok(!!editRow && !!editRow.querySelector(".os-editstick"),
+     "wrapped in a left-sticky element, so scrolling sideways on a wide size range cannot scroll the control off screen");
+
+  const hint = card.querySelector(".os-hint");
+  ok(!!hint && hint.hidden,
+     "and the hint gets out of the way once the control is open");
+
+  // Aiming a DIFFERENT colour moves the control to that row rather than
+  // leaving two open or leaving it where it was.
+  const thirdRow = [...card.querySelectorAll(".os-grid tbody tr")].find(
+    (r) => r !== tapped && !r.classList.contains("os-editrow") && r.querySelector('.os-cell[role="button"]')
+      && r !== tapped.nextElementSibling);
+  if (thirdRow) {
+    thirdRow.querySelector('.os-cell[role="button"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    const rows = card.querySelectorAll(".os-editrow");
+    ok(rows.length === 1, `only ever one control row is open (got ${rows.length})`);
+    const nowTapped = card.querySelector(".os-cell.os-aim") && card.querySelector(".os-cell.os-aim").closest("tr");
+    ok(!!nowTapped && nowTapped.nextElementSibling === rows[0],
+       "and it follows the aim to the new row");
+  }
+}
+
 console.log(pass.map((m) => `  ✓ ${m}`).join("\n"));
 if (fail.length) console.log(fail.map((m) => `  ✗ ${m}`).join("\n"));
 console.log("----------------------------------------------------------------");

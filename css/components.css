@@ -2496,8 +2496,34 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 .os-total strong { font-weight: 800; }
 .os-total .pc-multiplier { margin-left: 2px; }
 
-/* ONE control, at the foot, that never moves — so the thumb never hunts and no
-   cell has to be wide enough to hold its own buttons. */
+/* THE CONTROL SITS ON THE ROW BEING EDITED.               29 August 2026
+
+   It used to live at the foot of the sheet, on the reasoning that a control
+   which never moves is a control the thumb never hunts for. That was right
+   about the thumb and wrong about the eye. On a six-colour product the foot
+   is ~250-300px below the cell you just tapped, with the running total in
+   between — frequently below the fold on a phone. Tap a number, nothing
+   visibly happens, and the honest conclusion is that the app is broken.
+
+   Hadi, 28 Aug: "there's a very high chance that it might not be seen."
+
+   So it is now a full-width row inside the grid, immediately beneath the
+   colour being changed. `.os-editstick` is sticky to the left of the
+   horizontal scroller, so on a product with more sizes than fit — the case
+   this grid exists for — scrolling sideways to reach a size cannot scroll
+   the control off the screen. */
+.os-editrow > td { padding: 0; background: var(--accent-700);
+  border-bottom: 1px solid var(--border-subtle); }
+.os-editstick { position: sticky; left: 0; width: 100%;
+  max-width: calc(100vw - 34px); }
+.os-editrow .os-pad { margin: 0; }
+/* A quiet single line, not a permanent bar. Furniture the eye learns to skip
+   is furniture that goes unread on the one occasion it matters. */
+.os-hint { padding: 7px 11px; font-size: 12px; color: var(--text-tertiary);
+  background: var(--bg-sunken); border-top: 1px solid var(--border-subtle); }
+.os-hint[hidden] { display: none; }
+
+/* Retained: the pad's own appearance is unchanged, only where it is mounted. */
 .os-pad { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 9px 11px; background: var(--accent-700); color: #fff; }
 .os-pad.os-pad-idle { background: var(--bg-sunken); color: var(--text-secondary); }
