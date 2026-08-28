@@ -232,17 +232,45 @@ broke · ❌ not built
 | 145 | **Writing one does not touch the buyer's note** — two columns, never one | `087` | `check_fulfil_note.sql` case 6 | ✅ |
 | 146 | **The buyer can see their OWN note back in their order history** — `086` stored it and `v2_get_buyer_orders` never selected it, so a buyer re-reading their order could not see what they had asked for | `087` patches `v2_get_buyer_orders` from its INSTALLED body | `check_fulfil_note.sql` case 3 | ✅ |
 
+| 147 | **A product with NO COLOURS can still be ordered** — `product.colors` filters out falsy colours, and every row of the order sheet was drawn by iterating it, so a colourless product rendered a header, a footer and **not one row**. The card drew its name, its price and its photo frame and looked finished; there was simply nothing to press, and no error anywhere. The approved mockup names this case explicitly: *"the last product genuinely has no colours, so it shows none"* | `js/components/product-card.js` `sheetRows` / `hasColours` | `check_buyer_product_card.mjs` — **red-proved**, 6 named failures against the shipped file. ⚠️ Its first version crashed instead of reporting, and one assertion went green vacuously because `[].every()` is `true`; both fixed before the fix was written | ✅ |
+| 148 | **The colour column disappears with the colours** rather than being left blank and headed. A blank first column headed "Colour" reads as data that failed to load, which is the confusion an honest empty state exists to prevent. The per-size footer goes too — with one row it is that row printed twice | `js/components/product-card.js` | `check_buyer_product_card.mjs` | ✅ |
+| 149 | **A running money total under the sheet** — the mockup's *"48 pieces (4 × 12) = $456.00"*, live on every press. The sheet gave piece counts and priced only the ONE cell the foot control was aimed at, so a buyer filling sixteen cells watched a number climb that was not money and learned the cost only after leaving for the cart | `js/components/product-card.js` `renderTotals()`, `.os-total` | `check_buyer_product_card.mjs` — asserts $24.00 in a 25% catalog where the list price says $32.00, and that the multiplication is written out only when a base unit makes it mean something | ✅ |
+| 150 | **Tapping a colour's thumbnail opens it full size** — the mockup's *"thumbnails click to expand"*. It set the hero and stopped, so the only routes to a big picture were the "+N more" badge and the 360° button, both at the top of the card and neither where the thumb is when reading down the colour column. Keyboard-reachable | `js/components/product-card.js` | `check_buyer_product_card.mjs` — **red-proved** | ✅ |
+| 151 | **An order bar pinned to the bottom of the catalogue** — pieces, money, and the way onward, visible the whole time. The only running count was a topbar badge, out of thumb reach (~85% of phone touches are thumb-driven) and adding packs and pieces together, so two boxes of twelve and two loose shirts both read "2" | `js/components/order-bar.js`, `js/views/buyer.js` | `check_order_bar.mjs` (12) | ✅ |
+| 152 | **The bar counts PIECES and prices through `priceCart()`** — the same function whose subtotal must equal `v2_orders.subtotal`, so the bar cannot disagree with the invoice by construction. It stops listening when destroyed, so a stale bar cannot leak | `js/components/order-bar.js` `piecesInCart()` | `check_order_bar.mjs` | ✅ |
+| 153 | ⛔ **CR-0008 — EVERY PACK LINE IN EVERY REAL CART PRICED AT $0.00.** `cart.addPack()` writes components as `{variantId, qtyPerPack, sku, color, size, reservationId, expiresAt}` — no price — and `linePieces()` read `basePrice: Number(c.price ?? 0)`. `0` is not `null`, so the `basePriceFor` fallback was never reached. The server derives its own prices, so the **invoice was right and the screen was wrong**: a buyer approved a subtotal with their packs missing and was invoiced for them anyway. Same disagreement as the Batch-5 pack bug, opposite direction | `js/data/line-pricing.js` `linePieces()` + `js/views/buyer.js` list-price lookup (both halves needed; either alone still prices a pack at nothing) | `check_line_pricing.mjs` — **red-proved**, and its fixture is copied field-for-field from `cart.addPack()` and **must never gain a `price`** | ✅ |
+| 154 | ⚠️ **The lesson of CR-0008: `check_line_pricing.mjs` was green throughout** because every one of its pack fixtures adds a `price` to each component — **a shape the application does not produce**. It was found only because the order bar's own new gate displayed `USD0.00` beside a piece count it *had* been told to assert. A gate that asserts the count and not the money is a gate looking straight at the defect and not seeing it | — | This row is the record, not a feature | ⚠️ |
+
 ---
 
-## Reconciliation — 28 August 2026 (Batch S S0–S9, then Batch N steps 1–3)
+## Reconciliation — 28 August 2026 (Batch S S0–S9, Batch N steps 1–3, then the Client View gaps)
 
 | | |
 |---|---|
-| Features listed | **146** |
-| Enforced and proven (✅) | **136** |
-| Present but unproven (⚠️) | **10** |
+| Features listed | **154** |
+| Enforced and proven (✅) | **143** |
+| Present but unproven (⚠️) | **11** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
+
+> **Rows 147–154 are the Client View gap pass**, and they exist because a line
+> in `CLAUDE.md` was wrong. It said the live buyer view "still shows one colour
+> at a time and does not match the approved mockup"; it had been repeated in
+> four consecutive session logs and it was **false** — every colour has been its
+> own row since PR #21 on 25 Aug. The session that set out to rebuild it read
+> the component instead of the note, found four real gaps, and then found a
+> fifth thing nobody was looking for: **CR-0008, row 153, every pack line in
+> every real cart priced at $0.00.** The false line is now corrected in
+> `CLAUDE.md`. Full audit: `[C] CLIENT VIEW — Gap Audit, Plan & Feature List
+> (Aug 28 2026).md`.
+>
+> **Still open and deliberately not built:** the mockup puts a `− 0 +` inside
+> every size cell; what shipped is tap-a-cell-to-aim plus one control at the
+> foot. That reversal was argued on 25 Aug for two real reasons — eight sizes ×
+> a cell wide enough for `− 12 +` is 720px on a 412px phone, and writing on
+> every press is ~48 server round trips per sheet. Row 149 delivers the
+> immediacy the mockup was really providing (a live total) without either cost,
+> so the rebuild waits until Hadi has walked it on a phone.
 
 > **Rows 128–134 are Batch N step 1 — the buyer's note.** Seven features, one
 > migration (`086`), one new gate (`check_order_notes.sql`, seven cases,
