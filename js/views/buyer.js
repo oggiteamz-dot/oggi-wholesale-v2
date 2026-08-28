@@ -393,6 +393,7 @@ async function cartView(outlet) {
         row.appendChild(lineTotal);
         row.appendChild(removeBtn);
         list.appendChild(row);
+        list.appendChild(noteEditor(line));
         return;
       }
 
@@ -439,6 +440,7 @@ async function cartView(outlet) {
       row.appendChild(lineTotal);
       row.appendChild(removeBtn);
       list.appendChild(row);
+      list.appendChild(noteEditor(line));
 
       // Batch 8: tiered-price nudge for this line, using the SAME
       // cross-colourway aggregate basis Batch 6 established (every cart
@@ -462,6 +464,69 @@ async function cartView(outlet) {
         }
       }
     });
+
+  /** Migration 086 -- the buyer's note for one cart line.
+   *
+   * Deliberately NOT hidden behind a "add a note" link that has to be found.
+   * The research on this feature is unambiguous: the dominant real-world
+   * failure is not that notes are badly designed, it is that they sit
+   * somewhere nobody opens. A collapsed affordance on the BUYER's side is
+   * less harmful than on the reader's side, but an always-visible one costs
+   * nothing here and removes the question entirely.
+   *
+   * Saves on blur rather than on every keystroke: a note can be long, and
+   * rewriting localStorage per character is how a cheap feature becomes a
+   * janky one on an older phone. */
+  function noteEditor(line) {
+    const wrap = document.createElement("div");
+    wrap.className = "cart-note";
+    wrap.style.cssText = "padding:0 12px 12px 12px;border-bottom:1px solid var(--border-subtle);margin-top:-1px;";
+
+    const label = document.createElement("label");
+    label.style.cssText = "display:block;font-size:11px;color:var(--text-tertiary);margin-bottom:4px;";
+    label.textContent = "Note for this item (optional)";
+
+    const ta = document.createElement("textarea");
+    ta.className = "input";
+    ta.rows = 1;
+    ta.placeholder = "e.g. send this one in the darker blue";
+    ta.value = line.note || "";
+    ta.style.cssText = "width:100%;min-height:38px;resize:vertical;font-size:13px;line-height:1.4;";
+    ta.setAttribute("aria-label", "Note for this item");
+
+    // Grow with the content: "an unlimited amount of writing" is the stated
+    // requirement, and a one-row box that never grows silently discourages it.
+    const grow = () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 260)}px`; };
+    ta.addEventListener("input", grow);
+    requestAnimationFrame(grow);
+
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:11px;color:var(--text-tertiary);margin-top:4px;min-height:14px;";
+
+    ta.addEventListener("blur", () => {
+      const before = line.note || "";
+      const after = ta.value.trim();
+      if (before === after) { hint.textContent = ""; return; }
+      const result = cart.setLineNote(wid, line, after);
+      if (!result.ok) {
+        // Never fail silently: a note the buyer believes they left, that was
+        // not stored, is worse than no note field at all.
+        hint.textContent = "That note could not be saved — please try again.";
+        hint.style.color = "var(--danger,#c33)";
+        return;
+      }
+      line.note = result.note || "";
+      hint.style.color = "var(--text-tertiary)";
+      hint.textContent = after ? "Saved. The wholesaler will see this." : "Note cleared.";
+      setTimeout(() => { hint.textContent = ""; }, 2500);
+    });
+
+    wrap.appendChild(label);
+    wrap.appendChild(ta);
+    wrap.appendChild(hint);
+    return wrap;
+  }
+
     if (!current.length) {
       outlet.querySelectorAll(".cart-summary,.card").forEach((n) => n.remove());
       outlet.appendChild(emptyState({ icon: "🧺", title: "Your cart is empty", body: "Add products from the catalog to see them here." }));
@@ -472,6 +537,10 @@ async function cartView(outlet) {
   summary.className = "cart-summary card";
   summary.style.cssText = "margin-top:16px;padding:18px;display:flex;justify-content:space-between;align-items:center;";
 
+  // Rebuilt by every renderSummary() paint; held here so the submit handler
+  // can read the CURRENT box rather than a stale closure over an old one.
+  let orderNoteInput = null;
+
   function renderSummary() {
     const current = cart.get(wid);
     // The same priceCart() the lines above were printed from, so the subtotal
@@ -480,6 +549,33 @@ async function cartView(outlet) {
     const { subtotal, lines: pricedLines } = priceCart(current, pricingCtx());
     const totalPieces = pricedLines.reduce((s2, p) => s2 + p.units, 0);
     summary.innerHTML = `<div><div style="font-size:12px;color:var(--text-tertiary);">Subtotal · ${totalPieces} piece${totalPieces === 1 ? "" : "s"}</div><div style="font-size:22px;font-weight:700;">${currency}${subtotal.toFixed(2)}</div></div>`;
+    // ---- Migration 086: one note about the order as a whole ---------------
+    // v2_orders.notes has existed since migration 004 and nothing has ever
+    // written to it. This is the field that fills it.
+    const noteBox = document.createElement("div");
+    noteBox.style.cssText = "width:100%;margin:10px 0 12px 0;";
+    const noteLabel = document.createElement("label");
+    noteLabel.style.cssText = "display:block;font-size:12px;font-weight:600;margin-bottom:4px;";
+    noteLabel.textContent = "Anything else for this order? (optional)";
+    orderNoteInput = document.createElement("textarea");
+    orderNoteInput.className = "input";
+    orderNoteInput.rows = 2;
+    orderNoteInput.placeholder = "e.g. deliver before Thursday";
+    orderNoteInput.style.cssText = "width:100%;min-height:52px;resize:vertical;font-size:13px;line-height:1.4;";
+    orderNoteInput.setAttribute("aria-label", "Note for this order");
+    orderNoteInput.value = cart.getOrderNote(wid) || "";
+    const growOrderNote = () => {
+      orderNoteInput.style.height = "auto";
+      orderNoteInput.style.height = `${Math.min(orderNoteInput.scrollHeight, 300)}px`;
+    };
+    orderNoteInput.addEventListener("input", growOrderNote);
+    requestAnimationFrame(growOrderNote);
+    // Persisted on blur so it survives a reload, exactly like the cart lines.
+    orderNoteInput.addEventListener("blur", () => cart.setOrderNote(wid, orderNoteInput.value));
+    noteBox.appendChild(noteLabel);
+    noteBox.appendChild(orderNoteInput);
+    summary.appendChild(noteBox);
+
     const submitBtn = document.createElement("button");
     submitBtn.className = "btn btn-primary";
     submitBtn.textContent = "Submit order";
@@ -497,6 +593,9 @@ async function cartView(outlet) {
       const result = await cart.submit(wid, {
         buyerLabel: label, locationId: location.id, clientId,
         accountId: session.accountId,
+        // Migration 086. Read at submit time rather than captured when the
+        // field was built, so a note typed and not blurred still travels.
+        notes: (orderNoteInput && orderNoteInput.value.trim()) || cart.getOrderNote(wid) || null,
         // The catalog priced this order; the server re-checks that this
         // account may actually see it before honouring the discount.
         catalogId: activeCatalogId,
