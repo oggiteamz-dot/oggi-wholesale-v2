@@ -225,15 +225,21 @@ broke · ❌ not built
 | 138 | **The orders LIST shows the note's WORDS, not a badge saying one exists** — capped at three, then "+ N more". ⛔ Two separate documented failures are being avoided here: a Cin7 user asking verbatim for comments "on the list of SO's so that we don't have to open up each invoice", and the recurring Shopify complaint *"the icon is there but no note shown"* | `js/views/wholesaler.js` `ordersView()` | `check_order_detail.mjs` — asserts the text appears and that no bare has-a-note indicator is relied on | ✅ |
 | 139 | **The note survives the pack collapse** — a pack is one line to the buyer and N rows underneath, and the cart writes the note on the FIRST component only. `groupPackLines()` had no idea the field existed, so the note was **stored correctly and delivered nowhere** — the exact shape of the Batch-19 bug where the buyer's card fetched photography on every request and discarded it one line later | `js/data/prepacks.js` | `check_order_detail.mjs` — **red-proved** by deleting the carry line; also asserts the note is found when it sits on the SECOND row, so component order cannot lose it | ✅ |
 | 140 | **One order is read scoped by WID as well as by id** — an order id is a uuid, but "hard to guess" is not an access rule. Same shape as S10 and the discount defect S4 fixed: a caller-supplied id that nothing scoped to a tenant | `js/data/wholesaler-orders.js` | `check_order_detail.mjs` — **red-proved** by removing `.eq("wid", wid)` and watching the filter assertion fail | ✅ |
+| 141 | **The wholesaler can write an instruction to their own warehouse, per item and per order** — Hadi's words: when they send the order *"to their warehouse, for example, they can add in either a voice note or a written comment telling the people what to do"* | `087`, `js/views/wholesaler.js` `fulfilEditor()`, `js/data/wholesaler-orders.js` `setFulfilNote()` | `check_fulfil_note.sql` (7) + `check_order_detail.mjs` | ✅ |
+| 142 | ⛔ **THE BUYER NEVER SEES IT.** `fulfil_note` is a SEPARATE column from `buyer_note`, and `v2_get_buyer_orders` is asserted — against its INSTALLED body — never to mention it. A real merchant's internal picker note reached a **customer-facing shipping label** for exactly one reason: two surfaces read one field | `087` | `check_fulfil_note.sql` case 2, **red-proved** by adding `fulfil_note` to the buyer's payload and watching it report *"the wholesaler's internal note reached the BUYER's order history"*. Migration assertion 4 is a bare token search on purpose — an alias or a computed expression could leak the value without the column name appearing | ✅ |
+| 143 | **Only a signed-in wholesaler can write one** — and the refusal is asserted **by its reason**, not merely that something failed. `check_pack_moq` once reported 7 green while the function under test crashed on every call | `087` | `check_fulfil_note.sql` case 4, **red-proved** by replacing the tenant check with `true` | ✅ |
+| 144 | **A fulfilment note on a line is scoped by order id as well as line id** — so a line belonging to another order cannot be written through an order this caller does own | `087` | `check_fulfil_note.sql` case 5 — asserts the refused write left the row unchanged | ✅ |
+| 145 | **Writing one does not touch the buyer's note** — two columns, never one | `087` | `check_fulfil_note.sql` case 6 | ✅ |
+| 146 | **The buyer can see their OWN note back in their order history** — `086` stored it and `v2_get_buyer_orders` never selected it, so a buyer re-reading their order could not see what they had asked for | `087` patches `v2_get_buyer_orders` from its INSTALLED body | `check_fulfil_note.sql` case 3 | ✅ |
 
 ---
 
-## Reconciliation — 28 August 2026 (Batch S S0–S9, then Batch N steps 1–2)
+## Reconciliation — 28 August 2026 (Batch S S0–S9, then Batch N steps 1–3)
 
 | | |
 |---|---|
-| Features listed | **140** |
-| Enforced and proven (✅) | **130** |
+| Features listed | **146** |
+| Enforced and proven (✅) | **136** |
 | Present but unproven (⚠️) | **10** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
