@@ -126,7 +126,18 @@ ok(/Add \d+ more in Red/.test(after), "21 a per-colour shortfall names the colou
 ok(/to reach \$9/.test(after), "22 the next quantity break is offered as a nudge");
 ok([...el.querySelectorAll("button")].some((b) => /Add to cart|Update/.test(txt(b))), "23 an add-to-cart control exists");
 ok(!!el.querySelector(".os-grid thead th[data-size]"), "31 sizes are named ONCE, across the top");
-ok(el.querySelectorAll(".os-grid tbody tr").length === 2, "32 one row per colour");
+// Counts COLOUR rows, not every row in the body.
+//
+// This used to count `tbody tr` outright, which was a fine proxy until the
+// quantity control moved off the foot of the card and onto the row being
+// edited (29 Aug 2026) -- that inserts a full-width `.os-editrow` under the
+// aimed colour, and the count went to 3. The INTENT is "one row per colour",
+// and the intent is unchanged; only the proxy was wrong. Excluding the edit
+// row states the intent directly, and `[data-colour]` cross-checks it, so
+// this cannot be satisfied by rows that are not colours.
+ok(el.querySelectorAll(".os-grid tbody tr:not(.os-editrow)").length === 2, "32 one row per colour");
+ok(el.querySelectorAll(".os-grid tbody tr[data-colour]").length === 2,
+   "32b and each of those rows is a real colour, not padding");
 ok(!!el.querySelector(".os-rt"), "33 a running total per colour, on its row");
 ok(!!el.querySelector(".os-grid tfoot td[data-total-size]"), "34 a total per SIZE along the bottom");
 ok(!!el.querySelector(".os-grid tfoot td[data-grand]"), "35 a grand total for the product");
