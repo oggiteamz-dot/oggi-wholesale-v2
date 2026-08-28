@@ -3,7 +3,7 @@ import { emptyState } from "../components/empty-state.js";
 import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 // (import from "../data/catalog.js" removed — every symbol it brought in was only used by renderRatioSection, deleted in CR-0001)
-import { getWholesalerOrders, advanceOrderStatus, nextStatus } from "../data/wholesaler-orders.js";
+import { getWholesalerOrders, getWholesalerOrder, advanceOrderStatus, nextStatus } from "../data/wholesaler-orders.js";
 import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate, setCatalogOnly, getStockStates } from "../data/products-admin.js";
 import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, getLocations } from "../data/inventory-admin.js";
 import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, setVariantRetailPrice, setVariantReorderSettings, setVariantBarcode, setVariantImages, getOrderMinimums, setOrderMinimums } from "../data/pricing-admin.js";
@@ -320,6 +320,43 @@ async function ordersView(outlet) {
       </div>
       <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">${order.items.map((i) => i.isPack ? `${i.packQty}× ${esc(i.productName)} pack` : `${i.qty}× ${esc(i.productName)} (${esc(i.color)}/${esc(i.size)})`).join(", ")}</div>
     `;
+
+    // Batch N step 2 -- the note, ON THE LIST, not one click deep.
+    //
+    // This is the single most-repeated complaint about order notes in the
+    // research behind this batch: not that they are badly designed, but that
+    // they sit somewhere nobody opens. A Cin7 user asked, verbatim, for a
+    // comments box "on the list of SO's so that we don't have to open up each
+    // invoice". A badge saying a note EXISTS is not good enough either -- the
+    // recurring Shopify complaint is "the icon is there but no note shown".
+    // So: show the words, truncated, right here.
+    const noteBits = [];
+    if (order.notes) noteBits.push({ label: "On the order", text: order.notes });
+    order.items.forEach((i) => {
+      if (i.buyerNote) {
+        noteBits.push({ label: i.isPack ? `${esc(i.productName)} pack` : `${esc(i.productName)} (${esc(i.color || "")}/${esc(i.size || "")})`, text: i.buyerNote });
+      }
+    });
+    if (noteBits.length) {
+      const nb = document.createElement("div");
+      nb.className = "order-notes-preview";
+      nb.style.cssText = "border-left:3px solid var(--accent-500,#54E5A0);padding:8px 10px;margin:0 0 10px 0;background:var(--surface-2,rgba(84,229,160,.06));border-radius:0 6px 6px 0;";
+      nb.innerHTML = `<div style="font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--text-tertiary);margin-bottom:4px;">WHAT THE BUYER ASKED FOR</div>` +
+        noteBits.slice(0, 3).map((n) => {
+          const oneLine = String(n.text).replace(/\s+/g, " ").trim();
+          const shown = oneLine.length > 140 ? `${oneLine.slice(0, 140)}…` : oneLine;
+          return `<div style="font-size:12px;line-height:1.45;margin-bottom:2px;"><span style="color:var(--text-tertiary);">${n.label}:</span> <strong style="font-weight:600;">${esc(shown)}</strong></div>`;
+        }).join("") +
+        (noteBits.length > 3 ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">+ ${noteBits.length - 3} more — open the order to read them all</div>` : "");
+      card.appendChild(nb);
+    }
+
+    const openLink = document.createElement("a");
+    openLink.className = "btn btn-secondary btn-sm";
+    openLink.href = `#/wholesaler/orders/${order.id}`;
+    openLink.textContent = "Open order";
+    openLink.style.marginRight = "8px";
+    card.appendChild(openLink);
     if (next) {
       const btn = document.createElement("button");
       btn.className = "btn btn-primary btn-sm";
@@ -349,6 +386,189 @@ async function ordersView(outlet) {
     }
     outlet.appendChild(card);
   });
+}
+
+// ===========================================================================
+// Batch N step 2 -- ONE ORDER, IN FULL.
+//
+// Until this screen existed the wholesaler's Orders tab was summary cards and
+// nothing to click: buyer name, date, status, total, and one comma-joined
+// string of items. Hadi's ask was "they can go click and they can see the full
+// order, what each item was ordered, what is the comment".
+//
+// Two rules from the research shape it:
+//   1. The buyer's note is rendered against ITS OWN LINE, never pooled at the
+//      bottom. A note detached from the thing it is about is a note nobody
+//      acts on.
+//   2. A pack is shown as a pack AND exploded into the pieces it contains.
+//      A warehouse cannot pick "2 x Boutique Pack"; it picks 2 small, 4 medium,
+//      4 large. Showing only the collapsed form is how a picking error happens.
+// ===========================================================================
+async function orderDetailView(outlet, orderId) {
+  const session = devAuth.getSession();
+  const wid = session.wid;
+
+  const order = await getWholesalerOrder(wid, orderId);
+  if (!order) {
+    outlet.appendChild(pageHeader("Order", ""));
+    outlet.appendChild(emptyState({
+      icon: "🔍", title: "That order could not be found",
+      body: "It may belong to a different wholesaler, or it may have been removed. Nothing has been changed.",
+    }));
+    const back = document.createElement("a");
+    back.className = "btn btn-secondary"; back.href = "#/wholesaler/orders"; back.textContent = "Back to orders";
+    outlet.appendChild(back);
+    return;
+  }
+
+  const STATUS_BADGE = { new: "badge-info", confirmed: "badge-accent", shipped: "badge-warning", delivered: "badge-success", cancelled: "badge-danger" };
+  const currency = "$";
+
+  outlet.appendChild(pageHeader(`Order from ${order.buyerLabel}`,
+    `Placed ${new Date(order.createdAt).toLocaleString()}`));
+
+  const back = document.createElement("a");
+  back.className = "btn btn-ghost btn-sm no-print";
+  back.href = "#/wholesaler/orders";
+  back.textContent = "← All orders";
+  back.style.marginBottom = "12px";
+  outlet.appendChild(back);
+
+  // ---- the header card ----------------------------------------------------
+  const head = document.createElement("div");
+  head.className = "card";
+  head.style.cssText = "padding:16px;margin-bottom:14px;";
+  const totalPieces = order.rawLines.reduce((n, l) => n + l.qty, 0);
+  head.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-weight:700;font-size:16px;">${esc(order.buyerLabel)}</div>
+        <div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;">
+          ${totalPieces} piece${totalPieces === 1 ? "" : "s"} · ${order.items.length} line${order.items.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <span class="badge ${STATUS_BADGE[order.status] || "badge-neutral"}">${esc(order.status)}</span>
+        <div style="font-weight:700;font-size:20px;margin-top:4px;">${currency}${order.subtotal.toFixed(2)}</div>
+      </div>
+    </div>`;
+  outlet.appendChild(head);
+
+  // ---- the buyer's note about the WHOLE order -----------------------------
+  if (order.notes) {
+    const on = document.createElement("div");
+    on.className = "card";
+    on.style.cssText = "padding:14px 16px;margin-bottom:14px;border-left:4px solid var(--accent-500,#54E5A0);";
+    on.innerHTML = `
+      <div style="font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--text-tertiary);margin-bottom:6px;">THE BUYER'S NOTE ON THIS ORDER</div>
+      <div style="font-size:14px;line-height:1.55;white-space:pre-wrap;">${esc(order.notes)}</div>`;
+    outlet.appendChild(on);
+  }
+
+  // ---- every line ---------------------------------------------------------
+  const list = document.createElement("div");
+  list.className = "card";
+  list.style.cssText = "padding:0;margin-bottom:14px;overflow:hidden;";
+
+  order.items.forEach((line, idx) => {
+    const row = document.createElement("div");
+    row.style.cssText = `padding:14px 16px;${idx ? "border-top:1px solid var(--border-subtle);" : ""}`;
+
+    const photo = line.isPack
+      ? (line.components[0] && line.components[0].imageUrl) || null
+      : line.imageUrl;
+    const swatch = line.isPack ? null : line.colorHex;
+
+    const thumb = photo
+      ? `<img src="${esc(photo)}" alt="" loading="lazy" style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex:none;background:var(--surface-2);">`
+      : `<div style="width:56px;height:56px;border-radius:8px;flex:none;background:${swatch ? esc(swatch) : "var(--surface-2)"};display:flex;align-items:center;justify-content:center;font-size:20px;">${swatch ? "" : "📦"}</div>`;
+
+    if (line.isPack) {
+      // The pack, AND what is actually inside it. Both, always.
+      const pieces = line.components.reduce((n, c) => n + c.qty, 0);
+      row.innerHTML = `
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          ${thumb}
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;justify-content:space-between;gap:10px;">
+              <div>
+                <span class="badge badge-info" style="margin-right:6px;">Pack</span>
+                <strong style="font-size:14px;">${line.packQty}× ${esc(line.productName)}</strong>
+              </div>
+              <div style="font-weight:700;white-space:nowrap;">${currency}${line.lineTotal.toFixed(2)}</div>
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">
+              <strong>${pieces} pieces</strong> to pick:
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
+              ${line.components.map((c) => `<span style="font-size:12px;padding:3px 8px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border-subtle);"><strong>${c.qty}×</strong> ${esc(c.color || "")}${c.color && c.size ? " / " : ""}${esc(c.size || c.sku || "")}</span>`).join("")}
+            </div>
+          </div>
+        </div>`;
+    } else {
+      row.innerHTML = `
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          ${thumb}
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;justify-content:space-between;gap:10px;">
+              <div>
+                <strong style="font-size:14px;">${line.qty}× ${esc(line.productName)}</strong>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">
+                  ${esc(line.color || "")}${line.color && line.size ? " · " : ""}${esc(line.size || "")}
+                  ${line.sku ? ` · <span style="font-family:ui-monospace,monospace;">${esc(line.sku)}</span>` : ""}
+                </div>
+              </div>
+              <div style="text-align:right;white-space:nowrap;">
+                <div style="font-weight:700;">${currency}${line.lineTotal.toFixed(2)}</div>
+                <div style="font-size:11px;color:var(--text-tertiary);">${currency}${line.unitPrice.toFixed(2)} each</div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    // The note sits against ITS OWN LINE. Never pooled at the bottom.
+    if (line.buyerNote) {
+      const n = document.createElement("div");
+      n.style.cssText = "margin:10px 0 0 68px;padding:8px 10px;border-left:3px solid var(--accent-500,#54E5A0);background:var(--surface-2,rgba(84,229,160,.06));border-radius:0 6px 6px 0;";
+      n.innerHTML = `<div style="font-size:10px;font-weight:700;letter-spacing:.03em;color:var(--text-tertiary);margin-bottom:3px;">BUYER'S NOTE</div>` +
+                    `<div style="font-size:13px;line-height:1.5;white-space:pre-wrap;">${esc(line.buyerNote)}</div>`;
+      row.appendChild(n);
+    }
+
+    list.appendChild(row);
+  });
+  outlet.appendChild(list);
+
+  // ---- actions, unchanged from the list view -------------------------------
+  const actions = document.createElement("div");
+  actions.className = "no-print";
+  actions.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;";
+  const next = nextStatus(order.status);
+  if (next) {
+    const btn = document.createElement("button");
+    btn.className = "btn btn-primary";
+    btn.style.minHeight = "44px";
+    btn.textContent = `Mark ${next}`;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const { error } = await advanceOrderStatus(order.id, next);
+      if (error) { toast("Failed to update order status", { type: "danger" }); btn.disabled = false; return; }
+      toast(`Order marked ${next}`, { type: "success" });
+      outlet.innerHTML = "";
+      orderDetailView(outlet, orderId);
+    });
+    actions.appendChild(btn);
+  }
+  if (order.status === "confirmed" || order.status === "shipped") {
+    const pick = document.createElement("a");
+    pick.className = "btn btn-secondary";
+    pick.style.minHeight = "44px";
+    pick.href = `#/wholesaler/pick/${order.id}`;
+    pick.textContent = "Scan to pick";
+    actions.appendChild(pick);
+  }
+  outlet.appendChild(actions);
 }
 
 // One product panel opener, shared by Products and Catalogs.
@@ -4288,6 +4508,7 @@ export function registerWholesalerRoutes(router) {
   // work must not start returning nothing.
   router.register("/wholesaler/products", (outlet) => inventoryView(outlet, { tab: "products" }));
   router.register("/wholesaler/orders", (outlet) => ordersView(outlet));
+  router.register("/wholesaler/orders/:id", (outlet, params) => orderDetailView(outlet, params.id));
   router.register("/wholesaler/clients", (outlet) => clientsView(outlet));
   router.register("/wholesaler/team", (outlet) => teamView(outlet));
   router.register("/wholesaler/catalogs", (outlet) => catalogsView(outlet));

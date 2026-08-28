@@ -285,11 +285,22 @@ export function groupPackLines(items) {
       group = {
         isPack: true, packLineId: it.packLineId, packId: it.packId, packQty: it.packQty,
         productName: it.productName, components: [], lineTotal: 0,
+        // Migration 086. A pack is ONE line to the buyer and N rows underneath,
+        // and cart.js writes the buyer's note onto the FIRST component only.
+        // Without this line the collapse silently ate it: the note was stored
+        // correctly and simply never arrived on any screen -- the exact shape
+        // of the Batch-19 bug where the buyer's card fetched photography on
+        // every request and discarded it one line later.
+        buyerNote: null,
       };
       packGroups.set(it.packLineId, group);
       grouped.push(group);
     }
-    group.components.push({ sku: it.sku, color: it.color, size: it.size, qty: it.qty });
+    group.components.push({ sku: it.sku, color: it.color, size: it.size, qty: it.qty, buyerNote: it.buyerNote || null });
+    // First non-null wins, and it does not matter which row carries it: taking
+    // the first one FOUND rather than the first one WRITTEN means a change to
+    // component ordering upstream cannot lose the note.
+    if (!group.buyerNote && it.buyerNote) group.buyerNote = it.buyerNote;
     group.lineTotal += it.lineTotal;
   });
   return grouped;
