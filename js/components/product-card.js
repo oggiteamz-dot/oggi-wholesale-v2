@@ -534,9 +534,40 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   totalLine.className = "os-total";
   sheet.appendChild(totalLine);
 
+  // ---------------------------------------------------------------------
+  // THE CONTROL MOVED OFF THE FOOT AND ONTO THE ROW.       29 Aug 2026
+  // ---------------------------------------------------------------------
+  // Hadi, 28 Aug, on choosing the matrix as the ordering screen: "I don't
+  // like the idea that when they click, the number change appears at the
+  // bottom, because there's a very high chance that it might not be seen."
+  //
+  // He is right, and the reason is worse than "might not be seen". On a
+  // six-colour product the foot of the sheet sits roughly 250-300px below
+  // the cell being tapped, with the running total in between. On a phone
+  // that is frequently BELOW THE FOLD -- so the buyer taps a number,
+  // nothing visibly happens, and the honest conclusion to draw is that the
+  // app is broken. The original reasoning for a control that "never moves,
+  // so the thumb never hunts" was sound about the THUMB and wrong about
+  // the EYE: a control the eye cannot find is not found by the thumb either.
+  //
+  // So the pad is now inserted INTO the grid, as a full-width row directly
+  // beneath the colour being edited. It is created here and mounted by
+  // renderSizes() into the aimed row's own edit row; when nothing is aimed
+  // it is not in the document at all, and a single quiet line takes its
+  // place. Same element, same class names, same behaviour -- only its
+  // position in the document changes, which is why the 64 assertions on
+  // this component keep passing.
   const pad = document.createElement("div");
   pad.className = "os-pad";
-  sheet.appendChild(pad);
+
+  // Shown only when nothing is aimed. One line, not a bar: a permanent
+  // instruction is furniture the eye learns to skip, and then it is not
+  // read on the one occasion it matters.
+  const hint = document.createElement("div");
+  hint.className = "os-hint";
+  hint.textContent = "Tap any number to change it.";
+  sheet.appendChild(hint);
+
   sizeRow.appendChild(sheet);
   // The slot was a flex row of chips; the sheet is a block. Reset it rather
   // than leaving the old layout to squeeze the table.
@@ -731,6 +762,29 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
       }
       tr.appendChild(rt);
       tbody.appendChild(tr);
+
+      // The edit row, directly beneath the colour being changed. This is the
+      // whole point of the rework: the control appears where the finger just
+      // landed, not at the foot of the card.
+      if (aimed && (aimed.color || null) === (c.name || null)) {
+        const editTr = document.createElement("tr");
+        editTr.className = "os-editrow";
+        const td = document.createElement("td");
+        // +1 for the Total column, +1 more for the Colour column when there is
+        // one. Getting this wrong leaves a ragged table rather than a full-
+        // width control, which is exactly the kind of thing that looks like a
+        // rendering bug to whoever sees it first.
+        td.colSpan = allSizes.length + (hasColours ? 2 : 1);
+        // Sticky to the left of the horizontal scroller, so that on a product
+        // with more sizes than fit -- the case this grid exists for -- scrolling
+        // sideways to reach a size cannot scroll the control off the screen.
+        const stick = document.createElement("div");
+        stick.className = "os-editstick";
+        stick.appendChild(pad);
+        td.appendChild(stick);
+        editTr.appendChild(td);
+        tbody.appendChild(editTr);
+      }
     });
     grid.appendChild(tbody);
 
@@ -757,14 +811,19 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
     }
 
     sheetScroll.classList.toggle("os-wide", allSizes.length > 5);
+    hint.hidden = !!aimed;
     renderPad();
   }
 
   function renderPad() {
     pad.innerHTML = "";
     if (!aimed) {
+      // Not aimed means the pad is not in the document at all -- renderSizes
+      // only mounts it under the row being edited. The idle bar it used to
+      // draw here is gone; `hint` says the same thing in one line, above.
+      // Kept as a guard rather than deleted: renderPad is called from three
+      // places and a null-aimed call must not throw.
       pad.className = "os-pad os-pad-idle";
-      pad.innerHTML = `<div class="os-what"><b>Tap a box above</b><span>then use + and − here</span></div>`;
       return;
     }
     pad.className = "os-pad";
