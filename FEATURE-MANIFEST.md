@@ -219,15 +219,21 @@ broke · ❌ not built
 | 132 | **An empty or whitespace-only note is stored as no note at all** — otherwise a buyer who taps into the box and back out puts a blank grey box on the warehouse's sheet. Normalised on BOTH sides, because a client-side-only rule is not a rule | `086`, `js/data/cart.js` | `check_order_notes.sql` cases 5 and 6 | ✅ |
 | 133 | **Notes survive a page reload** — they live in the same `localStorage` cart as the quantities, and the order-level note beside it under its own key | `js/data/cart.js` | ⚠️ *(no automated assertion yet — the cart's persistence is covered, the note's is not. Marked unproven on purpose rather than claimed.)* | ⚠️ |
 | 134 | **The checkout signature did not lose a security parameter while gaining the note** — `p_account_id` (migration `024`, closes "submit an order as any buyer") and `p_catalog_id` (closes "name the deepest-discounted catalogue") both survive | `086` | `check_order_notes.sql` case 4 + five in-migration assertions. ⛔ **This is why `086` reads the installed body out of `pg_proc` instead of pasting a copy**: the newest `create or replace function v2_submit_order` in this repo declares SIX parameters and the live one has SEVEN — `p_catalog_id` was added by a body patch, invisible to grep. Anchoring on any file here would have silently dropped catalogue scoping, exactly as the 15 Aug draft would have dropped `p_account_id` | ✅ |
+| 135 | **The wholesaler can open ONE order and see all of it** — route `/wholesaler/orders/:id`, reached from an *Open order* button on each card. Before this the Orders tab was summary cards with **nothing to click**: name, date, status, total, and one comma-joined string | `js/views/wholesaler.js` `orderDetailView()`, `js/data/wholesaler-orders.js` `getWholesalerOrder()` | `check_order_detail.mjs` (20) | ✅ |
+| 136 | **A pack is shown as a pack AND exploded into the pieces to pick** — a warehouse cannot pick "2 × Boutique Pack"; it picks 2 small, 4 medium, 4 large. Both forms are rendered, always | `js/views/wholesaler.js` | `check_order_detail.mjs` — **red-proved** by replacing the component list with "(pack contents hidden)" and watching the gate fail | ✅ |
+| 137 | **Each buyer note renders against ITS OWN LINE**, never pooled at the bottom of the order. A note detached from the thing it is about is a note nobody acts on | `js/views/wholesaler.js` | `check_order_detail.mjs` | ✅ |
+| 138 | **The orders LIST shows the note's WORDS, not a badge saying one exists** — capped at three, then "+ N more". ⛔ Two separate documented failures are being avoided here: a Cin7 user asking verbatim for comments "on the list of SO's so that we don't have to open up each invoice", and the recurring Shopify complaint *"the icon is there but no note shown"* | `js/views/wholesaler.js` `ordersView()` | `check_order_detail.mjs` — asserts the text appears and that no bare has-a-note indicator is relied on | ✅ |
+| 139 | **The note survives the pack collapse** — a pack is one line to the buyer and N rows underneath, and the cart writes the note on the FIRST component only. `groupPackLines()` had no idea the field existed, so the note was **stored correctly and delivered nowhere** — the exact shape of the Batch-19 bug where the buyer's card fetched photography on every request and discarded it one line later | `js/data/prepacks.js` | `check_order_detail.mjs` — **red-proved** by deleting the carry line; also asserts the note is found when it sits on the SECOND row, so component order cannot lose it | ✅ |
+| 140 | **One order is read scoped by WID as well as by id** — an order id is a uuid, but "hard to guess" is not an access rule. Same shape as S10 and the discount defect S4 fixed: a caller-supplied id that nothing scoped to a tenant | `js/data/wholesaler-orders.js` | `check_order_detail.mjs` — **red-proved** by removing `.eq("wid", wid)` and watching the filter assertion fail | ✅ |
 
 ---
 
-## Reconciliation — 28 August 2026 (Batch S S0–S9, then Batch N step 1)
+## Reconciliation — 28 August 2026 (Batch S S0–S9, then Batch N steps 1–2)
 
 | | |
 |---|---|
-| Features listed | **134** |
-| Enforced and proven (✅) | **124** |
+| Features listed | **140** |
+| Enforced and proven (✅) | **130** |
 | Present but unproven (⚠️) | **10** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
