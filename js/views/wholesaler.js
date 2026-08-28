@@ -3,7 +3,7 @@ import { emptyState } from "../components/empty-state.js";
 import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 // (import from "../data/catalog.js" removed — every symbol it brought in was only used by renderRatioSection, deleted in CR-0001)
-import { getWholesalerOrders, getWholesalerOrder, advanceOrderStatus, nextStatus } from "../data/wholesaler-orders.js";
+import { getWholesalerOrders, getWholesalerOrder, advanceOrderStatus, nextStatus, setFulfilNote } from "../data/wholesaler-orders.js";
 import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate, setCatalogOnly, getStockStates } from "../data/products-admin.js";
 import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, getLocations } from "../data/inventory-admin.js";
 import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, setVariantRetailPrice, setVariantReorderSettings, setVariantBarcode, setVariantImages, getOrderMinimums, setOrderMinimums } from "../data/pricing-admin.js";
@@ -454,6 +454,59 @@ async function orderDetailView(outlet, orderId) {
     </div>`;
   outlet.appendChild(head);
 
+  // ---- Migration 087: the wholesaler's OWN note, to their warehouse -------
+  //
+  // Deliberately a different colour, a different label and a different side of
+  // the line from the buyer's note. Two authors, two audiences: one is a
+  // customer's request, the other is an internal instruction. If a future
+  // reader has to think for a second about which is which, this has failed.
+  function fulfilEditor(labelText, currentValue, itemId) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "margin:10px 0 0 0;padding:10px 12px;border-left:3px solid var(--warning-500,#d9a521);background:var(--surface-2,rgba(217,165,33,.07));border-radius:0 6px 6px 0;";
+
+    const label = document.createElement("div");
+    label.style.cssText = "font-size:10px;font-weight:700;letter-spacing:.03em;color:var(--text-tertiary);margin-bottom:4px;";
+    label.textContent = labelText;
+
+    const ta = document.createElement("textarea");
+    ta.className = "input";
+    ta.rows = 1;
+    ta.placeholder = "e.g. pull from the back stock";
+    ta.value = currentValue || "";
+    ta.style.cssText = "width:100%;min-height:36px;resize:vertical;font-size:13px;line-height:1.45;";
+    ta.setAttribute("aria-label", labelText);
+    const grow = () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`; };
+    ta.addEventListener("input", grow);
+    requestAnimationFrame(grow);
+
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:11px;color:var(--text-tertiary);margin-top:4px;min-height:14px;";
+
+    let lastSaved = currentValue || "";
+    ta.addEventListener("blur", async () => {
+      const next = ta.value.trim();
+      if (next === lastSaved) { hint.textContent = ""; return; }
+      hint.style.color = "var(--text-tertiary)";
+      hint.textContent = "Saving…";
+      const result = await setFulfilNote(order.id, next, itemId);
+      if (!result.ok) {
+        // Never fail silently. A note the wholesaler believes their warehouse
+        // will read, that was never stored, is worse than no field at all.
+        hint.style.color = "var(--danger,#c33)";
+        hint.textContent = result.error?.message || "That note could not be saved — please try again.";
+        return;
+      }
+      lastSaved = next;
+      hint.textContent = next ? "Saved. Only your team sees this." : "Note cleared.";
+      setTimeout(() => { hint.textContent = ""; }, 2500);
+    });
+
+    wrap.appendChild(label);
+    wrap.appendChild(ta);
+    wrap.appendChild(hint);
+    return wrap;
+  }
+
   // ---- the buyer's note about the WHOLE order -----------------------------
   if (order.notes) {
     const on = document.createElement("div");
@@ -464,6 +517,13 @@ async function orderDetailView(outlet, orderId) {
       <div style="font-size:14px;line-height:1.55;white-space:pre-wrap;">${esc(order.notes)}</div>`;
     outlet.appendChild(on);
   }
+
+  // The wholesaler's instruction for the order as a whole.
+  const orderFulfil = document.createElement("div");
+  orderFulfil.className = "card";
+  orderFulfil.style.cssText = "padding:14px 16px;margin-bottom:14px;";
+  orderFulfil.appendChild(fulfilEditor("YOUR NOTE TO THE WAREHOUSE — THE BUYER NEVER SEES THIS", order.fulfilNote, null));
+  outlet.appendChild(orderFulfil);
 
   // ---- every line ---------------------------------------------------------
   const list = document.createElement("div");
@@ -535,6 +595,11 @@ async function orderDetailView(outlet, orderId) {
                     `<div style="font-size:13px;line-height:1.5;white-space:pre-wrap;">${esc(line.buyerNote)}</div>`;
       row.appendChild(n);
     }
+
+    // ...and the wholesaler's own instruction for this line, underneath it.
+    const fw = fulfilEditor("YOUR NOTE TO THE WAREHOUSE", line.fulfilNote, line.itemId);
+    fw.style.marginLeft = "68px";
+    row.appendChild(fw);
 
     list.appendChild(row);
   });

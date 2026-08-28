@@ -110,6 +110,11 @@ export async function getWholesalerOrder(wid, orderId) {
       || null,
     packId: it.pack_id, packLineId: it.pack_line_id, packQty: it.pack_qty,
     buyerNote: it.buyer_note || null,
+    // Migration 087 -- the wholesaler's own instruction to their warehouse.
+    // A DIFFERENT field from buyerNote, deliberately, all the way up.
+    fulfilNote: it.fulfil_note || null,
+    // The row id, so a fulfilment note can be written against one line.
+    itemId: it.id,
   }));
 
   return {
@@ -118,6 +123,7 @@ export async function getWholesalerOrder(wid, orderId) {
     createdAt: o.created_at, updatedAt: o.updated_at || null,
     clientId: o.client_id || null, locationId: o.location_id || null,
     catalogId: o.catalog_id || null,
+    fulfilNote: o.fulfil_note || null,
     // Both shapes, deliberately. `items` is the collapsed view a human reads
     // ("2 x Boutique Pack"); `rawLines` is every real row, which is what a
     // warehouse actually picks. A pack shown only as a pack tells the person
@@ -125,6 +131,28 @@ export async function getWholesalerOrder(wid, orderId) {
     items: groupPackLines(lines),
     rawLines: lines,
   };
+}
+
+/** Migration 087 -- write the wholesaler's instruction to their warehouse.
+ *
+ * Always through the RPC, never a direct table write. The RPC re-checks that
+ * this caller owns the order INSIDE itself, which is the only thing standing
+ * between a caller and another wholesaler's order: it is SECURITY DEFINER, so
+ * it runs as its owner and neither a grant nor RLS on the table underneath is
+ * consulted.
+ *
+ * Pass itemId to write against one line; omit it for the order as a whole.
+ */
+export async function setFulfilNote(orderId, note, itemId) {
+  const { error } = await sbCall(
+    supabase.rpc("v2_set_fulfil_note", {
+      p_order_id: orderId,
+      p_note: note && note.trim() ? note.trim() : null,
+      p_item_id: itemId ?? null,
+    })
+  );
+  if (error) return { ok: false, error };
+  return { ok: true };
 }
 
 export async function advanceOrderStatus(orderId, toStatus) {

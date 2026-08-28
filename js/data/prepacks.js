@@ -292,15 +292,24 @@ export function groupPackLines(items) {
         // of the Batch-19 bug where the buyer's card fetched photography on
         // every request and discarded it one line later.
         buyerNote: null,
+        // Migration 087. Same reasoning as buyerNote: the collapse must not
+        // eat the wholesaler's instruction either. itemId comes with it so a
+        // note can be written back against a real row.
+        fulfilNote: null,
+        itemId: null,
       };
       packGroups.set(it.packLineId, group);
       grouped.push(group);
     }
-    group.components.push({ sku: it.sku, color: it.color, size: it.size, qty: it.qty, buyerNote: it.buyerNote || null });
+    group.components.push({ sku: it.sku, color: it.color, size: it.size, qty: it.qty, buyerNote: it.buyerNote || null, imageUrl: it.imageUrl || null });
     // First non-null wins, and it does not matter which row carries it: taking
     // the first one FOUND rather than the first one WRITTEN means a change to
     // component ordering upstream cannot lose the note.
     if (!group.buyerNote && it.buyerNote) group.buyerNote = it.buyerNote;
+    if (!group.fulfilNote && it.fulfilNote) group.fulfilNote = it.fulfilNote;
+    // The pack writes its fulfilment note against its FIRST row, mirroring how
+    // the cart stores the buyer's note.
+    if (group.itemId == null && it.itemId != null) group.itemId = it.itemId;
     group.lineTotal += it.lineTotal;
   });
   return grouped;

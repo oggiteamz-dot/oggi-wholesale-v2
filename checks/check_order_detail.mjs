@@ -154,9 +154,25 @@ ok(/components\.map/.test(detail) && /to pick/.test(detail) && /pieces<\/strong>
 ok(/getWholesalerOrder\(wid, orderId\)/.test(detail),
    "the detail view uses the wid-scoped read, not a read by id alone");
 // The list must show the note text itself, not a badge saying one exists.
+// Migration 087 -- the second track. The risk of the wholesaler's own note is
+// entirely that it becomes confusable with, or merged into, the buyer's.
+ok(/fulfilEditor/.test(detail), "the detail view offers a fulfilment-note editor");
+ok(/YOUR NOTE TO THE WAREHOUSE/.test(detail) && /BUYER'S NOTE/.test(detail),
+   "the two note tracks carry DIFFERENT labels — a reader never has to work out which is which");
+ok(/THE BUYER NEVER SEES THIS/.test(detail),
+   "the wholesaler is told, on screen, that their note is internal");
+ok(/setFulfilNote\(order\.id/.test(detail),
+   "the fulfilment note is written through the RPC, never a direct table write");
+ok(/line\.fulfilNote/.test(detail) && /line\.buyerNote/.test(detail),
+   "both tracks are read from SEPARATE fields on the line");
+ok(!/buyerNote\s*\|\|\s*line\.fulfilNote|fulfilNote\s*\|\|\s*line\.buyerNote/.test(detail),
+   "neither track ever falls back to the other — a fallback is how they merge");
+
 const listView = src.slice(src.indexOf("async function ordersView"), src.indexOf("async function orderDetailView"));
 ok(/WHAT THE BUYER ASKED FOR/.test(listView), "the orders LIST previews the note text");
 ok(!/notes-badge|has-note-icon/.test(listView), "the list does not rely on a bare 'a note exists' indicator");
+ok(!/fulfilNote/.test(listView),
+   "the orders LIST previews only the BUYER's note — the internal one is not spilled onto a shared screen");
 
 console.log("\n  ORDER DETAIL — one order, in full\n" + "-".repeat(64));
 pass.forEach((m) => console.log("  ✓ " + m));
