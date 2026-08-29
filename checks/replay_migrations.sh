@@ -155,12 +155,23 @@ echo "   shape=$shape"
 # `shape` is the sharper half: an md5 over every table, view and function
 # SIGNATURE in the schema. A substitution that happens to preserve the counts
 # still moves it.
-EXP_T=89 EXP_V=4 EXP_F=94 EXP_P=89
-EXP_SHAPE=7378e64d507190e6890803032ce52fbf   # production, 23 Aug 2026 (migration 079 added three functions)
+# Production, re-measured 29 Aug 2026, immediately after migrations 088 and 089
+# were applied through the Supabase MCP.
+#
+# THE PREVIOUS BASELINE (89/4/94/89, shape 7378e64d...) HAD GONE STALE and this
+# gate was crying wolf: it printed "differs from the production baseline" on a
+# repo that was, in fact, exactly correct. Before moving it, the repo replayed
+# to migration 087 was compared against live production and matched on all four
+# counts AND on the shape hash (473574a633e6b267b43baa73c766977a) -- which is
+# what proves the repo and production had NOT diverged, and that 088 and 089
+# were precisely the two migrations outstanding. Moving a baseline without that
+# comparison first is just silencing the alarm.
+EXP_T=90 EXP_V=4 EXP_F=114 EXP_P=90
+EXP_SHAPE=a454ed42bb81aeaccc7fd3eb82a3196d   # production, 29 Aug 2026, verified identical to a full 91-migration replay
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
-  echo "   MATCHES the 23 Aug 2026 production baseline exactly, shape included."
+  echo "   MATCHES the 29 Aug 2026 production baseline exactly, shape included."
 else
-  echo "   !! differs from the 23 Aug 2026 production baseline"
+  echo "   !! differs from the 29 Aug 2026 production baseline"
   echo "      expected tables=$EXP_T views=$EXP_V functions=$EXP_F policies=$EXP_P"
   echo "      Either a migration was applied to production without a file (check"
   echo "      supabase_migrations.schema_migrations against supabase/migrations/),"
