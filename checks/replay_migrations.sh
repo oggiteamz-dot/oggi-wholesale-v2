@@ -166,12 +166,22 @@ echo "   shape=$shape"
 # what proves the repo and production had NOT diverged, and that 088 and 089
 # were precisely the two migrations outstanding. Moving a baseline without that
 # comparison first is just silencing the alarm.
-EXP_T=96 EXP_V=4 EXP_F=122 EXP_P=96
-EXP_SHAPE=4c10c16612bcfc8ae0c44fe80ad0943b   # production, 29 Aug 2026, after 094; verified identical to a full 96-migration replay
+# Moved 30 Aug 2026, after 095 (recovered) and 096 (the marketplace front door).
+# Moved in the ONLY order that makes moving a baseline legitimate: the 98-migration
+# replay was run into an empty Postgres FIRST, and the hash below is the one it
+# produced; production was then measured and produced the same hash. The baseline
+# follows the evidence rather than silencing the alarm.
+#   096 adds 2 tables (v2_person_credentials, v2_buyer_sessions) and 6 functions
+#   (marketplace_login, session_person, session_stores, session_account,
+#   session_logout, set_marketplace_password). Policies are unchanged at 96 on
+#   purpose: both new tables have RLS ON and NO policy, so a direct read by the
+#   browser roles returns nothing rather than everything.
+EXP_T=98 EXP_V=4 EXP_F=129 EXP_P=96
+EXP_SHAPE=b1d0223524e93681852ea861f59053c6   # replay of 98 migrations AND production, 30 Aug 2026 -- measured on both sides before this line moved
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
-  echo "   MATCHES the 29 Aug 2026 production baseline exactly, shape included."
+  echo "   MATCHES the 30 Aug 2026 production baseline exactly, shape included."
 else
-  echo "   !! differs from the 29 Aug 2026 production baseline"
+  echo "   !! differs from the 30 Aug 2026 production baseline"
   echo "      expected tables=$EXP_T views=$EXP_V functions=$EXP_F policies=$EXP_P"
   echo "      Either a migration was applied to production without a file (check"
   echo "      supabase_migrations.schema_migrations against supabase/migrations/),"
