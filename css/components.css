@@ -2721,3 +2721,71 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 .inv-msg { font-size: 13px; color: var(--danger-700); background: var(--danger-50);
   border-radius: 8px; padding: 8px 10px; }
 .inv-go { min-height: 48px; font-size: 15px; }
+
+/* ============================================================================
+   THE WHOLESALER DIRECTORY — DR-01..DR-05, 29 Aug 2026
+   ============================================================================
+   A card per wholesaler: a mark, a name, what they sell, and one control whose
+   label always matches what pressing it will do. The access state is on the
+   <article> as data-access so the gate can assert on it without reading copy —
+   an assertion that greps for the words on a button breaks the moment the
+   wording improves, which teaches people to stop improving wording.        */
+.dir-wrap { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.dir-search { display: flex; gap: var(--space-2); align-items: center; }
+.dir-search input {
+  flex: 1 1 auto; min-width: 0;
+  padding: var(--space-3); font-size: 16px;   /* 16px: iOS zooms below this */
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--bg-surface); color: var(--text-primary);
+}
+.dir-search input:focus-visible { outline: 2px solid var(--brand-emerald); outline-offset: 1px; }
+
+.dir-grid {
+  display: grid; gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.dir-card {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-default); border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+/* The store you are already in is the one you came here to open. */
+.dir-card[data-access="member"] { border-color: var(--brand-emerald); }
+
+.dir-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+.dir-mark {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: var(--radius-md);
+  display: grid; place-items: center; overflow: hidden;
+  background: var(--brand-tint); color: var(--brand-emerald-deep);
+  font-weight: 700; font-size: 18px;
+}
+.dir-mark img { width: 100%; height: 100%; object-fit: cover; }
+.dir-titles { flex: 1 1 auto; min-width: 0; }
+.dir-name  { margin: 0; font-size: 16px; line-height: 1.25; }
+.dir-brand { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+.dir-chip {
+  flex: 0 0 auto; font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+}
+.dir-chip-member  { background: var(--success-50); color: var(--success-700); }
+.dir-chip-pending { background: var(--warning-50); color: var(--warning-700); }
+
+.dir-cats { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.dir-cats li {
+  font-size: 12px; padding: 3px 8px; border-radius: 999px;
+  background: var(--bg-surface-2); color: var(--text-secondary);
+}
+.dir-cats .dir-cat-none { background: none; padding-left: 0; font-style: italic; }
+
+.dir-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-2); }
+.dir-foot .btn, .dir-foot .dir-open { align-self: flex-start; }
+.dir-waiting { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.dir-msg { margin: 0; font-size: 13px; min-height: 0; }
+.dir-msg:empty { display: none; }
+.dir-msg-ok { color: var(--success-700); }
+.dir-msg-no { color: var(--danger-700); }
+.dir-loading { color: var(--text-secondary); font-size: 14px; }

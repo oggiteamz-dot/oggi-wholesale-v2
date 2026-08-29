@@ -84,16 +84,28 @@ export const NAV_BY_ROLE = {
     { icon: "🧺", label: "Cart", path: "/buyer/cart" },
     { icon: "📦", label: "My Orders", path: "/buyer/orders" },
     { icon: "★", label: "Favourites", path: "/buyer/favourites" },
-    // "Suppliers" removed 18 Aug 2026. It led to a grid of every wholesaler on
-    // the platform by brand name -- OGGI's entire client list, shown to every
-    // buyer. The /buyer/suppliers ROUTE still exists and explains itself (see
-    // js/views/buyer.js) so an installed PWA with the old tab cached does not
-    // land on a 404; it simply has no entry in the navigation any more.
+    { icon: "🏬", label: "Wholesalers", path: "/buyer/wholesalers" },
+    // ⚠️ READ THIS BEFORE CHANGING THE LINE ABOVE.
     //
-    // Its replacement is the Marketplace: products from many wholesalers, no
-    // wholesaler names anywhere, all of it presented as OGGI. When that ships
-    // it is added HERE, as a new item, and Gate 2 picks it up on both the
-    // desktop sidebar and the phone bar automatically.
+    // "Suppliers" was removed from here on 18 Aug 2026, and the note that stood
+    // in its place said the replacement would be "the Marketplace: products
+    // from many wholesalers, NO WHOLESALER NAMES ANYWHERE, all of it presented
+    // as OGGI." That is no longer the product.
+    //
+    // Hadi reversed it on 28 Aug 2026: buyers see wholesalers BY NAME, can
+    // search for one, and can ask for access. It is the decision that makes a
+    // marketplace possible -- an anonymous grid of products cannot answer "who
+    // am I buying this from", which is the first question a shop asks.
+    //
+    // The original objection was real and is ANSWERED rather than dismissed.
+    // The worry was "OGGI's entire client list, shown to every buyer". What is
+    // shown now is a name and the categories they sell. Products, prices and
+    // even a product COUNT are absent from the answer, and migration 091
+    // asserts there is nowhere in its return type to put one (DR-05).
+    //
+    // The old /buyer/suppliers route still resolves, so an installed PWA with
+    // the stale tab cached lands on the real directory instead of a placeholder
+    // that says the feature is coming.
   ],
 };
 
@@ -149,6 +161,8 @@ export const SHORT_LABEL = {
   "/sales/visits": "Visits",
   "/wholesaler/locations": "Places",
   "/buyer/favourites": "Saved",
+  // "Wholesalers" is 11 characters and ellipsises in a 5-slot bar at 375px.
+  "/buyer/wholesalers": "Stores",
   "/buyer": "Catalog",
   // "Dashboard" ellipsises in a 5-slot bar at 375px once the active tab
   // takes its heavier weight. Measured, not guessed.

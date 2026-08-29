@@ -440,3 +440,51 @@ failures, which reads exactly like *"the gate does not cover this."* It nearly
 went into this document as a discovered hole in the gate. It was not a hole;
 it was a broken proof. **A red proof that produces no failures has not proven
 the gate is blind — it has to be shown to have run at all first.**
+
+---
+
+## DR-01 — the directory replaces a placeholder, and a stale note
+
+**Date:** 29 Aug 2026
+**Gate 1 report:** `js/lib/nav-config.js +23/−9`, `js/views/buyer.js +11/−10`
+
+**Nothing was lost. Two things that were no longer true were removed.**
+
+### 1. `js/views/buyer.js` — a screen that promised a feature it now has
+
+`suppliers()` rendered an empty state: *"One account, one supplier … Browsing
+products across multiple suppliers is coming to OGGI as the Marketplace."*
+
+That stopped being true the moment the directory shipped. The route is kept —
+an installed PWA with the old tab cached must not land on a 404 — but it now
+delegates to `directoryView()` rather than showing a promise the product has
+already kept. It **delegates rather than duplicating**: two screens that must
+stay identical are two screens that will not.
+
+### 2. `js/lib/nav-config.js` — a comment that contradicted the product
+
+The removed nine lines said the replacement for "Suppliers" would be *"the
+Marketplace: products from many wholesalers, **no wholesaler names anywhere**,
+all of it presented as OGGI."*
+
+**Hadi reversed that on 28 Aug 2026.** Buyers see wholesalers by name, can
+search for one, and can ask for access. It is the decision that makes a
+marketplace possible at all — an anonymous grid of products cannot answer *"who
+am I buying this from"*, which is the first question a shop asks.
+
+The replacement comment is longer than what it replaced (hence +23/−9) because
+it records **the reversal, who made it, and how the original objection is
+answered rather than dismissed**. The 18 Aug worry was real: "OGGI's entire
+client list, shown to every buyer." What is shown now is a name and the
+categories they sell. Products, prices and even a product *count* are absent,
+and migration 091 asserts there is nowhere in the return type to put one.
+
+A comment that contradicts the code is how a false claim survives three
+rewrites — this repo has already had to correct one such line in CLAUDE.md this
+week. Leaving it in place while shipping the opposite would have been worse
+than deleting it silently.
+
+**Gated:** `check_wholesaler_directory.mjs` asserts the old placeholder text is
+gone, that `/buyer/suppliers` renders the real directory, and that the reversal
+is recorded in `nav-config.js` — so a future editor cannot quietly restore the
+stale claim.
