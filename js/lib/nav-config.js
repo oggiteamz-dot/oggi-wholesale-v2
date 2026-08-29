@@ -84,6 +84,10 @@ export const NAV_BY_ROLE = {
     { icon: "🧺", label: "Cart", path: "/buyer/cart" },
     { icon: "📦", label: "My Orders", path: "/buyer/orders" },
     { icon: "★", label: "Favourites", path: "/buyer/favourites" },
+    { icon: "🔍", label: "Search", path: "/buyer/search" },
+    // Cross-store search (SR-01). Its own entry rather than a box on the
+    // Catalog, because it deliberately reaches ACROSS stores and the Catalog
+    // is one store — putting it there would imply a scope it does not have.
     { icon: "🏬", label: "Wholesalers", path: "/buyer/wholesalers" },
     // ⚠️ READ THIS BEFORE CHANGING THE LINE ABOVE.
     //
@@ -163,6 +167,7 @@ export const SHORT_LABEL = {
   "/buyer/favourites": "Saved",
   // "Wholesalers" is 11 characters and ellipsises in a 5-slot bar at 375px.
   "/buyer/wholesalers": "Stores",
+  "/buyer/search": "Search",
   "/buyer": "Catalog",
   // "Dashboard" ellipsises in a 5-slot bar at 375px once the active tab
   // takes its heavier weight. Measured, not guessed.
