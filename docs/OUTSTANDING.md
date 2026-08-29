@@ -147,10 +147,26 @@ silently. In rough order of what it would cost if it broke:
 
 ---
 
-## 5a. ASKED FOR AND NOT YET BUILT — advertising, run by Hadi himself
+## 5a. DEFERRED TO AFTER LAUNCH — advertising, run by Hadi himself
 
 **Hadi, 30 August 2026:** *"give me the ability to set and create ads through
 the owner's console."*
+
+**And an hour later, same day — DEFERRED BY HADI:** *"scrap the ads thing until
+we fully launch this. This is going to be part of the update feature."*
+
+So this is not the next thing, and it is not a gap in the launch. It is a
+POST-LAUNCH item, and it is written down in full below anyway — the request was
+specific, the reasoning behind the eight open decisions does not expire, and a
+thing agreed in conversation and not written down is a thing that quietly does
+not happen. When the update set is planned, this section is the starting point
+and does not need to be re-derived from memory.
+
+Nothing in the launch build depends on it. The recommendation shelves already
+shipped (RC-01, RC-02) are asserted NEVER to read the promotion table, and
+those assertions stay exactly as they are: advertising, when it comes, gets its
+own labelled surface rather than being mixed into a shelf that claims to be
+earned.
 
 Written here the hour it was said, because the paid feed is currently a
 half-decision that lives in two places and neither of them is a screen.
@@ -196,9 +212,10 @@ Not one feature. At least these, and each is a decision Hadi owns:
 
 ### Where it sits in the order
 
-Hadi's stated order on 30 August put the paid-feed items (PB-01/02/03) after
-the access-control work and before Phase 7. This request is the owner-console
-half of those items and belongs with them, not ahead of them. It is written
+AFTER LAUNCH, by Hadi's own instruction on 30 August. Within the pre-launch
+order he gave that day, the paid-feed items (PB-01/02/03) sat after the
+access-control work and before Phase 7; that whole group now moves behind the
+launch, and this request is the owner-console half of it. It is written
 here so that when PB-01 comes up, it comes up as "Hadi asked to run these
 himself from the console", not as a table nobody can reach.
 
