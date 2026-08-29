@@ -94,6 +94,8 @@ const { orderLink, whatsappHref } = await import("../js/data/order-handoff.js");
 
   ok(isPublicPath("/o/abc123") === true, "an order link is a public path");
   ok(isPublicPath("/c/abc123") === true, "a catalogue link is a public path");
+  ok(isPublicPath("/i/abc123") === true, "and an invitation is too — the person holding one has no account, which is the point");
+  ok(isPublicPath("/i/") === false, "a token-less /i/ is not, so it cannot open an empty invitation");
   ok(isPublicPath("/wholesaler/orders") === false, "a wholesaler screen is not");
   ok(isPublicPath("/o/") === false, "and a token-less /o/ is not, so it cannot open an empty sheet");
   ok(/router\.register\(\s*["']\/o\/:token["']/.test(pub), "the route itself is /o/:token");
@@ -207,6 +209,92 @@ const ITEMS = [
      "and a line is row-atomic — a picking sheet that splits a size from its quantity across a page break gets picked wrong");
   ok(/\.po-actions\s*\{\s*display:\s*none|\.no-print,\s*\.po-actions\s*\{\s*display:\s*none/.test(printBlock.replace(/\n/g, " ")),
      "and the buttons do not print");
+}
+
+// ============================ DOOR A: accepting an invitation ==============
+// The page an invited shop lands on from a WhatsApp message, with no account.
+//
+// The assertions that matter are about what it says when things are NOT fine.
+// A dead invitation must say WHICH KIND of dead, because each kind tells the
+// shop something they can act on — which is the OPPOSITE of the order sheet,
+// deliberately: an order link may be in a stranger's hands, so a dead one and
+// a fake one must read alike. An invitation is held by someone the wholesaler
+// chose to contact.
+{
+  const { inviteView } = await import("../js/views/public-order.js");
+
+  // ---- a live invitation ----
+  setRpc([{ status: "ok", wholesaler_name: "SQUARE Denim", shop_name: "Maison Rita" }]);
+  const outlet = document.createElement("div");
+  document.body.appendChild(outlet);
+  await inviteView(outlet, { token: "tok" });
+  const t = text(outlet);
+
+  ok(/SQUARE Denim/.test(t),
+     "it names who invited them, first — a link arriving on WhatsApp with no context is a link nobody taps");
+  const form = outlet.querySelector("form");
+  ok(!!form, "there is a form to accept it");
+  ok(!!form && form.querySelectorAll("input").length === 3,
+     `and it asks for exactly three things (got ${form ? form.querySelectorAll("input").length : 0}) — every field is a place to leave`);
+  const fShop = form && form.querySelector('[name="shop"]');
+  const fUser = form && form.querySelector('[name="username"]');
+  const fPass = form && form.querySelector('[name="password"]');
+  ok(!!fShop && fShop.value === "Maison Rita",
+     "the shop name the wholesaler already typed is filled in, so they do not retype what we know");
+  ok(!!fPass && fPass.type === "password",
+     "the password field is a password field");
+  ok(!!fUser && fUser.getAttribute("autocapitalize") === "none",
+     "and the username field does not autocapitalise — a phone keyboard would otherwise capitalise it and the login would fail later, silently");
+  ok(/Nothing is paid here/i.test(t),
+     "it says plainly that nothing is paid — Hadi, 24 Aug: 'no money will be paid through this app'");
+
+  // ---- the form refuses BEFORE the network, and names the field ----
+  // Guarded: without this the whole gate THROWS on a missing field and reports
+  // none of the findings above it -- the crash-instead-of-report trap.
+  if (!fShop || !fUser || !fPass) {
+    fail.push("the invitation form is missing one of its three fields, so the rest of this block could not run");
+  } else {
+  fShop.value = ""; fUser.value = "ab"; fPass.value = "123";
+  form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  const m = outlet.querySelector('[data-slot="msg"]');
+  ok(!!m && /shop/i.test(text(m)),
+     "an empty shop name is refused by name, not by a generic complaint");
+
+  fShop.value = "Maison Rita";
+  form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  ok(!!m && /username/i.test(text(m)), "a short username is refused by name");
+
+  fUser.value = "maisonrita";
+  form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  ok(!!m && /password/i.test(text(m)), "and a short password is refused by name");
+  }
+
+  // ---- each kind of dead reads differently ----
+  const kinds = [
+    ["withdrawn", /withdrawn/i, "a withdrawn invitation says it was withdrawn"],
+    ["used",      /already been used/i, "an already-used one says so, and tells them what to do if it was not them"],
+    ["expired",   /expired/i, "an expired one says so, and that a new link takes a moment"],
+    ["not_found", /doesn't work/i, "and an invented link says only that it does not work"],
+  ];
+  for (const [status, re, label] of kinds) {
+    setRpc([{ status, wholesaler_name: "SQUARE Denim", shop_name: "Maison Rita" }]);
+    const o = document.createElement("div");
+    await inviteView(o, { token: "x" });
+    ok(re.test(text(o)), label);
+    ok(text(o).length > 40 && !/error|failed|invalid/i.test(text(o)),
+       `and "${status}" never uses the word error — it says what happened and what to do next`);
+  }
+
+  // The distinction from the order sheet, asserted so nobody "harmonises" them.
+  setRpc([{ status: "withdrawn", wholesaler_name: "SQUARE Denim", shop_name: "" }]);
+  const a = document.createElement("div"); await inviteView(a, { token: "x" });
+  setRpc([{ status: "not_found" }]);
+  const b = document.createElement("div"); await inviteView(b, { token: "x" });
+  ok(text(a).trim() !== text(b).trim(),
+     "a withdrawn invitation and an invented one read DIFFERENTLY — unlike an order link, where they must read alike");
 }
 
 console.log(pass.map((m) => `  ✓ ${m}`).join("\n"));

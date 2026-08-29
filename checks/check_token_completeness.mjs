@@ -113,8 +113,19 @@ if (added.length) {
 // --- CHECK 2: no stylesheet references a token that does not exist ----------
 // The inverse mistake: a rule using var(--brand-ink) when nobody defined it.
 const dangling = new Map();
+// A token named inside a /* comment */ is NOT a usage. The browser never
+// resolves it, so it cannot collapse a padding or lose a colour -- and this
+// gate exists to catch things that break the rendered page, not things that
+// appear in prose. This matters because the honest way to record a token
+// decision is to write down the wrong version next to the right one
+// ("this said var(--danger, #b42318); --danger has never existed here"), and
+// a scanner that reads comments punishes exactly that documentation. Stripping
+// comments first costs the gate nothing: CHECK 2 below still sees every live
+// var() reference, as the red proof in checks/GATE-EVIDENCE.md shows.
+const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, " ");
+
 for (const file of readdirSync(CSS_DIR).filter((f) => f.endsWith(".css"))) {
-  const css = readFileSync(join(CSS_DIR, file), "utf8");
+  const css = stripComments(readFileSync(join(CSS_DIR, file), "utf8"));
   for (const m of css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*(?:,|\))/g)) {
     const name = m[1];
     if (!defined.has(name)) {

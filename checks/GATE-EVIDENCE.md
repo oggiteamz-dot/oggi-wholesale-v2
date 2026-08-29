@@ -452,3 +452,79 @@ Gate 4 (18 contrast pairs), Gate 5 (86 tokens), Gate 6 (15 controls at 44px),
 tag input (13), escaping (13), image downscale (8).
 
 Screenshot of the replacement screen: `checks/screenshots/suppliers-mobile.png`.
+
+---
+
+# 29 Aug 2026 — `check_pack_moq.sh` was reporting 8/11 on a stale fixture
+
+**This gate had not been able to test its own acceptance half for weeks, and
+said so in a way that read like the opposite.**
+
+Running the suite for the Door A branch, three cases failed:
+
+```
+  FAIL  a genuine pack IS accepted below per-SKU minimums    expected ACCEPTED
+  FAIL  3 genuine packs (quantities scale correctly)         expected ACCEPTED
+  FAIL  ordinary order meeting the minimum                   expected ACCEPTED
+```
+
+Read at face value that says **the MOQ rule is refusing legitimate orders** —
+about as alarming as this product gets. It was not true. The fixture had
+fallen behind the schema in three separate places, each one killing the order
+*before* any MOQ logic was consulted:
+
+| # | what the server actually said | why |
+|---|---|---|
+| 1 | `null value in column "location_id"` | migration 047 made every order carry a location; the check still passed `null` |
+| 2 | `reservation not active or not found` | `v2_submit_order` confirms a reservation per line; the check never made one |
+| 3 | `null value in column "unit_price"` | the seeded SKUs had no price, so `v2_effective_unit_price` returned null |
+
+Each was uncovered only by fixing the one before it — three failures wearing
+one costume.
+
+**Proven not to be a regression from this branch.** The chain was replayed to
+087, without migrations 088 and 089, into a separate database, and produced
+the *identical* 8 pass / 3 fail. The drift is older than this work.
+
+**The fix does not touch the rules, only the fixture and the harness:**
+`checks/seed.sql` gained a default location, stock balances of 1000/SKU, and a
+price; `accepted_case()` now reserves each line inline (exactly the cart step a
+real buyer performs before checkout) and passes the real location. The eight
+rejection cases are untouched and still pass `null` deliberately — those orders
+must die on the MOQ rule, and each asserts its exact reason string, so a
+not-null error would surface as *"rejected for the WRONG reason"* rather than
+sneaking through as a pass.
+
+**Red-proved, twice, and the two proofs are complementary:**
+
+| red proof | failures | which cases fell |
+|---|---|---|
+| per-SKU minimum raised to 9999 | 2 of 11 | *ordinary order meeting the minimum* (+ the reason string of the below-minimum case) — both pack cases stayed green, which is correct: **packs are exempt from per-SKU minimums, and that exemption is the feature** |
+| pack composition corrupted by +1 | 2 of 11 | both *genuine pack* cases — the ordinary order stayed green, untouched by pack rules |
+
+Neither proof moves the cases the other moves. That is the evidence that each
+acceptance case is wired to the specific rule it names, rather than to "an
+order can be submitted at all".
+
+**The general lesson, which is the same one this file keeps recording:** a gate
+that cannot distinguish *"the rule is broken"* from *"I could not ask the
+question"* is worse than no gate. The preflight added in Batch 7 catches a
+missing database. It did not catch a database that was present and answering,
+but whose fixture no longer satisfied constraints added after it was written.
+
+**Two further defects were found in this gate while repairing it, both of the
+same family — a check that quietly stops checking:**
+
+1. **The fixture is consumable.** A confirmed reservation decrements
+   `qty_on_hand` permanently, so each run of this file eats ~64 units. Seeded
+   once at 1000, it would have worked about fifteen times and then begun
+   reporting `SETUP FAILED` — a fuse lit by the check itself, which would have
+   gone off weeks later with nothing in the output to connect it to its cause.
+   `preflight()` now tops the balances up to a known level before asserting.
+   Proven by running the file three times consecutively (11/11 each) where the
+   third run would previously have started from depleted stock.
+
+2. **The top-up must not become the mask.** A blind `update` would make the
+   stock assertion unfalsifiable. It is written so that it touches zero rows
+   when the balances do not exist at all: deleting every row from
+   `v2_inventory_balances` still exits 2 with *"lowest SKU stock: 0"*. Proven.
