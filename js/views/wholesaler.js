@@ -16,6 +16,7 @@ import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, s
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
 // AC-01, 28 Aug 2026 — the wholesaler's own access-request queue.
 import { listMySignupRequests, countMyPendingRequests, approveMySignupRequest, rejectMySignupRequest } from "../data/wholesaler-admin.js";
+import { getVisibilityMirror, getVisibilityQueries } from "../data/visibility.js";
 // Batch N step 4, 28 Aug 2026 — handing one order to someone outside the app.
 import { orderLink, whatsappHref, rotateOrderToken } from "../data/order-handoff.js";
 // AC-03, 29 Aug 2026 — Door A: inviting a shop into this store.
@@ -112,6 +113,23 @@ async function dashboard(outlet) {
     `${session.wholesalerName || wid} — Dashboard`,
     "Your orders, revenue and clients. Everything here is yours alone."
   ));
+
+  // SR-06. A link rather than a nav entry: the wholesaler navigation is at the
+  // nine-entry cap and this does not displace anything there. It sits on the
+  // dashboard because "how visible am I" is a dashboard question, and because
+  // a promise nobody can find is not much of a promise.
+  {
+    const vis = document.createElement("p");
+    vis.className = "wv-link";
+    const a = document.createElement("a");
+    a.href = "#/wholesaler/visibility";
+    a.textContent = "Search visibility →";
+    vis.appendChild(a);
+    const note = document.createElement("span");
+    note.textContent = " How often your products appeared in buyers' searches, and how often a paid placement appeared alongside them.";
+    vis.appendChild(note);
+    outlet.appendChild(vis);
+  }
 
   // --- the time frame drives everything commercial on the page ---
   const commercial = document.createElement("div");
@@ -4820,6 +4838,102 @@ async function pricingRulesPane(outlet) {
 //     us is not that we send one — we cannot yet — it is that we do not let a
 //     wholesaler believe we did.
 // =============================================================================
+// ---------- SR-06: the visibility mirror ----------
+//
+// 093 promised this wholesaler that OGGI's paid shelf does not touch their
+// ranking. This screen is what makes that checkable BY THEM. The number that
+// earns the screen is `outranked_by_paid`: how often somebody else's paid
+// placement appeared alongside one of their products.
+//
+// It shows counts and never names a competitor's product. A wholesaler is
+// entitled to know they were outranked by a paid placement; they are not
+// entitled to a feed of what their competitors sell.
+async function visibilityView(outlet) {
+  outlet.appendChild(pageHeader(
+    "Search visibility",
+    "How often your products appeared in buyers' searches, and where."
+  ));
+
+  const [mirror, queries] = await Promise.all([
+    getVisibilityMirror(30), getVisibilityQueries(30, 20),
+  ]);
+
+  if (!mirror || mirror.impressions === 0) {
+    outlet.appendChild(emptyState({
+      icon: "\u{1F441}",
+      title: "No search data yet",
+      body: "When buyers search and your products appear, this page shows how "
+          + "often, in what position, and how often a paid placement appeared "
+          + "alongside them.",
+    }));
+    return;
+  }
+
+  const stats = document.createElement("div");
+  stats.className = "vis-stats";
+  const stat = (label, value, note) => {
+    const d = document.createElement("div");
+    d.className = "vis-stat";
+    d.setAttribute("data-stat", label.toLowerCase().replace(/[^a-z]+/g, "-"));
+    const v = document.createElement("p"); v.className = "vis-value"; v.textContent = value;
+    const l = document.createElement("p"); l.className = "vis-label"; l.textContent = label;
+    d.append(v, l);
+    if (note) { const n = document.createElement("p"); n.className = "vis-note"; n.textContent = note; d.appendChild(n); }
+    return d;
+  };
+  stats.appendChild(stat("Times shown", String(mirror.impressions), "in the last 30 days"));
+  stats.appendChild(stat("Searches", String(mirror.searches), "that included your products"));
+  stats.appendChild(stat("Average position", mirror.avgPosition == null ? "—" : mirror.avgPosition.toFixed(2), "in the ordinary results"));
+
+  // THE ONE THAT MATTERS. Stated plainly, including when it is zero — "never"
+  // is the most reassuring number on the page and hiding it would waste it.
+  const paid = stat(
+    "Outranked by a paid placement",
+    `${mirror.outrankedByPaid}`,
+    mirror.searches
+      ? `${mirror.outrankedPct}% of the searches you appeared in`
+      : null
+  );
+  paid.classList.add("vis-stat-paid");
+  stats.appendChild(paid);
+  outlet.appendChild(stats);
+
+  const explain = document.createElement("p");
+  explain.className = "vis-explain";
+  explain.textContent =
+    "A paid placement is a product OGGI earns a commission on. It appears in a "
+    + "separate labelled shelf above the results and never changes the order of "
+    + "the ordinary results — including yours. This page is here so you can "
+    + "check that rather than take our word for it.";
+  outlet.appendChild(explain);
+
+  if (queries.length) {
+    const h = document.createElement("h3");
+    h.className = "vis-h";
+    h.textContent = "What buyers searched for";
+    outlet.appendChild(h);
+
+    const table = document.createElement("table");
+    table.className = "vis-table";
+    const thead = document.createElement("thead");
+    thead.innerHTML = "<tr><th>Search</th><th>Times shown</th><th>Best position</th></tr>";
+    table.appendChild(thead);
+    const tb = document.createElement("tbody");
+    queries.forEach((q) => {
+      const tr = document.createElement("tr");
+      const a = document.createElement("td"); a.textContent = q.query;
+      const b = document.createElement("td"); b.textContent = String(q.impressions);
+      const c = document.createElement("td"); c.textContent = q.bestPosition == null ? "—" : String(q.bestPosition);
+      tr.append(a, b, c); tb.appendChild(tr);
+    });
+    table.appendChild(tb);
+    const wrap = document.createElement("div");
+    wrap.className = "vis-tablewrap";
+    wrap.appendChild(table);
+    outlet.appendChild(wrap);
+  }
+}
+
 async function requestsView(outlet) {
   const session = devAuth.getSession();
   outlet.appendChild(pageHeader(
@@ -4911,6 +5025,11 @@ async function requestsView(outlet) {
 
 export function registerWholesalerRoutes(router) {
   router.register("/wholesaler", (outlet) => dashboard(outlet));
+  // No nav entry: the wholesaler navigation is already at the nine-entry
+  // cap, which is Hadi's requirement and is not raised for this. Reached
+  // from the dashboard, the same way access requests are reached from
+  // Clients.
+  router.register("/wholesaler/visibility", (outlet) => visibilityView(outlet));
   // Batch 6: Products folded into Inventory. This route is KEPT and lands on
   // the Products pane, because an installed PWA can hold the old navigation in
   // its cache and a bookmark can outlive any refactor -- a link that used to
