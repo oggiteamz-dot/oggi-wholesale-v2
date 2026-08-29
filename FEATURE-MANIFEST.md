@@ -302,6 +302,14 @@ broke · ❌ not built
 | 210 | **SR-10 — every search that found nothing is logged, from day one.** The queries a catalogue cannot answer are buyers telling you, in their own words, what they came for and did not find. It costs one insert and cannot be reconstructed retroactively. The RAW query is kept alongside the normalised one, because when a normalisation rule is later found wrong the raw text is the only way to tell a bad rule from an absent product | `supabase/migrations/092_v2_cross_store_search.sql` | `check_cross_store_search.sql` — red-proved by disabling the insert; also asserts a SUCCESSFUL search is not logged as a miss | ✅ |
 | 211 | **The empty result explains that the search was scoped.** "No products matched in the wholesalers you have access to — ask another wholesaler on the Wholesalers tab." A buyer who does not know the search is scoped reads an empty result as "OGGI has nothing" | `js/views/search.js` | `check_cross_store_search.mjs` | ✅ |
 | 212 | **Cost, supplier and the wholesaler's internal note cannot reach a buyer through search.** The mapper keeps exactly eight fields and drops everything else, so a future server change that starts returning cost stops at the client boundary | `js/data/search.js` | `check_cross_store_search.mjs` — red-proved by spreading the row, which named every leaked field including cost | ✅ |
+| 213 | **SR-02 — an "OGGI product" is a COMMISSION ARRANGEMENT, not a brand.** OGGI builds nothing; it sells other people's products for a cut. So promotion is a row *about someone else's product* carrying a rate and a date — not a boolean on `v2_products` where the wholesaler could see and edit it | `supabase/migrations/093_v2_promoted_slot.sql` | `check_promoted_slot.sql` (11) | ✅ |
+| 214 | **SR-03 — promotion CANNOT touch the organic ranking, and that is asserted as a property.** Promoted products are a separate, capped, flagged selection; the organic set is computed without reference to promotion at all. The gate captures the organic order, turns promotion on, and requires the order to be **byte-identical** | `supabase/migrations/093_v2_promoted_slot.sql` | `check_promoted_slot.sql` — red-proved by adding the obvious rank boost, which reported *"SELF-PREFERENCING: organic order changed"* and showed Delta jumping 4th → 1st | ✅ |
+| 215 | **The shelf is CAPPED at three, not a percentage.** A slot whose size floats with how many products OGGI has arranged commission on grows quietly until it is the whole page. A fixed number is the difference between a shelf and a takeover, and a wholesaler can be told what it is | `supabase/migrations/093_v2_promoted_slot.sql` | `check_promoted_slot.sql` — red-proved by uncapping | ✅ |
+| 216 | **A promoted product still appears organically, in its honest position.** Removing it from the results would also be a distortion, just in the other direction, and would make the shelf a substitute for the results rather than an addition | `supabase/migrations/093_v2_promoted_slot.sql`, `js/views/search.js` | `check_promoted_slot.sql` + `check_cross_store_search.mjs` | ✅ |
+| 217 | **The shelf says it is paid for.** "Featured by OGGI — we earn a commission on these." *Featured* alone is a euphemism; a buyer is entitled to know a placement was bought. This is the disclosure half of SR-05 | `js/views/search.js` | `check_cross_store_search.mjs` asserts the word *commission* — red-proved by shortening the label to "Featured" | ✅ |
+| 218 | **The commission RATE never reaches a buyer.** The label discloses that a placement is paid for; what OGGI earns on it is not a buyer's business, and publishing it would rank the results by price-to-us in the buyer's head | `supabase/migrations/093_v2_promoted_slot.sql`, `js/data/search.js` | migration self-assertion 2 + `check_cross_store_search.mjs` | ✅ |
+| 219 | **SR-04 — the data wall, stated mechanically.** Search must never read `v2_orders`: no wholesaler's sales figures may inform what OGGI chooses to promote. Asserted against the function's own source, so a future edit that joins orders fails the migration | `supabase/migrations/093_v2_promoted_slot.sql` | migration self-assertion 5 + `check_promoted_slot.sql` | ✅ |
+| 220 | **Promotion cannot carry a product across the access boundary.** A promoted product in a store the buyer cannot enter stays invisible — promotion is a shelf inside what they can already see, never a key | `supabase/migrations/093_v2_promoted_slot.sql` | `check_promoted_slot.sql` | ✅ |
 
 ---
 
@@ -309,8 +317,8 @@ broke · ❌ not built
 
 | | |
 |---|---|
-| Features listed | **212** |
-| Enforced and proven (✅) | **199** |
+| Features listed | **220** |
+| Enforced and proven (✅) | **207** |
 | Present but unproven (⚠️) | **13** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |

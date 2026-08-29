@@ -110,6 +110,47 @@ async function render(rows, query = "denim") {
      "and is labelled 'from' — the exact price depends on the buyer's client record in that store, and quoting a price the order does not honour is a complaint");
 }
 
+// ============================ THE PROMOTED SHELF (SR-02, SR-03) =============
+// The disclosure IS the feature. A shelf a buyer cannot tell apart from the
+// results is the thing several marketplaces have been fined for.
+{
+  const rows = [
+    { product_id: "x1", product_name: "Promoted Widget", category: "W", wid: "alpha",
+      wholesaler_name: "Alpha Textiles", image_url: null, price_from: 9, currency: "$",
+      is_promoted: true, slot: "promoted" },
+    { product_id: "x1", product_name: "Promoted Widget", category: "W", wid: "alpha",
+      wholesaler_name: "Alpha Textiles", image_url: null, price_from: 9, currency: "$",
+      is_promoted: true, slot: "organic" },
+    { product_id: "x2", product_name: "Ordinary Widget", category: "W", wid: "beta",
+      wholesaler_name: "Beta Trading", image_url: null, price_from: 8, currency: "$",
+      is_promoted: false, slot: "organic" },
+  ];
+  const o = await render(rows, "widget");
+
+  const shelf = o.querySelector('[data-slot="promoted"]');
+  ok(!!shelf, "promoted results are rendered in a SEPARATE block, not mixed into the results");
+
+  const label = shelf?.querySelector(".sr-promoted-label")?.textContent || "";
+  ok(label.trim().length > 0, "the shelf carries a label");
+  ok(/commission/i.test(label),
+     "and the label says we earn a COMMISSION — 'Featured' alone is a euphemism, and a buyer is entitled to know a placement was paid for");
+
+  ok(shelf?.querySelectorAll(".sr-card").length === 1, "the shelf holds only the promoted rows");
+  ok(!!shelf?.querySelector('[data-promoted="true"]'),
+     "and each is marked, so the flag is checkable and not merely visual");
+
+  const organic = o.querySelector('[data-slot="organic"]');
+  ok(!!organic && organic.querySelectorAll(".sr-card").length === 2,
+     "the organic list holds ALL results including the promoted one in its honest position — the shelf adds, it does not replace");
+
+  ok(/2 results from 2 wholesalers/.test(o.textContent),
+     "the count describes the ORGANIC results only — counting the shelf too would inflate what the buyer thinks they found, since the same product is in both");
+
+  const blob = o.innerHTML;
+  ok(!/commission_pct/.test(blob) && !/12\.5/.test(blob),
+     "the commission RATE never reaches the page — the label discloses that a placement is paid, not what OGGI earns");
+}
+
 // ============================ THE MAPPER ====================================
 {
   const { searchProducts } = await import("../js/data/search.js");
@@ -121,7 +162,11 @@ async function render(rows, query = "denim") {
   }], error: null };
   const rows = await searchProducts("x");
   const keys = Object.keys(rows[0] || {}).sort();
-  const expected = ["category","currency","imageUrl","name","priceFrom","productId","wholesalerName","wid"].sort();
+  // Ten named fields since 093 added isPromoted and slot (SR-03). Still an
+  // EXACT list rather than a minimum: a field the server starts returning
+  // by accident must fail here, and adding one deliberately must be a
+  // visible edit to this line.
+  const expected = ["category","currency","imageUrl","isPromoted","name","priceFrom","productId","slot","wholesalerName","wid"].sort();
   ok(JSON.stringify(keys) === JSON.stringify(expected),
      `the mapper keeps exactly the eight search fields and drops everything else (got: ${keys.join(",")})`);
   const blob = JSON.stringify(rows);

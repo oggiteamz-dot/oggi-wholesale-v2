@@ -73,6 +73,32 @@ function resultCard(r) {
   return el;
 }
 
+/** SR-03: the shelf is labelled, and says plainly what it is.
+ *  "Featured" alone would be a euphemism. A buyer is entitled to know that a
+ *  placement was paid for — that is the whole difference between a disclosed
+ *  shelf and the self-preferencing several marketplaces have been fined for. */
+function promotedBlock(rows) {
+  const sec = document.createElement("section");
+  sec.className = "sr-promoted";
+  sec.setAttribute("data-slot", "promoted");
+
+  const head = document.createElement("p");
+  head.className = "sr-promoted-label";
+  head.textContent = "Featured by OGGI — we earn a commission on these";
+  sec.appendChild(head);
+
+  const grid = document.createElement("div");
+  grid.className = "sr-grid";
+  rows.forEach((r) => {
+    const card = resultCard(r);
+    card.classList.add("sr-card-promoted");
+    card.setAttribute("data-promoted", "true");
+    grid.appendChild(card);
+  });
+  sec.appendChild(grid);
+  return sec;
+}
+
 export async function searchView(outlet) {
   outlet.appendChild(pageHeader(
     "Search",
@@ -139,11 +165,23 @@ export async function searchView(outlet) {
       return;
     }
 
-    const stores = new Set(rows.map((r) => r.wid));
+    const promoted = rows.filter((r) => r.slot === "promoted");
+    const organic  = rows.filter((r) => r.slot !== "promoted");
+
+    // The count describes the ORGANIC results. Counting the shelf into the
+    // total would inflate what the buyer thinks they found — the same three
+    // products appear in both places, by design.
+    const stores = new Set(organic.map((r) => r.wid));
     status.textContent =
-      `${rows.length} result${rows.length === 1 ? "" : "s"} from ` +
+      `${organic.length} result${organic.length === 1 ? "" : "s"} from ` +
       `${stores.size} wholesaler${stores.size === 1 ? "" : "s"}.`;
-    rows.forEach((r) => grid.appendChild(resultCard(r)));
+
+    if (promoted.length) grid.appendChild(promotedBlock(promoted));
+    const organicGrid = document.createElement("div");
+    organicGrid.className = "sr-grid sr-organic";
+    organicGrid.setAttribute("data-slot", "organic");
+    organic.forEach((r) => organicGrid.appendChild(resultCard(r)));
+    grid.appendChild(organicGrid);
   }
 
   form.addEventListener("submit", (e) => {

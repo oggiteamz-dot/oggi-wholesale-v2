@@ -2829,3 +2829,18 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 .sr-from  { margin: 0; font-size: 13px; color: var(--brand-emerald-deep); font-weight: 600; }
 .sr-cat   { margin: 0; font-size: 12px; color: var(--text-secondary); }
 .sr-price { margin: 2px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+
+/* ---- the promoted shelf (SR-02, SR-03) -----------------------------------
+   Visually SEPARATE from the organic results, not merely tinted. A shelf that
+   looks like the results is a shelf pretending not to be one.              */
+.sr-promoted {
+  border: 1px solid var(--brand-emerald); border-radius: var(--radius-lg);
+  padding: var(--space-3); background: var(--brand-tint);
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
+.sr-promoted-label {
+  margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  color: var(--brand-emerald-deep);
+}
+.sr-card-promoted { background: var(--bg-surface); }
+.sr-organic { margin-top: var(--space-3); }
