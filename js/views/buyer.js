@@ -1,6 +1,7 @@
 // OGGI Wholesale v2 — Buyer views (Batch 2: real catalog, cart, orders)
 import { emptyState } from "../components/empty-state.js";
 import { directoryView, registerDirectoryRoutes } from "./directory.js";
+import { registerSearchRoutes } from "./search.js";
 import { renderProductCard } from "../components/product-card.js";
 import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
@@ -970,5 +971,6 @@ export function registerBuyerRoutes(router) {
   router.register("/buyer/favourites", (outlet) => favouritesView(outlet));
   router.register("/buyer/suppliers", (outlet) => suppliers(outlet));
   registerDirectoryRoutes(router);
+  registerSearchRoutes(router);
 }
 
