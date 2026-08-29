@@ -176,8 +176,15 @@ echo "   shape=$shape"
 #   session_logout, set_marketplace_password). Policies are unchanged at 96 on
 #   purpose: both new tables have RLS ON and NO policy, so a direct read by the
 #   browser roles returns nothing rather than everything.
-EXP_T=98 EXP_V=4 EXP_F=129 EXP_P=96
-EXP_SHAPE=b1d0223524e93681852ea861f59053c6   # replay of 98 migrations AND production, 30 Aug 2026 -- measured on both sides before this line moved
+EXP_T=99 EXP_V=4 EXP_F=133 EXP_P=96
+EXP_SHAPE=ad9d026c4b5e927532c6ff4dbdff7cf3   # replay of 100 migrations AND production, 30 Aug 2026 -- measured on both sides, with the SAME query, before this line moved
+# 097 added: v2_attribute_aliases (+1 table) and four functions --
+# v2_normalise_attribute, v2_size_shape, and the two trigger functions.
+# 098 then took back the anon/authenticated grant 097 handed out and dropped the
+# read policy with it, so the policy count went 96 -> 97 -> 96 and ends where it
+# started. The shape hash never moved for either, because it covers relations
+# and function signatures and not ACLs -- which is exactly why S7
+# (check_anon_grants.sql) has to be run as well, and is what caught 097.
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
   echo "   MATCHES the 30 Aug 2026 production baseline exactly, shape included."
 else
