@@ -30,6 +30,7 @@ import { renderStoreSwitcher } from "../components/store-switcher.js";
 import { renderProductRail } from "../components/product-rail.js";
 import { listBuyItAgain } from "../data/reorder.js";
 import { listPopularNow, popularTitle, popularSubtitle } from "../data/popular.js";
+import { listSimilarProducts, similarSubtitle } from "../data/similar.js";
 import { enterStore, marketplaceSession } from "../data/marketplace.js";
 async function defaultLocation(wid) {
   // 18 Aug 2026 (migration 047): reads the RPC, not the table.
@@ -353,6 +354,43 @@ async function dashboard(outlet) {
       // in a catalogue with no explanation of why.
       toast("That product is no longer in this catalogue.", { type: "info" });
     }
+
+    // ------------------------------------------------------------- RC-03 --
+    // MORE LIKE THIS. Mounted ONLY when the buyer arrived pointed at a
+    // specific product, because that is the only moment "this" has a referent.
+    // A "more like this" rail on the plain catalogue is a rail about nothing.
+    //
+    // Migration 100 matches on the words in the product's NAME, not on its
+    // attributes: eight of 23 live products carry every colour family there
+    // is, so an attribute match would put a tote bag beside a jacket. The
+    // useful result is the SAME item from a second supplier, which is why the
+    // subtitle counts other stores rather than describing the products.
+    //
+    // Fetched and not awaited, like the two shelves above it.
+    const similarSlot = document.createElement("div");
+    outlet.appendChild(similarSlot);
+    listSimilarProducts({ productId: target, limit: 12 }).then((items) => {
+      const rail = renderProductRail({
+        title: "More like this",
+        subtitle: similarSubtitle(items),
+        items,
+        testId: "similar",
+        // No paidLabel: 100 is asserted never to read the promotion table.
+        onOpen: (it) => {
+          if (it.wid === wid) {
+            const card = outlet.querySelector(`[data-product-id="${CSS.escape(it.productId)}"]`);
+            if (card) {
+              card.scrollIntoView({ behavior: "smooth", block: "center" });
+              card.classList.add("card-pointed-at");
+              setTimeout(() => card.classList.remove("card-pointed-at"), 2400);
+              return;
+            }
+          }
+          window.location.hash = `#/buyer/s/${encodeURIComponent(it.wid)}/p/${encodeURIComponent(it.productId)}`;
+        },
+      });
+      if (rail) similarSlot.appendChild(rail);
+    }).catch(() => { /* a shelf that fails is a shelf that is absent */ });
   }
 
   // ------------------------------------------------------------- GAP-4 ----
