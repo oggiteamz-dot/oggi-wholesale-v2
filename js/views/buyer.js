@@ -23,6 +23,13 @@ import { renderOrderBar } from "../components/order-bar.js";
 import { showOrderCelebration } from "../lib/animations/order-celebration.js";
 
 import { esc, pageHeader } from "../lib/utils.js";
+// 30 Aug 2026 — the marketplace. The switcher and the reorder rail both render
+// NOTHING when they have nothing to show, so a buyer with one store and no
+// order history sees exactly the screen they saw yesterday.
+import { renderStoreSwitcher } from "../components/store-switcher.js";
+import { renderProductRail } from "../components/product-rail.js";
+import { listBuyItAgain } from "../data/reorder.js";
+import { enterStore, marketplaceSession } from "../data/marketplace.js";
 async function defaultLocation(wid) {
   // 18 Aug 2026 (migration 047): reads the RPC, not the table.
   //
@@ -45,6 +52,12 @@ async function defaultLocation(wid) {
  *  would be gone by the time Submit is pressed. Null means "no catalog
  *  narrowing applied", which prices at list. */
 let activeCatalogId = null;
+
+// MK-01. Set by the cross-store product route below, read once by dashboard().
+// A module-level value rather than a query string because the catalogue screen
+// is reached by hash route and a param would have to be threaded through four
+// call sites that have no other reason to know about it.
+let pendingProductFocus = null;
 
 function buyerLabel() {
   const s = devAuth.getSession();
@@ -184,6 +197,50 @@ async function dashboard(outlet) {
   // Batch 8: trust badge strip (generic-only, compact) shown once above the
   // toolbar -- the full card with wholesaler-specific payment/return terms
   // lives at the cart, where it actually matters for the buyer's decision.
+  // ---------------------------------------------------------------- ID-09 --
+  // THE STORE SWITCHER. Returns null for a buyer with fewer than two stores,
+  // and for anyone who came through the per-store door, so this appends
+  // nothing at all in both of those cases.
+  const switcher = await renderStoreSwitcher({
+    activeWid: wid,
+    onSwitch: () => { window.location.hash = "#/buyer"; window.location.reload(); },
+  });
+  if (switcher) outlet.appendChild(switcher);
+
+  // ---------------------------------------------------------------- RC-01 --
+  // BUY IT AGAIN. Cross-store: every shop this person can still enter, ranked
+  // most-recent first by migration 095. Renders nothing when there is nothing
+  // to reorder, which as of today is every account on production — no account
+  // that can log in has ever placed an order.
+  //
+  // Fetched but not awaited before the catalogue paints: the shelf is a
+  // convenience and the catalogue is the screen. A slow reorder query must
+  // never hold up the thing the buyer came for.
+  const reorderSlot = document.createElement("div");
+  outlet.appendChild(reorderSlot);
+  listBuyItAgain({ limit: 12 }).then((items) => {
+    const rail = renderProductRail({
+      title: "Buy it again",
+      items,
+      testId: "reorder",
+      onOpen: (it) => {
+        // Same store: scroll to it, using the billboard's proven path.
+        if (it.wid === wid) {
+          const card = outlet.querySelector(`[data-product-id="${CSS.escape(it.productId)}"]`);
+          if (card) {
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+            card.classList.add("card-pointed-at");
+            setTimeout(() => card.classList.remove("card-pointed-at"), 2400);
+            return;
+          }
+        }
+        // Another store: MK-01 takes them there, and says so on the way.
+        window.location.hash = `#/buyer/s/${encodeURIComponent(it.wid)}/p/${encodeURIComponent(it.productId)}`;
+      },
+    });
+    if (rail) reorderSlot.appendChild(rail);
+  }).catch(() => { /* a shelf that fails is a shelf that is absent */ });
+
   outlet.appendChild(renderTrustBadges(wholesaler, { compact: true }));
 
   // NO CATALOG SWITCHER. There is deliberately no "browse my catalogs" here.
@@ -230,6 +287,29 @@ async function dashboard(outlet) {
   });
   outlet.insertBefore(toolbar.el, gridWrap);
   renderGrid(defaultCatalogFilters());
+
+  // ---------------------------------------------------------------- MK-01 --
+  // Arrived here from another store's tile, or from a search result. Point at
+  // the product, using the same scroll-and-flash the billboard has used since
+  // Batch 8 rather than a second implementation of it.
+  //
+  // The flag is CLEARED whether or not the card is found, so a product that has
+  // since left the catalogue does not keep re-triggering on every later visit.
+  if (pendingProductFocus) {
+    const target = pendingProductFocus;
+    pendingProductFocus = null;
+    const card = outlet.querySelector(`[data-product-id="${CSS.escape(target)}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.add("card-pointed-at");
+      setTimeout(() => card.classList.remove("card-pointed-at"), 2400);
+    } else {
+      // The honest outcome: they are in the right shop, and the thing they
+      // tapped is not on sale any more. Saying so beats silently landing them
+      // in a catalogue with no explanation of why.
+      toast("That product is no longer in this catalogue.", { type: "info" });
+    }
+  }
 
   // ------------------------------------------------------------- GAP-4 ----
   // THE ORDER BAR.                                             28 Aug 2026
@@ -966,6 +1046,47 @@ export function registerBuyerRoutes(router) {
   // point for someone who may not have an account at all.
   router.register("/c/:token", (outlet, params) => catalogLinkView(outlet, params));
   router.register("/buyer", (outlet) => dashboard(outlet));
+
+  // MK-01 — A PRODUCT IN A STORE THIS BUYER MAY NOT CURRENTLY BE IN.
+  //
+  // This is the destination three shipped features have been pointing at and
+  // missing: the directory, cross-store search, and the reorder rail all hand
+  // back products from stores other than the open one, and until now there was
+  // nowhere for a tap to go.
+  //
+  // enterStore() is a SERVER round trip — v2_session_account re-checks the
+  // membership — so this route cannot be used to enter a store by typing its
+  // id into the address bar. A buyer who was revoked gets the refusal, not the
+  // catalogue.
+  router.register("/buyer/s/:wid/p/:productId", async (outlet, params) => {
+    const session = devAuth.getSession();
+    if (session?.wid === params.wid) {
+      // Already in that store: just point at the product.
+      pendingProductFocus = params.productId;
+      return dashboard(outlet);
+    }
+    if (!marketplaceSession()) {
+      // Signed in through the per-store door, so there is no way to move.
+      // Say which store it belongs to rather than failing blankly.
+      outlet.appendChild(emptyState({
+        icon: "🏬",
+        title: "That product is in another wholesaler's store",
+        body: "Sign in with your phone number to move between the wholesalers you buy from.",
+      }));
+      return;
+    }
+    const r = await enterStore(params.wid);
+    if (!r.ok) {
+      outlet.appendChild(emptyState({
+        icon: "🔒",
+        title: "You do not have access to that store",
+        body: "Ask them for access from Browse our wholesalers, and they will let you in from their side.",
+      }));
+      return;
+    }
+    pendingProductFocus = params.productId;
+    return dashboard(outlet);
+  });
   router.register("/buyer/cart", (outlet) => cartView(outlet));
   router.register("/buyer/orders", (outlet) => ordersView(outlet));
   router.register("/buyer/favourites", (outlet) => favouritesView(outlet));

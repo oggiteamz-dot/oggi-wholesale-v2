@@ -9,6 +9,9 @@
 //     "request buyer access" form for someone who doesn't have an account
 //     yet (goes to the wholesaler/owner's approval queue).
 import { devAuth } from "../lib/dev-auth.js";
+// ID-03, 30 Aug 2026 — the OGGI door. See renderBuyerPanel below for why it is
+// offered FIRST and why the per-store door is kept rather than replaced.
+import { marketplaceLogin, enterStore } from "../data/marketplace.js";
 
 const TABS = [
   { key: "admin", label: "Owner / Wholesaler" },
@@ -22,7 +25,12 @@ export function renderLogin(outlet, onLoggedIn) {
   // profile yet (mid invite-redemption), jump straight to that step.
   const pending = devAuth.getSession();
   let adminStep = pending && pending.pendingAuthUser ? "invite" : "signin";
-  let buyerMode = "login"; // "login" | "request"
+  // "oggi"    — ID-03, sign in to OGGI with a phone or email. THE DEFAULT.
+  // "login"    — the original per-store door. Kept, not replaced (GP-02).
+  // "request"  — ask a wholesaler for access.
+  // "stores"   — signed in, and this person belongs to more than one shop.
+  let buyerMode = "oggi";
+  let mktStores = [];
 
   const wrap = document.createElement("div");
   wrap.style.cssText = "min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;";
@@ -176,6 +184,102 @@ export function renderLogin(outlet, onLoggedIn) {
   }
 
   function renderBuyerPanel(panel) {
+    // ------------------------------------------------------------ ID-03 ----
+    // SIGN IN TO OGGI. Offered first, and it asks for no wholesaler code —
+    // which is the entire point. A buyer who has been invited to a marketplace
+    // has no way to produce a code for a shop they have not met yet, and until
+    // today the first field on this screen demanded one.
+    //
+    // The per-store door underneath is NOT a fallback that will be removed. It
+    // is how everyone signs in today, it still works untouched, and GP-02 says
+    // nobody gets forced to re-register.
+    if (buyerMode === "oggi") {
+      panel.innerHTML = `
+        <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">
+          Sign in with the phone number your wholesaler has for you.
+        </p>
+        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Phone number or email</label>
+        <input class="input" id="mkt-id" inputmode="tel" autocomplete="username"
+               style="width:100%;margin-bottom:10px;" placeholder="03 123 456" />
+        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Password</label>
+        <input class="input" id="mkt-pass" type="password" autocomplete="current-password"
+               style="width:100%;margin-bottom:14px;" />
+        <button class="btn btn-primary" id="mkt-btn" style="width:100%;margin-bottom:8px;">Sign in</button>
+        <button class="btn btn-ghost btn-sm" id="mkt-to-store" style="width:100%;">
+          Sign in with a wholesaler code instead
+        </button>
+        <div id="buyer-status"></div>
+      `;
+      const statusEl = panel.querySelector("#buyer-status");
+      panel.querySelector("#mkt-to-store").addEventListener("click", () => { buyerMode = "login"; render(); });
+
+      const go = async () => {
+        const id = panel.querySelector("#mkt-id").value.trim();
+        const pass = panel.querySelector("#mkt-pass").value;
+        if (!id || !pass) { status(statusEl, "Enter your phone number and password", "error"); return; }
+        const btn = panel.querySelector("#mkt-btn"); btn.disabled = true; btn.textContent = "Signing in…";
+        const r = await marketplaceLogin(id, pass);
+        btn.disabled = false; btn.textContent = "Sign in";
+        if (!r.ok) {
+          // The server's single message, passed through unchanged. Elaborating
+          // here would rebuild in the browser the enumeration oracle the
+          // database was careful not to be.
+          status(statusEl, r.error, "error");
+          return;
+        }
+        const stores = r.stores || [];
+        if (stores.length === 0) {
+          // Signed in, and no wholesaler has let them in yet. A real state, and
+          // a dead end if it is not said out loud.
+          status(statusEl, "You are signed in, but no wholesaler has given you access yet. Ask one for access and they will let you in from their side.", "error");
+          return;
+        }
+        if (stores.length === 1) {
+          const e = await enterStore(stores[0].wid);
+          if (!e.ok) { status(statusEl, e.error, "error"); return; }
+          onLoggedIn(devAuth.getSession());
+          return;
+        }
+        mktStores = stores; buyerMode = "stores"; render();
+      };
+      panel.querySelector("#mkt-btn").addEventListener("click", go);
+      panel.querySelector("#mkt-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      return;
+    }
+
+    // ------------------------------------------------------------ ID-09 ----
+    // More than one shop. Asked, never guessed: picking one for them and
+    // silently opening it is how a buyer places an order with the wrong
+    // wholesaler.
+    if (buyerMode === "stores") {
+      panel.innerHTML = `
+        <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">
+          You buy from ${mktStores.length} wholesalers. Which one are you shopping today?
+        </p>
+        <div id="mkt-store-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div id="buyer-status"></div>
+      `;
+      const statusEl = panel.querySelector("#buyer-status");
+      const list = panel.querySelector("#mkt-store-list");
+      mktStores.forEach((st) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn-secondary";
+        b.setAttribute("data-store-choice", st.wid);
+        b.style.cssText = "width:100%;text-align:left;";
+        b.textContent = st.wholesalerName;
+        b.addEventListener("click", async () => {
+          b.disabled = true;
+          const e = await enterStore(st.wid);
+          b.disabled = false;
+          if (!e.ok) { status(statusEl, e.error, "error"); return; }
+          onLoggedIn(devAuth.getSession());
+        });
+        list.appendChild(b);
+      });
+      return;
+    }
+
     if (buyerMode === "request") {
       panel.innerHTML = `
         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Wholesaler code</label>
@@ -193,7 +297,7 @@ export function renderLogin(outlet, onLoggedIn) {
         <div id="buyer-status"></div>
       `;
       const statusEl = panel.querySelector("#buyer-status");
-      panel.querySelector("#req-back").addEventListener("click", () => { buyerMode = "login"; render(); });
+      panel.querySelector("#req-back").addEventListener("click", () => { buyerMode = "oggi"; render(); });
       panel.querySelector("#req-btn").addEventListener("click", async () => {
         const wid = panel.querySelector("#req-wid").value.trim();
         const name = panel.querySelector("#req-name").value.trim();
@@ -220,10 +324,12 @@ export function renderLogin(outlet, onLoggedIn) {
       <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Password</label>
       <input class="input" id="buyer-pass" type="password" style="width:100%;margin-bottom:14px;" />
       <button class="btn btn-primary" id="buyer-btn" style="width:100%;margin-bottom:8px;">Sign in</button>
+      <button class="btn btn-ghost btn-sm" id="buyer-to-oggi" style="width:100%;margin-bottom:6px;">Sign in with your phone number instead</button>
       <button class="btn btn-ghost btn-sm" id="buyer-to-request" style="width:100%;">Don't have an account? Request access</button>
       <div id="buyer-status"></div>
     `;
     const statusEl = panel.querySelector("#buyer-status");
+    panel.querySelector("#buyer-to-oggi").addEventListener("click", () => { buyerMode = "oggi"; render(); });
     panel.querySelector("#buyer-to-request").addEventListener("click", () => { buyerMode = "request"; render(); });
     panel.querySelector("#buyer-btn").addEventListener("click", async () => {
       const wid = panel.querySelector("#buyer-wid").value.trim();
