@@ -2844,3 +2844,42 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 }
 .sr-card-promoted { background: var(--bg-surface); }
 .sr-organic { margin-top: var(--space-3); }
+
+/* ============================================================================
+   SEARCH VISIBILITY — SR-06, 29 Aug 2026
+   ============================================================================
+   The "outranked by a paid placement" tile is deliberately given its own
+   treatment. It is the number that makes 093's fairness promise checkable, and
+   burying it among three neutral counters would be a way of publishing it
+   without really publishing it.                                            */
+.wv-link { margin: 0 0 var(--space-4); font-size: 13px; color: var(--text-secondary); }
+.wv-link a { font-weight: 600; }
+
+.vis-stats {
+  display: grid; gap: var(--space-3); margin-bottom: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.vis-stat {
+  padding: var(--space-4); border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg); background: var(--bg-surface);
+}
+.vis-stat-paid { border-color: var(--brand-emerald); background: var(--brand-tint); }
+.vis-value {
+  margin: 0; font-size: 28px; font-weight: 700; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.vis-label { margin: 4px 0 0; font-size: 13px; font-weight: 600; }
+.vis-note  { margin: 2px 0 0; font-size: 12px; color: var(--text-secondary); }
+.vis-explain {
+  margin: 0 0 var(--space-5); font-size: 13px; color: var(--text-secondary);
+  max-width: 68ch; line-height: 1.55;
+}
+.vis-h { font-size: 15px; margin: 0 0 var(--space-2); }
+.vis-tablewrap { overflow-x: auto; }
+.vis-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.vis-table th, .vis-table td {
+  text-align: left; padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.vis-table th { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+.vis-table td:nth-child(2), .vis-table td:nth-child(3) { font-variant-numeric: tabular-nums; }

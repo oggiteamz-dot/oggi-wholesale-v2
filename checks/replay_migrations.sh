@@ -166,8 +166,8 @@ echo "   shape=$shape"
 # what proves the repo and production had NOT diverged, and that 088 and 089
 # were precisely the two migrations outstanding. Moving a baseline without that
 # comparison first is just silencing the alarm.
-EXP_T=95 EXP_V=4 EXP_F=120 EXP_P=95
-EXP_SHAPE=c1c645da59d04247aff7b27b776ca2a7   # production, 29 Aug 2026, after 093; verified identical to a full 95-migration replay
+EXP_T=96 EXP_V=4 EXP_F=122 EXP_P=96
+EXP_SHAPE=4c10c16612bcfc8ae0c44fe80ad0943b   # production, 29 Aug 2026, after 094; verified identical to a full 96-migration replay
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
   echo "   MATCHES the 29 Aug 2026 production baseline exactly, shape included."
 else

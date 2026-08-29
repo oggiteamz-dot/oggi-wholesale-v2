@@ -310,6 +310,13 @@ broke · ❌ not built
 | 218 | **The commission RATE never reaches a buyer.** The label discloses that a placement is paid for; what OGGI earns on it is not a buyer's business, and publishing it would rank the results by price-to-us in the buyer's head | `supabase/migrations/093_v2_promoted_slot.sql`, `js/data/search.js` | migration self-assertion 2 + `check_cross_store_search.mjs` | ✅ |
 | 219 | **SR-04 — the data wall, stated mechanically.** Search must never read `v2_orders`: no wholesaler's sales figures may inform what OGGI chooses to promote. Asserted against the function's own source, so a future edit that joins orders fails the migration | `supabase/migrations/093_v2_promoted_slot.sql` | migration self-assertion 5 + `check_promoted_slot.sql` | ✅ |
 | 220 | **Promotion cannot carry a product across the access boundary.** A promoted product in a store the buyer cannot enter stays invisible — promotion is a shelf inside what they can already see, never a key | `supabase/migrations/093_v2_promoted_slot.sql` | `check_promoted_slot.sql` | ✅ |
+| 221 | **SR-06 — the visibility mirror: 093's fairness promise, made checkable by the person it was made to.** A wholesaler sees their own impressions, distinct searches, average organic position, and — the number that earns the screen — **how often somebody else's paid placement appeared alongside one of their products** | `supabase/migrations/094_v2_visibility_mirror.sql`, `js/views/wholesaler.js` | `check_visibility_mirror.sql` (13) | ✅ |
+| 222 | **The impression log CANNOT identify who searched, because the column does not exist.** Wholesalers read this table. Carrying a person_id would mean either leaking which of a competitor's buyers are shopping, or not leaking because a filter is correct today and one careless join from being wrong tomorrow. **Not collecting is a stronger guarantee than not exposing**, and it costs nothing: no question SR-06 asks needs to know who | `supabase/migrations/094_v2_visibility_mirror.sql` | `check_visibility_mirror.sql` — red-proved by adding a `person_id` column, which fails immediately | ✅ |
+| 223 | **Neither visibility function takes a wid.** The wholesaler is resolved server-side from their own session. A wid argument would be one careless call from letting one wholesaler read a competitor's numbers — the single worst thing this data could do | `supabase/migrations/094_v2_visibility_mirror.sql` | `check_visibility_mirror.sql` — red-proved by dropping the wid filter, which showed a rival 3 impressions instead of 1 | ✅ |
+| 224 | **A wholesaler who WAS promoted is not counted as having been outranked by it.** They were the one being promoted. The join is `p.wid <> v_wid`, and the gate proves the distinction | `supabase/migrations/094_v2_visibility_mirror.sql` | `check_visibility_mirror.sql` — red-proved by removing the inequality | ✅ |
+| 225 | **The mirror reports THAT a wholesaler was outranked, never BY WHAT.** Counts only, no product detail. They are entitled to know a paid placement beat them; they are not entitled to a feed of what competitors sell | `supabase/migrations/094_v2_visibility_mirror.sql` | migration self-assertion 6 + `check_visibility_mirror.sql` | ✅ |
+| 226 | **Only the first 20 results of a search are logged as impressions.** A buyer does not see row 47, so counting it would flatter the impression total and damage the average position at the same time — a number wrong in two directions at once | `supabase/migrations/094_v2_visibility_mirror.sql` | `check_visibility_mirror.sql` asserts positions and averages | ✅ |
+| 227 | **The screen is reached from the dashboard, not from a tenth nav entry.** The wholesaler navigation is at the nine-entry cap, which is Hadi's requirement and was not raised for this — the same call made for the access-requests screen | `js/views/wholesaler.js` | `check_route_state.mjs`, `check_nav_*` | ✅ |
 
 ---
 
@@ -317,8 +324,8 @@ broke · ❌ not built
 
 | | |
 |---|---|
-| Features listed | **220** |
-| Enforced and proven (✅) | **207** |
+| Features listed | **227** |
+| Enforced and proven (✅) | **214** |
 | Present but unproven (⚠️) | **13** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
