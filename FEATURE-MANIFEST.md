@@ -280,15 +280,21 @@ broke · ❌ not built
 | 188 | ⚠️ **A name collision, caught by a gate rather than by a person.** This module's redeem was first called `redeemInvite` — and `js/lib/dev-auth.js` already has one, for the OWNER invite, a different object with a different table. `check_cross_module_imports.mjs` reported it immediately. Renamed `redeemBuyerInvite`. **One name meaning two things is how `v2_suppliers` came to mean the opposite of "supplier" here**, which its own migration header now has to warn every reader about | `js/data/buyer-invites.js` | `check_cross_module_imports.mjs` | ✅ |
 | 189 | ⚠️ **A CSS token that did not exist, carried by its own fallback.** `var(--danger, #b42318)` — this design system defines `--danger-700`, never `--danger`. `check_token_completeness.mjs` caught it. A fallback that works today is a colour that **stops tracking the theme** the moment anyone changes the palette, and nobody finds out because it never breaks loudly | `css/components.css` | `check_token_completeness.mjs` | ✅ |
 | 190 | **The invitation form uses explicit field lookups, not `form.shop`.** Named form access is real, but a field named `submit` or `action` shadows the form's own method and the failure is silent — and jsdom does not implement it, so **no gate could ever reach that code.** Code no check can reach is code that drifts | `js/views/public-order.js` | `check_order_handoff.mjs` now exercises all three fields | ✅ |
+| 191 | **One person can hold access to many stores.** `v2_people` + `v2_person_channels` + `v2_person_memberships`. Until now a login belonged to exactly one wholesaler — `wid NOT NULL`, and half the username index — so one human buying from three wholesalers was three unrelated rows nothing joined. **"The wholesalers you have access to" was a sentence that could not be written in SQL** | `supabase/migrations/090_v2_person_identity.sql` | `check_person_identity.sql` | ✅ |
+| 192 | **A phone or an email is a CHANNEL on a person, never the person.** Two columns cannot hold "this number used to be theirs and this one is theirs now, both verified on these dates" — which is the whole of ID-08. Three rows can | `supabase/migrations/090_v2_person_identity.sql` | `check_person_identity.sql` | ✅ |
+| 193 | **Normalisation may split a person; it must never merge two.** Matching on a phone number means a normalisation bug does not produce a glitch, it hands one shop another shop's store access. Every rule fails toward "two different people": under 7 digits → NULL, malformed email → NULL, an already-international number is never re-interpreted | `supabase/migrations/090_v2_person_identity.sql` | `check_person_identity.sql` — red-proved by removing the guard, which merged two unrelated shops | ✅ |
+| 194 | **The backfill is a FUNCTION, not an inline `do` block.** An inline block can only be tested by a gate that reimplements it, and a gate testing a *copy* of the logic is the exact shape of a check that passes while the real thing is broken — twice recorded in `GATE-EVIDENCE.md`. The migration and the gate now call the same code | `supabase/migrations/090_v2_person_identity.sql` | `check_person_identity.sql` calls `v2_backfill_person_identity()` directly | ✅ |
+| 195 | **The identity migration is additive only, and the gate proves it.** Both username indexes are asserted still present, because GP-02 is "never force existing buyers to re-register" and the cheapest way to honour it is to make the change invisible until the screens are ready | `supabase/migrations/090_v2_person_identity.sql` | `check_person_identity.sql` asserts both indexes survive | ✅ |
+| 196 | **A wholesaler cannot learn that their buyer also buys elsewhere.** `v2_people` and `v2_person_channels` are owner-only; a wholesaler sees only membership rows for their own store. A per-wholesaler policy on the person row would let any store enumerate its buyers' other stores | `supabase/migrations/090_v2_person_identity.sql` | `check_person_identity.sql` asserts no `v2_my_wid` policy on `v2_people` | ✅ |
 
 ---
 
-## Reconciliation — 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01)
+## Reconciliation — 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **190** |
-| Enforced and proven (✅) | **177** |
+| Features listed | **196** |
+| Enforced and proven (✅) | **183** |
 | Present but unproven (⚠️) | **13** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
