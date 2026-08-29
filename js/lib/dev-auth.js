@@ -218,6 +218,33 @@ export const devAuth = {
     return { ok: true };
   },
 
+  /** Adopt an already-verified buyer session written by another door.
+   *
+   *  ADDED 30 Aug 2026 for the marketplace login (ID-03). js/data/marketplace.js
+   *  signs a person in to OGGI and then resolves ONE store server-side through
+   *  v2_session_account, which re-checks the membership. What comes back is the
+   *  same account id and client id v2_buyer_login would have returned, so the
+   *  only thing left to do is write it into the same place, in the same shape,
+   *  under the same key this app has used since Batch 0.
+   *
+   *  ⚠️ THIS PERFORMS NO CHECK OF ITS OWN, AND MUST NOT BE CALLED WITH
+   *  ANYTHING A USER SUPPLIED. It is a setter, not a login. The verification
+   *  lives in the database — v2_session_person proves the session token, and
+   *  v2_session_account proves the membership — and duplicating a weaker copy
+   *  of that check here would create a second, softer authority that could
+   *  drift out of agreement with the real one. The only two callers are
+   *  enterStore() and resumeStore(), both of which pass through the RPC first.
+   *
+   *  Deliberately kept OUT of loginBuyer: that function still does its own
+   *  bcrypt round trip and is untouched, so the per-store door works exactly as
+   *  it did yesterday (GP-02). */
+  adoptBuyerSession(session) {
+    if (!session || session.role !== "buyer" || !session.accountId) return false;
+    writeLocalSession(session);
+    cachedSession = session;
+    return true;
+  },
+
   async loginSales(username, password) {
     const { data, error } = await supabase.rpc("v2_sales_login", { p_user: username, p_pass: password });
     if (error) return { ok: false, error: error.message };
@@ -263,6 +290,23 @@ export const devAuth = {
     const wasOwnerWholesaler = cachedSession?.role === "owner" || cachedSession?.role === "wholesaler";
     clearLocalSession();
     cachedSession = null;
+
+    // ID-02, 30 Aug 2026. A marketplace session must be REVOKED SERVER-SIDE on
+    // sign-out, not merely forgotten by this device. Clearing localStorage
+    // leaves a token that is still valid for the rest of its 30 days, which is
+    // exactly the thing the session table was added to stop -- "I logged out"
+    // has to mean the token is dead, not that this browser stopped presenting
+    // it.
+    //
+    // Imported lazily so dev-auth keeps no import of a module that imports it
+    // back. The import is inside the try because a failure here must never stop
+    // the local session from being cleared: signing out locally is the part the
+    // person can see.
+    try {
+      const { marketplaceLogout } = await import("../data/marketplace.js");
+      await marketplaceLogout();
+    } catch { /* the local session is already gone, which is the visible half */ }
+
     if (wasOwnerWholesaler) await supabase.auth.signOut();
   },
 };
