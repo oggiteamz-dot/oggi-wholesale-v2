@@ -29,6 +29,7 @@ import { esc, pageHeader } from "../lib/utils.js";
 import { renderStoreSwitcher } from "../components/store-switcher.js";
 import { renderProductRail } from "../components/product-rail.js";
 import { listBuyItAgain } from "../data/reorder.js";
+import { listPopularNow, popularTitle, popularSubtitle } from "../data/popular.js";
 import { enterStore, marketplaceSession } from "../data/marketplace.js";
 async function defaultLocation(wid) {
   // 18 Aug 2026 (migration 047): reads the RPC, not the table.
@@ -239,6 +240,49 @@ async function dashboard(outlet) {
       },
     });
     if (rail) reorderSlot.appendChild(rail);
+  }).catch(() => { /* a shelf that fails is a shelf that is absent */ });
+
+  // ---------------------------------------------------------------- RC-02 --
+  // POPULAR RIGHT NOW. What MANY DIFFERENT SHOPS are buying across the stores
+  // this person can still enter — ranked by how many shops, never by how many
+  // orders. Migration 099 carries the whole argument; the note worth repeating
+  // here is that this rail sits directly BELOW the reorder shelf and must never
+  // repeat it, which is why 099 excludes anything the buyer already orders.
+  //
+  // It renders nothing until something clears the minimum-buyer floor, which on
+  // today's data is almost everything. That is the feature working: a shelf
+  // headed "popular" backed by one shop is a false claim wearing a confident
+  // label, and this one is asking a buyer to spend money on the strength of it.
+  //
+  // Fetched and not awaited, for the same reason as the shelf above it.
+  const popularSlot = document.createElement("div");
+  outlet.appendChild(popularSlot);
+  listPopularNow({ limit: 12 }).then((items) => {
+    const rail = renderProductRail({
+      // The heading comes from the ANSWER, not from what was asked. See
+      // popularTitle: a rail can never be titled "Popular in Tops" over a list
+      // that widened past Tops.
+      title: popularTitle(items),
+      subtitle: popularSubtitle(items),
+      items,
+      testId: "popular",
+      // NO paidLabel, and that is a statement rather than an omission: this
+      // shelf is earned and 099 is asserted never to read the promotion table.
+      // The day a paid rail ships it passes paidLabel and says so.
+      onOpen: (it) => {
+        if (it.wid === wid) {
+          const card = outlet.querySelector(`[data-product-id="${CSS.escape(it.productId)}"]`);
+          if (card) {
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+            card.classList.add("card-pointed-at");
+            setTimeout(() => card.classList.remove("card-pointed-at"), 2400);
+            return;
+          }
+        }
+        window.location.hash = `#/buyer/s/${encodeURIComponent(it.wid)}/p/${encodeURIComponent(it.productId)}`;
+      },
+    });
+    if (rail) popularSlot.appendChild(rail);
   }).catch(() => { /* a shelf that fails is a shelf that is absent */ });
 
   outlet.appendChild(renderTrustBadges(wholesaler, { compact: true }));

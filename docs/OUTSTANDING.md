@@ -1,6 +1,6 @@
 # Outstanding — raise these before calling anything finished
 
-**Last reconciled: 21 August 2026.**
+**Last reconciled: 30 August 2026.**
 
 Written down because a thing agreed in conversation and not written down is a
 thing that quietly does not happen.
@@ -144,6 +144,67 @@ silently. In rough order of what it would cost if it broke:
    importer hardcoded `sellMode: "open"` over every wholesaler's selling model.
 4. **Kit assembly, cycle counts, suppliers, AI import, integrations** (43, 45,
    46, 59, 60).
+
+---
+
+## 5a. ASKED FOR AND NOT YET BUILT — advertising, run by Hadi himself
+
+**Hadi, 30 August 2026:** *"give me the ability to set and create ads through
+the owner's console."*
+
+Written here the hour it was said, because the paid feed is currently a
+half-decision that lives in two places and neither of them is a screen.
+
+### What exists today
+
+- `v2_oggi_promoted` — the promotion table. It exists. **Nothing writes to it
+  through any interface**, and nothing in the owner console mentions it.
+- Every recommendation shelf built so far (RC-01, and RC-02 as planned) is
+  asserted to NEVER read that table. That is deliberate and stays true: paid
+  placement is a separate, labelled thing, and the moment "popular" can be
+  bought, the word stops meaning anything and every other shelf inherits the
+  doubt. Advertising does not change those rules — it gets its own surface.
+- The paid ratio (how much of the home feed may be paid) was discussed on
+  30 August and provisionally set at one-in-six with a config row. **It has
+  never been formally answered by Hadi and is still open.**
+
+### What "create an ad" has to mean before it can be built
+
+Not one feature. At least these, and each is a decision Hadi owns:
+
+1. **WHO is advertised** — a whole store, or specific products, or both.
+2. **WHERE it appears** — the buyer home feed only, or search results, or the
+   category browse. Search is the dangerous one: SR-04's data wall exists so
+   search telemetry cannot leak between wholesalers, and a paid slot in search
+   is a new way to ask the same question.
+3. **WHO SEES IT** — every buyer, or only buyers who do NOT already have
+   access to that store. Advertising a store to its own existing customers is
+   spending the wholesaler's money to show them a door they already have.
+4. **HOW MUCH INVENTORY** — the ratio above, and whether it is per screen,
+   per session or per day.
+5. **HOW IT IS PAID FOR** — flat fee for a period, or per impression, or per
+   click. This decides whether the system needs counting it can be billed on,
+   which is a much bigger build than a flag on a row.
+6. **HOW IT IS LABELLED to the buyer** — and it must be labelled. An unlabelled
+   paid placement inside a shelf of earned ones is the thing that makes every
+   other shelf untrustworthy.
+7. **WHO CAN CREATE ONE** — Hadi only, from the owner console, is the ask.
+   Whether a wholesaler can later buy one self-serve is a different product.
+8. **START AND END DATES**, and what happens to a live ad when the store it
+   points at is deactivated, or the product is archived, or it goes out of
+   stock. An advert for something nobody can buy is worse than no advert.
+
+### Where it sits in the order
+
+Hadi's stated order on 30 August put the paid-feed items (PB-01/02/03) after
+the access-control work and before Phase 7. This request is the owner-console
+half of those items and belongs with them, not ahead of them. It is written
+here so that when PB-01 comes up, it comes up as "Hadi asked to run these
+himself from the console", not as a table nobody can reach.
+
+**Do not build any of it until questions 1–8 have actual answers.** A promotion
+system built on guesses about who pays for what is the one kind of feature that
+is expensive to be wrong about, because the money is real.
 
 ---
 
