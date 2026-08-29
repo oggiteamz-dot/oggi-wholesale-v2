@@ -1,5 +1,6 @@
 // OGGI Wholesale v2 — Buyer views (Batch 2: real catalog, cart, orders)
 import { emptyState } from "../components/empty-state.js";
+import { directoryView, registerDirectoryRoutes } from "./directory.js";
 import { renderProductCard } from "../components/product-card.js";
 import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
@@ -281,16 +282,15 @@ async function dashboard(outlet) {
 // the database rather than quietly working again.
 // =============================================================================
 async function suppliers(outlet) {
-  outlet.appendChild(pageHeader(
-    "Suppliers",
-    "You browse the catalogue of the supplier you have an account with."
-  ));
-  outlet.appendChild(emptyState({
-    icon: "\u{1F3EC}",
-    title: "One account, one supplier",
-    body: "You're set up with your supplier and their full catalogue is on the Catalog tab. "
-        + "Browsing products across multiple suppliers is coming to OGGI as the Marketplace.",
-  }));
+  // KEPT AS A ROUTE, NOT AS A SCREEN. This used to render "One account, one
+  // supplier ... the Marketplace is coming", which stopped being true on
+  // 29 Aug 2026 when the directory shipped. An installed PWA with the old tab
+  // cached still lands here, so it now shows the real thing rather than a
+  // promise the product has already kept.
+  //
+  // It delegates rather than duplicating: two screens that must stay identical
+  // are two screens that will not.
+  await directoryView(outlet);
 }
 
 // ---------- Cart ----------
@@ -969,5 +969,6 @@ export function registerBuyerRoutes(router) {
   router.register("/buyer/orders", (outlet) => ordersView(outlet));
   router.register("/buyer/favourites", (outlet) => favouritesView(outlet));
   router.register("/buyer/suppliers", (outlet) => suppliers(outlet));
+  registerDirectoryRoutes(router);
 }
 

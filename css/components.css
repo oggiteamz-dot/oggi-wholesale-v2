@@ -2690,3 +2690,102 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   .po-thumb { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   a[href]::after { content: ""; }
 }
+
+
+/* ===========================================================================
+   ACCEPTING AN INVITATION                          AC-03, 29 August 2026
+   ===========================================================================
+   Three fields, on a phone, from someone who has never used this product and
+   arrived from a WhatsApp message. Cartona's number from the 28 Aug research
+   is the bar: before they moved verification after login, only 14.24% of
+   installs became registrations and 99% of the rest left. Every field is a
+   place to leave, so there are three and they are large.
+   =========================================================================== */
+.inv-card { max-width: 460px; margin: 0 auto; }
+.inv-form { padding: 16px 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.inv-field { display: block; }
+.inv-field > span { display: block; font-size: 12.5px; font-weight: 600;
+  color: var(--text-secondary); margin-bottom: 5px; }
+.inv-field .input { width: 100%; min-height: 46px; font-size: 16px; }
+/* 16px is not a style choice: iOS Safari zooms the whole page when a focused
+   input is under 16px, which on a form like this looks like the page breaking. */
+.inv-field small { display: block; margin-top: 4px; font-size: 11.5px;
+  color: var(--text-tertiary); }
+.inv-msg:empty { display: none; }
+/* --danger-700 / --danger-50, the tokens that actually exist. The first
+   version wrote var(--danger, #b42318) -- a token this design system has never
+   defined, carried by its own fallback. check_token_completeness.mjs caught
+   it, and it was right to: a fallback that works today is a colour that stops
+   tracking the theme the moment anyone changes the palette, and nobody finds
+   out because it never breaks loudly. */
+.inv-msg { font-size: 13px; color: var(--danger-700); background: var(--danger-50);
+  border-radius: 8px; padding: 8px 10px; }
+.inv-go { min-height: 48px; font-size: 15px; }
+
+/* ============================================================================
+   THE WHOLESALER DIRECTORY — DR-01..DR-05, 29 Aug 2026
+   ============================================================================
+   A card per wholesaler: a mark, a name, what they sell, and one control whose
+   label always matches what pressing it will do. The access state is on the
+   <article> as data-access so the gate can assert on it without reading copy —
+   an assertion that greps for the words on a button breaks the moment the
+   wording improves, which teaches people to stop improving wording.        */
+.dir-wrap { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.dir-search { display: flex; gap: var(--space-2); align-items: center; }
+.dir-search input {
+  flex: 1 1 auto; min-width: 0;
+  padding: var(--space-3); font-size: 16px;   /* 16px: iOS zooms below this */
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--bg-surface); color: var(--text-primary);
+}
+.dir-search input:focus-visible { outline: 2px solid var(--brand-emerald); outline-offset: 1px; }
+
+.dir-grid {
+  display: grid; gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.dir-card {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-default); border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+/* The store you are already in is the one you came here to open. */
+.dir-card[data-access="member"] { border-color: var(--brand-emerald); }
+
+.dir-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+.dir-mark {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: var(--radius-md);
+  display: grid; place-items: center; overflow: hidden;
+  background: var(--brand-tint); color: var(--brand-emerald-deep);
+  font-weight: 700; font-size: 18px;
+}
+.dir-mark img { width: 100%; height: 100%; object-fit: cover; }
+.dir-titles { flex: 1 1 auto; min-width: 0; }
+.dir-name  { margin: 0; font-size: 16px; line-height: 1.25; }
+.dir-brand { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+.dir-chip {
+  flex: 0 0 auto; font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+}
+.dir-chip-member  { background: var(--success-50); color: var(--success-700); }
+.dir-chip-pending { background: var(--warning-50); color: var(--warning-700); }
+
+.dir-cats { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.dir-cats li {
+  font-size: 12px; padding: 3px 8px; border-radius: 999px;
+  background: var(--bg-surface-2); color: var(--text-secondary);
+}
+.dir-cats .dir-cat-none { background: none; padding-left: 0; font-style: italic; }
+
+.dir-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-2); }
+.dir-foot .btn, .dir-foot .dir-open { align-self: flex-start; }
+.dir-waiting { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.dir-msg { margin: 0; font-size: 13px; min-height: 0; }
+.dir-msg:empty { display: none; }
+.dir-msg-ok { color: var(--success-700); }
+.dir-msg-no { color: var(--danger-700); }
+.dir-loading { color: var(--text-secondary); font-size: 14px; }
