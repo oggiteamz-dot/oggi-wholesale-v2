@@ -166,8 +166,8 @@ echo "   shape=$shape"
 # what proves the repo and production had NOT diverged, and that 088 and 089
 # were precisely the two migrations outstanding. Moving a baseline without that
 # comparison first is just silencing the alarm.
-EXP_T=93 EXP_V=4 EXP_F=116 EXP_P=93
-EXP_SHAPE=cc5d5eb99f8cafd1a90f895c8d5630d1   # production, 29 Aug 2026, after 090; verified identical to a full 92-migration replay
+EXP_T=94 EXP_V=4 EXP_F=120 EXP_P=94
+EXP_SHAPE=0ff203c92296b361e5fbcb4b4fd746ea   # production, 29 Aug 2026, after 092; verified identical to a full 94-migration replay
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
   echo "   MATCHES the 29 Aug 2026 production baseline exactly, shape included."
 else
@@ -179,5 +179,18 @@ else
   exit 1
 fi
 
-psqlq -c "drop database if exists $DB" >/dev/null 2>&1
+# KEEP_DB=1 leaves the database behind so a gate can be run against it.
+#
+# THIS EXISTS BECAUSE THE ALTERNATIVE WAS BEING DONE BY HAND AND IT LIED.
+# On 29 Aug the scratch copy was made with `sed '171s/^/#/'` to comment out the
+# drop below. The file had been edited since that line number was chosen, so
+# line 171 was by then the SHAPE COMPARISON, not the drop -- the check was
+# silently commented out and the script printed "MATCHES" for a schema that did
+# not match, which was then quoted as evidence. A supported flag costs three
+# lines and cannot drift out from under the person using it.
+if [ "${KEEP_DB:-0}" = "1" ]; then
+  echo "== KEEP_DB=1 -- leaving $DB in place"
+else
+  psqlq -c "drop database if exists $DB" >/dev/null 2>&1
+fi
 echo "== done"
