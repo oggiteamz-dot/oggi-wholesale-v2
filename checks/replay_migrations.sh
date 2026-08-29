@@ -176,8 +176,8 @@ echo "   shape=$shape"
 #   session_logout, set_marketplace_password). Policies are unchanged at 96 on
 #   purpose: both new tables have RLS ON and NO policy, so a direct read by the
 #   browser roles returns nothing rather than everything.
-EXP_T=100 EXP_V=4 EXP_F=134 EXP_P=96
-EXP_SHAPE=d29b169a55a22592071a6f0b02f95b96   # replay of 101 migrations AND production, 30 Aug 2026 -- measured on both sides, with the SAME query, before this line moved
+EXP_T=100 EXP_V=4 EXP_F=136 EXP_P=96
+EXP_SHAPE=b246f3997539bbd2b730c53b0e5af2e4   # replay of 102 migrations AND production, 30 Aug 2026 -- measured on both sides, with the SAME query, before this line moved
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
