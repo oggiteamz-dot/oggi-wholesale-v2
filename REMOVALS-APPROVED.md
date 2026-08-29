@@ -488,3 +488,35 @@ than deleting it silently.
 gone, that `/buyer/suppliers` renders the real directory, and that the reversal
 is recorded in `nav-config.js` — so a future editor cannot quietly restore the
 stale claim.
+
+---
+
+## ID-03 — the buyer login screen opens on the OGGI door, not the store door
+
+**Approved by:** Hadi, 30 Aug 2026 — *"Make the client bound to us, to the main
+market. And then each wholesaler gives them access."* Then, on the plan for it:
+*"as you see fit"*, and *"go"*.
+
+**Two lines removed from `js/views/login.js`. Both are MODIFICATIONS, and this
+row exists to say so rather than to let a `-2` in a diff go unexplained.**
+
+| Gone | Replaced by |
+|---|---|
+| `let buyerMode = "login";` | `let buyerMode = "oggi";` — plus the two new panel states (`"oggi"`, `"stores"`) and a comment naming all four |
+| `#req-back` returning to `buyerMode = "login"` | `#req-back` returning to `buyerMode = "oggi"` |
+
+**Nothing was removed from the product.** The per-store panel — wholesaler code,
+username, password — is untouched, still rendered by the same code, and reachable
+in one tap from the new panel via *"Sign in with a wholesaler code instead"*. The
+only change is which of the two is shown first.
+
+**Why the default moved.** The first field on that screen was **Wholesaler code**,
+and a buyer arriving at a marketplace has no way to produce one for a shop they
+have not met yet. A door that cannot be opened by the people it was built for is
+not a door. `v2_buyer_login` is unchanged, undeprecated and still live (GP-02),
+and `check_marketplace_login.sql` asserts on every run that it still works.
+
+**Proof the old door survives:** `check_marketplace_client.mjs` asserts the
+per-store panel is still reachable, and `check_marketplace_login.sql` signs a
+fixture buyer in through `v2_buyer_login` *after* the marketplace migration has
+run, plus both of an ambiguous person's original store passwords afterwards.

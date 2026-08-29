@@ -70,6 +70,37 @@ function resultCard(r) {
   }
 
   el.appendChild(body);
+
+  // ------------------------------------------------------------- SR-11 ----
+  // THE RESULTS ARE NOW TAPPABLE.
+  //
+  // ⚠️ THEY WERE NOT, FROM THE DAY SR-01 SHIPPED UNTIL 30 AUGUST 2026. This
+  // card rendered a photo, a name, the wholesaler and a price, and attached no
+  // click handler of any kind. A buyer could search across every store they
+  // belonged to and then had no way to open anything they found.
+  //
+  // Nothing caught it because every assertion in check_cross_store_search.mjs
+  // was about what the card SHOWS. A screen can be correct in every visible
+  // detail and still be a dead end, and "is there any way out of this screen"
+  // is the question none of those assertions asked.
+  //
+  // It could not be fixed before today either: the destination did not exist.
+  // A search result belongs to a store the buyer may not currently be in, and
+  // until the marketplace session (096) there was no way to move between
+  // stores. MK-01 is that destination.
+  el.setAttribute("role", "button");
+  el.setAttribute("tabindex", "0");
+  el.style.cursor = "pointer";
+  const open = () => {
+    window.location.hash = `#/buyer/s/${encodeURIComponent(r.wid)}/p/${encodeURIComponent(r.productId)}`;
+  };
+  el.addEventListener("click", open);
+  // Keyboard too. A div made clickable and not focusable is a control that
+  // exists only for people using a mouse.
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+  });
+
   return el;
 }
 
