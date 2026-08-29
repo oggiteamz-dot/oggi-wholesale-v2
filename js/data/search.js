@@ -39,5 +39,12 @@ export async function searchProducts(q, { limit = 30, offset = 0 } = {}) {
     imageUrl: r.image_url,
     priceFrom: r.price_from == null ? null : Number(r.price_from),
     currency: r.currency || "$",
+    // SR-03. Carried through explicitly so the screen CANNOT render a
+    // promoted result as an ordinary one by omission. The commission rate is
+    // not here and must never be: what OGGI earns is not a buyer's business,
+    // and publishing it would tell them which results are paid for in a way
+    // the label does not.
+    isPromoted: r.is_promoted === true,
+    slot: r.slot === "promoted" ? "promoted" : "organic",
   }));
 }
