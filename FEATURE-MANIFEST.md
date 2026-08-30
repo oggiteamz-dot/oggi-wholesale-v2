@@ -662,12 +662,42 @@ broke · ❌ not built
 > there is nothing to repair; anywhere else, the migration stops and gets a
 > person looking rather than guessing which account belongs to which request.
 
+| 405 | **⭐ A REQUEST CAN NOW BE ANSWERED.** The public "Request access" form collected no phone and no email, so a wholesaler could approve a shop and then had nobody to send the minted password to. Live since Batch 4; never noticed, because production has zero approved requests | `js/views/login.js`, `v2_submit_signup_request()` | `check_access_reapply.sql` (10c), `check_access_reapply_client.mjs` (red-proved by removing the field, the refusal, and the argument) | ✅ |
+| 406 | **The number is VALIDATED, not merely collected**, through the same `v2_normalise_channel` the rest of the schema uses — so "12" and "call me" are refused rather than stored as a contact detail that is not one. One definition of "is this a phone number" in the schema, not two | `v2_submit_signup_request()` | `check_access_reapply.sql` (10d, red-proved) | ✅ |
+| 407 | **⭐ The normalised key is a GENERATED COLUMN**, not something a function remembers to compute. `v2_normalise_channel` is IMMUTABLE, so Postgres holds it — and no second insert path, no hand-typed UPDATE, and no future function can make the key disagree with the raw value | `v2_signup_requests.phone_key` | migration 108 assertion 1 | ✅ |
+| 408 | **⭐ …and it narrows the gap AC-10 had to leave open eight hours earlier.** A re-application through the anonymous door now matches on the number, so renaming the shop no longer escapes the cooldown. Precedence is person, then phone, then name | `v2_access_reapply_standing()` | `check_access_reapply.sql` (10b, red-proved by dropping the phone from the precedence) | ✅ |
+| 409 | **The residual gap is still asserted rather than hidden.** A different name AND a different number is a different applicant, and that line is a passing assertion so the next person to make matching cleverer has to decide deliberately | `v2_access_reapply_standing()` | `check_access_reapply.sql` (11) | ✅ |
+| 410 | **An unusable number does not silently become a match key.** "12" normalises to null and falls back to the name, rather than matching every other applicant who also typed nonsense | `v2_access_reapply_standing()` | migration 108 assertion 5, red-proved | ✅ |
+| 411 | **Both review screens show the number, as something you can press to call**, and a request made before 108 says why it has none rather than rendering a blank that reads like a fault | `js/views/wholesaler.js`, `js/views/owner.js` | `check_access_reapply_client.mjs` (red-proved separately on each screen) | ✅ |
+| 412 | **The buyer-typed number is stripped before it reaches a `tel:` href.** It is a string a stranger typed, going into an HTML attribute | `js/views/wholesaler.js`, `js/views/owner.js` | `check_access_reapply_client.mjs` (red-proved) | ✅ |
+| 413 | **⭐ THE SHAPE HASH HAD BEEN TRUNCATING EVERY SIGNATURE TO 63 CHARACTERS.** `c.relname` is of type `pg_catalog.name`, a fixed 64-byte type, and in a UNION Postgres resolved the whole column to it — so every function signature was cut before hashing. The repo's sharpest structural instrument was blind to any change past character 63, which in this schema is most of them | `checks/replay_migrations.sh` | itself, and the measurement below | ✅ |
+| 414 | **…proven, not argued.** Two replays with identical object counts (104/4/161/96) and two differing function signatures produced the SAME old hash (`61d82639…`) and DIFFERENT corrected hashes (`e656498f…` vs `7801271d…`) | `checks/replay_migrations.sh` | measured on both databases | ✅ |
+| 415 | **…and a canary stops it coming back.** If the cast is ever lost, every long signature collapses to exactly 63 characters, so `max(length)` drops to 63 and the script refuses to print a hash at all rather than printing one that cannot be trusted | `checks/replay_migrations.sh` | red-proved by removing the cast — it fires | ✅ |
+| 416 | **The baseline was re-measured on both sides before being moved.** Corrected hash of the repo at 107 and of PRODUCTION at 107 are identical (`e656498f…`), which is what proves the two had not diverged and that 108 is precisely the one migration outstanding | `checks/replay_migrations.sh` | measured on the replay and on production with the same query | ✅ |
+
+> **Rows 405–416 are migration 108 and the truncation defect.** One migration,
+> no new gate files — the two AC-10 gates were extended instead, because the
+> question "can this request be answered" belongs beside "may this shop ask
+> again", and a third file asserting on the same two functions would drift.
+>
+> **Row 413 is the largest instrument failure found this weekend.** The shape
+> hash is described in `replay_migrations.sh` as *"the sharper half… a
+> substitution that happens to preserve the counts still moves it."* It did not.
+> Migration 108 changed three function signatures and added a column, and the
+> gate printed **"MATCHES the production baseline exactly, shape included."**
+>
+> **⚠️ 108 IS THE ONE MIGRATION THIS WEEKEND NOT APPLIED TO PRODUCTION FIRST.**
+> It makes the phone required, and the deployed sign-in screen has no field to
+> type one into, so applying it early would break that form for as long as the
+> pull request sat unmerged. It goes on AFTER the code. Until then production
+> will not match the baseline, and that is correct rather than a fault.
+
 ## Reconciliation — 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **404** |
-| Enforced and proven (✅) | **386** |
+| Features listed | **416** |
+| Enforced and proven (✅) | **398** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |

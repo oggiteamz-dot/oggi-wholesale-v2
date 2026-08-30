@@ -829,3 +829,28 @@ which of the two outcomes happened. The browser cannot know whether the
 applicant had an OGGI account; migration 107 does.
 
 **ALLOW_DELETIONS=1 — approved, thirty lines, each accounted for above.**
+
+---
+
+## 30 Aug 2026 — migration 108 (a request nobody can answer): two lines
+
+**Approved by:** the defect they fix. The public "Request access" form collected
+no phone number and no email address, so a wholesaler could approve a shop and
+then had no way to send them the password the system had just minted. Both lines
+below are widened signatures — the only shape this change can take.
+
+| Gone | Replaced by |
+|---|---|
+| `async requestBuyerAccess(wid, buyerName, location, volume, sells) {` | the same, plus `phone` |
+| `panel.querySelector("#req-sells").value.trim()` | the same line, plus `phone` as the sixth argument |
+
+Nothing was taken away from either caller. A function that gains a parameter is
+a delete-plus-add to a line-based gate and there is no way to write it that is
+not; this is the whole of it.
+
+**Proof:** `check_access_reapply_client.mjs` asserts the form asks for a number,
+with a telephone keypad, refuses to send without one, and that the number
+actually reaches the server — red-proved by removing the field, by removing the
+client-side refusal, and by collecting the number and dropping it before the RPC.
+
+**ALLOW_DELETIONS=1 — approved, two lines, both accounted for above.**
