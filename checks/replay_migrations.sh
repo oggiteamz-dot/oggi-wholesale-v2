@@ -194,8 +194,13 @@ echo "   shape=$shape"
 # 105-migration replay ran into an empty Postgres FIRST and produced the hash
 # below; production was then measured with the SAME query and produced the same
 # hash, and the new function's body hashes identically on both sides.
-EXP_T=103 EXP_V=4 EXP_F=152 EXP_P=96
-EXP_SHAPE=9c35b923d58e08a35826eb5ded41fa1e   # replay of 105 migrations AND production, 30 Aug 2026 -- measured on both sides, same query, replay first
+# Moved again 30 Aug 2026, after 104 (AC-08/09/17, the access decision record).
+# No new tables; four functions and two triggers. Same order as every legitimate
+# move: the 106-migration replay ran into an empty Postgres FIRST and produced
+# the hash below, production was then measured with the SAME query and produced
+# the same hash, and all four new function bodies hash identically on both sides.
+EXP_T=103 EXP_V=4 EXP_F=156 EXP_P=96
+EXP_SHAPE=176627739affebee4b3d75424376ea16   # replay of 106 migrations AND production, 30 Aug 2026 -- measured on both sides, same query, replay first
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the

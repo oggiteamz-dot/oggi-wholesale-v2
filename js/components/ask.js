@@ -44,6 +44,18 @@ import { openModal, closeModal } from "../lib/modal-stack.js";
  * @param {string}  [o.value]        Prefilled value.
  * @param {string}  [o.placeholder]
  * @param {"text"|"number"} [o.type]
+ * @param {{value:string,label:string,hint?:string}[]} [o.choices]
+ *                                   When given, the field becomes a SELECT of
+ *                                   these options and the resolved value is the
+ *                                   chosen `value`. Added for AC-08: a decline
+ *                                   reason has to be one of a fixed set the
+ *                                   database enforces, and a free-text box would
+ *                                   let a typo become a constraint violation the
+ *                                   person cannot read. Extending this dialog
+ *                                   rather than writing a second modal keeps the
+ *                                   escape handling, the focus trap and the
+ *                                   resolve-exactly-once rule in ONE place --
+ *                                   they were got wrong once already.
  * @param {string}  [o.confirmLabel] Defaults to "Save".
  * @param {Function}[o.validate]     (value) => string|null. A returned string
  *                                   is shown as the error and the dialog stays
@@ -55,7 +67,7 @@ import { openModal, closeModal } from "../lib/modal-stack.js";
  */
 export function ask({
   title, body = "", label = "", value = "", placeholder = "",
-  type = "text", confirmLabel = "Save", validate = null,
+  type = "text", confirmLabel = "Save", validate = null, choices = null,
 } = {}) {
   return new Promise((resolve) => {
     const back = document.createElement("div");
@@ -69,9 +81,14 @@ export function ask({
       <div class="modal-title">${esc(title)}</div>
       ${body ? `<div class="modal-sub">${esc(body).replace(/\n/g, "<br>")}</div>` : ""}
       <label class="modal-label" for="ask-input">${esc(label || title)}</label>
-      <input class="input" id="ask-input" type="${type === "number" ? "number" : "text"}"
+      ${Array.isArray(choices) && choices.length
+        ? `<select class="input" id="ask-input">
+             ${choices.map((c) => `<option value="${esc(c.value)}">${esc(c.label)}</option>`).join("")}
+           </select>
+           <div class="modal-sub" id="ask-hint" style="margin-top:6px;"></div>`
+        : `<input class="input" id="ask-input" type="${type === "number" ? "number" : "text"}"
              ${type === "number" ? 'inputmode="numeric"' : ""}
-             placeholder="${esc(placeholder)}" autocomplete="off">
+             placeholder="${esc(placeholder)}" autocomplete="off">`}
       <div class="modal-err" id="ask-err" role="alert"></div>
       <div class="modal-actions">
         <button class="btn btn-ghost" data-a="cancel" type="button">Cancel</button>
@@ -82,7 +99,20 @@ export function ask({
 
     const input = box.querySelector("#ask-input");
     const err = box.querySelector("#ask-err");
+    const hint = box.querySelector("#ask-hint");
     input.value = value ?? "";
+    // A select with nothing chosen resolves to its first option, which would
+    // make "the reason I happened to list first" the default answer to a
+    // question that must be answered deliberately. So the value is only
+    // pre-set when the caller asked for one.
+    if (hint) {
+      const showHint = () => {
+        const c = (choices || []).find((x) => x.value === input.value);
+        hint.textContent = c && c.hint ? c.hint : "";
+      };
+      input.addEventListener("change", showHint);
+      showHint();
+    }
 
     // Resolve exactly once, whatever closes the dialog — the button, Escape,
     // a backdrop click, or a route change. A promise that never settles is a
@@ -117,7 +147,7 @@ export function ask({
       onClose: () => { if (!settled) { settled = true; resolve(null); } },
     });
     input.focus();
-    input.select();
+    if (typeof input.select === "function") input.select();
   });
 }
 

@@ -188,13 +188,18 @@ export async function approveMySignupRequest(requestId, username) {
  *  the row means a re-application arrives with its predecessor attached, and
  *  `reviewed_by` answers the question a wholesaler eventually asks out loud:
  *  who let this shop in, or who turned them away? */
-export async function rejectMySignupRequest(requestId, reviewerLabel) {
-  const session = devAuth.getSession();
-  const wid = session?.wid;
-  if (!wid) return { error: { message: "No wholesaler session" } };
-  return sbCall(supabase.from("v2_signup_requests").update({
-    status: "rejected",
-    reviewed_by: reviewerLabel || "Wholesaler",
-    reviewed_at: new Date().toISOString(),
-  }).eq("id", requestId).eq("wid", wid));
+/** AC-08. Same change, same reasoning, as rejectSignupRequest in data/owner.js:
+ *  a decline now carries a REASON and leaves an audit entry, and the rules about
+ *  who may decline live in the database rather than in two browsers.
+ *
+ *  The `.eq("wid", wid)` guard this used to carry is not lost — it moved INTO
+ *  v2_decline_signup_request, which checks `v2_is_owner() OR v2_my_wid() = the
+ *  request's wid`. A guard in the client is a guard the client can drop. */
+export async function rejectMySignupRequest(requestId, reasonCode, reasonText = null) {
+  const { data, error } = await sbCall(supabase.rpc("v2_decline_signup_request", {
+    p_id: requestId, p_reason_code: reasonCode, p_reason_text: reasonText || null,
+  }));
+  if (error) return { ok: false, message: "Could not decline this request." };
+  const row = Array.isArray(data) ? data[0] : data;
+  return { ok: !!row?.ok, message: row?.msg || "" };
 }

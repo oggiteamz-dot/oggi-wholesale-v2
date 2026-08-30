@@ -488,14 +488,55 @@ broke · ❌ not built
 > never triggered. Re-run unconditionally, the gate caught it immediately. That
 > is now three times in one night; the pattern is always the same and the
 > sentinel, or a value the break must move, is always what settles it.
+| 330 | **Every access decision is recorded — and the recorder is a TRIGGER on the tables, not an insert added to the four functions.** One of the four paths was a browser writing to a table with no function to edit at all, and it was the most-used path. Proven by a gate assertion that performs the raw browser UPDATE and requires the log to have caught it | `supabase/migrations/104_v2_access_decision_record.sql` | `check_access_decisions.sql` (assertion 4, red-proved by rebuilding the audit inside the decline function instead) | ✅ |
+| 331 | **A request ARRIVING is an event too**, not only its answer. Without the arrival time the log can say who was declined but not how long they waited — which is the number AC-11's SLA needs | `v2_audit_access_request()` | `check_access_decisions.sql` (assertion 1) | ✅ |
+| 332 | **Editing a pending request is not an access decision** and records nothing. A timeline nobody can read is the same thing as not having one | `v2_audit_access_request()` | `check_access_decisions.sql` (assertion 2) | ✅ |
+| 333 | **A decline REQUIRES a reason**, refused in the database and again in both screens before the round trip. A decline nobody can explain is the complaint that comes back | `v2_decline_signup_request()` | `check_access_decisions.sql` (3), `check_access_decisions_client.mjs` | ✅ |
+| 334 | **The reason vocabulary is the database's, not the screen's** — six codes, and `other` cannot be used to get round the requirement | `v2_signup_requests_reason_known`, `..._other_needs_text` | `check_access_decisions.sql` (6a, 6b, red-proved by dropping both constraints) | ✅ |
+| 335 | **⭐ The screen's reason list and the database's constraint are asserted to be the same set.** They live in two files nothing else connects; drift means a wholesaler clicks Decline and gets a raw constraint violation they cannot read, with a stranger waiting on the answer | `js/data/decline-reasons.js` ↔ migration 104 | `check_access_decisions_client.mjs` (red-proved by renaming one code) | ✅ |
+| 336 | **The reason reaches the LOG, not only the row.** A reason visible only on the request row stops answering "why did we decline this shop in March" the moment AC-10 lets that row be re-used by a re-application | `v2_audit_access_request()` | `check_access_decisions.sql` (assertion 7) | ✅ |
+| 337 | **Reject is still a state, never a deletion** — now asserted from the audit side as well. Shopify's reject deletes the company; deleting loses the history and lets the same applicant loop forever | `v2_decline_signup_request()` | `check_access_decisions.sql` (assertion 5) | ✅ |
+| 338 | **Declining something already APPROVED is refused**, and the message names the action that actually closes the login. Silently declining it would leave a working buyer login sitting behind a rejected request | `v2_decline_signup_request()` | `check_access_decisions.sql` (assertion 9) | ✅ |
+| 339 | **Issuing, revoking and redeeming an invitation are access decisions and are recorded as such.** Invitations are the other way into a locked store and were writing nothing at all | `v2_audit_buyer_invite()` | `check_access_decisions.sql` (10a, 10b) | ✅ |
+| 340 | **⭐ The invite TOKEN never reaches the audit log** — it is the credential, and the log is read by more people, and for longer, than the invitation is valid. The shop name and the last four digits of the phone go in instead, so the row still means something to a human | `v2_audit_buyer_invite()` | `check_access_decisions.sql` (11, 11b, red-proved by logging the token) | ✅ |
+| 341 | **The decline reason a BUYER is shown is never the internal code.** Telling a shop it was marked `not_a_retailer` in those words is precisely what choosing gentler wording was for; an unknown code still produces a sentence rather than a blank | `declineWordingForBuyer()` | `check_access_decisions_client.mjs` | ✅ |
+| 342 | **There is a decline reason that is not the applicant's fault.** Without "not taking new clients right now", a wholesaler at capacity has to pick between telling a real shop "we could not verify you" and "you are not a retailer" — and the buyer reads a judgement nobody made | `js/data/decline-reasons.js` | `check_access_decisions_client.mjs` | ✅ |
+| 343 | **Neither screen writes to `v2_signup_requests` any more.** Asserted directly, so the raw path cannot creep back in beside the RPC | `js/data/owner.js`, `js/data/wholesaler-admin.js` | `check_access_decisions_client.mjs` (red-proved by adding the raw write back) | ✅ |
+| 344 | **The card is only removed when the decline actually succeeded.** Removing it optimistically tells the wholesaler it worked when the database refused | `js/views/owner.js`, `js/views/wholesaler.js` | `check_access_decisions_client.mjs` (red-proved) | ✅ |
+| 345 | **`ask()` gained a `choices` mode instead of the product gaining a second modal.** Escape handling, the focus trap and the resolve-exactly-once rule stay in one place — they were got wrong once already | `js/components/ask.js` | `check_module_syntax.mjs`, and every existing `ask()` caller unchanged | ⚠️ |
 
-## Reconciliation — 30 August 2026 (SR-07, SR-05) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+> **Rows 330–345 are the access decision record** — AC-08, AC-09 and AC-17. One
+> migration (`104`), two new gates (`check_access_decisions.sql`, 16 assertions;
+> `check_access_decisions_client.mjs`, 25), red-proved nine ways between them.
+>
+> **The finding:** three of the four ways a shop gets into a store wrote nothing
+> to the audit log. Banning and unbanning a client DO write to it, which is what
+> made the gap look like an oversight rather than a decision. And declining was
+> not a function at all — it was a browser writing `status = 'rejected'`
+> straight to the table, with nowhere to put a reason and nothing to audit.
+>
+> **Why a trigger and not four function edits.** Red proof B rebuilt the audit
+> the obvious way — an insert inside the decline function — and the gate went
+> red on assertion 4, because the browser's raw table write produced no audit
+> row. That is the argument the migration header makes, demonstrated rather
+> than asserted.
+>
+> **Row 345 is deliberately ⚠️.** The new `choices` mode on `ask()` is exercised
+> by both decline screens and every existing caller still works, but nothing
+> asserts the select renders and resolves correctly in isolation. Marking it ✅
+> on the strength of "the callers pass" is the kind of claim this file exists
+> to stop.
+>
+> **33 lines were removed** from five files, every one a replacement with a
+> named successor. Accounted for line by line in `REMOVALS-APPROVED.md`.
+
+## Reconciliation — 30 August 2026 (SR-07, SR-05, AC-08/09/17) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **329** |
-| Enforced and proven (✅) | **312** |
-| Present but unproven (⚠️) | **17** |
+| Features listed | **345** |
+| Enforced and proven (✅) | **327** |
+| Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
 

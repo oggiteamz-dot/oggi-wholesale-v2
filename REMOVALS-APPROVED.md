@@ -520,3 +520,50 @@ and `check_marketplace_login.sql` asserts on every run that it still works.
 per-store panel is still reachable, and `check_marketplace_login.sql` signs a
 fixture buyer in through `v2_buyer_login` *after* the marketplace migration has
 run, plus both of an ambiguous person's original store passwords afterwards.
+
+---
+
+## 30 August 2026 — AC-08/AC-17, declining an access request
+
+**33 lines removed across five files. Every one is a MODIFICATION, and this row
+exists so that a `-33` in a diff is not something the next reader has to
+reconstruct.** Hadi's instruction for the night was *"don't stop working until
+everything is built"*; that is not permission to lose anything on the way.
+
+| File | Gone | Replaced by |
+|---|---|---|
+| `js/data/owner.js` | `rejectSignupRequest(requestId, reviewerLabel)` — a raw `.from("v2_signup_requests").update({status:"rejected"})` and its four-line comment | the same function name, now calling `v2_decline_signup_request` with a required reason |
+| `js/data/wholesaler-admin.js` | `rejectMySignupRequest(...)` — the same raw write, plus `.eq("wid", wid)` and the session lookup that fed it | the same function name calling the same RPC |
+| `js/views/owner.js` | the `confirmAction` "Reject request?" dialog and its one-line call | a two-step dialog that asks WHY first, then declines |
+| `js/views/wholesaler.js` | the one-line call and its toast | the same two-step dialog, from the same shared reason list |
+| `js/components/ask.js` | the unconditional `<input>` markup, the parameter line, and a bare `input.select()` | a conditional select-or-input, a `choices` parameter, and a guarded `input.select()` |
+
+### Nothing was removed from the product
+
+- **The text-input dialog still exists.** `ask()` renders exactly the same
+  `<input>` when no `choices` are passed — it is the `else` branch of one
+  ternary — and `input.select()` still runs for it, now guarded because a
+  `<select>` element has no `.select()` method. Every existing caller is
+  untouched and `check_module_syntax.mjs` and the 95-gate sweep both pass.
+- **The `.eq("wid", wid)` guard was not dropped, it MOVED** — into
+  `v2_decline_signup_request`, which checks
+  `v2_is_owner() OR v2_my_wid() = the request's wid`. A guard in the client is
+  a guard the client can drop; the same guard in a `SECURITY DEFINER` function
+  is one nobody can route around. `check_access_decisions.sql` assertion 3
+  proves the refusal.
+- **Declining still works from both screens**, and now does three things it did
+  not do before: it carries a reason, it refuses to decline something already
+  approved, and it leaves an audit entry.
+
+### Why the old path had to go rather than be kept alongside
+
+Its own comment said *"a plain status flip is fine here since nothing gets
+provisioned"*. True about provisioning. But a status word has nowhere to put a
+reason (AC-08), leaves no audit entry (AC-17), and put the rule about who may
+decide inside a browser. Leaving it in place as a second path would mean a
+decline could still happen with no reason — which is the feature not existing.
+
+**Proof:** `check_access_decisions.sql` (16 assertions, red-proved six ways) and
+`check_access_decisions_client.mjs` (25 assertions, red-proved three ways),
+including one assertion that fails specifically if either screen starts writing
+to `v2_signup_requests` directly again.
