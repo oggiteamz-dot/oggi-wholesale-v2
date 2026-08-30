@@ -2790,6 +2790,45 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 .dir-msg-no { color: var(--danger-700); }
 .dir-loading { color: var(--text-secondary); font-size: 14px; }
 
+/* ----------------------------------------------------------------------------
+   YOUR REQUESTS — AC-07/AC-10/AC-11/PB-01, 30 Aug 2026
+   ----------------------------------------------------------------------------
+   The list of what this buyer has already asked for, ABOVE the grid. It was
+   added to js/views/directory.js on 30 Aug and had no styles of its own: it
+   rendered as a run of unstyled elements, which is legible and is not a
+   screen. The state is on the row as data-status and data-reapply so a gate can
+   assert on it without reading copy — same rule as the cards above.        */
+.dir-mine { display: flex; flex-direction: column; gap: var(--space-2); }
+.dir-mine-title { margin: 0 0 2px; font-size: 15px; }
+.dir-mine-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.dir-mine-row > strong { min-width: 0; font-size: 14px; }
+.dir-mine-state {
+  grid-column: 2; grid-row: 1; align-self: start;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+  background: var(--bg-surface-2); color: var(--text-secondary);
+}
+.dir-mine-row[data-status="approved"] .dir-mine-state { background: var(--success-50); color: var(--success-700); }
+.dir-mine-row[data-status="rejected"] .dir-mine-state { background: var(--danger-50); color: var(--danger-700); }
+.dir-mine-row[data-overdue] .dir-mine-state { background: var(--warning-50); color: var(--warning-700); }
+.dir-mine-said, .dir-mine-next {
+  grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--text-secondary);
+}
+/* What happens next is not a footnote to the decline — it is the thing the
+   buyer came back to find out, so it is not greyed further than the rest. */
+.dir-mine-next { color: var(--text-primary); }
+.dir-mine-again { grid-column: 1 / -1; justify-self: start; margin-top: var(--space-2); }
+.dir-mine-older { grid-column: 1 / -1; font-size: 13px; color: var(--text-secondary); }
+.dir-mine-older summary { cursor: pointer; padding: var(--space-2) 0; }
+.dir-mine-older summary:focus-visible { outline: 2px solid var(--brand-emerald); outline-offset: 2px; }
+
 /* ============================================================================
    CROSS-STORE SEARCH — SR-01, 29 Aug 2026
    ============================================================================
@@ -2883,3 +2922,28 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
 }
 .vis-table th { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
 .vis-table td:nth-child(2), .vis-table td:nth-child(3) { font-variant-numeric: tabular-nums; }
+
+/* ============================================================================
+   THE PREVIOUS APPLICATION — AC-10, 30 Aug 2026
+   ============================================================================
+   Sits inside an access-request card, above the Approve/Decline buttons. It is
+   INSET rather than boxed-and-boxed again: a second border inside a card reads
+   as a different card, and this is context for the decision, not a decision of
+   its own. `data-attempt` and `data-prior-count` are on the element so a gate
+   can assert the history is present without reading the sentence.           */
+.prior-app {
+  flex: 1 1 100%;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  border-left: 3px solid var(--warning-500);
+  background: var(--bg-surface-2);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.prior-app-head {
+  margin: 0 0 4px; font-size: 13px; font-weight: 650; color: var(--text-primary);
+}
+.prior-app-line { margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+/* What the shop wrote last time, in their words. Distinguished from our own
+   record of the decision, because confusing the two is how a wholesaler ends
+   up quoting us back to themselves.                                         */
+.prior-app-said { margin-top: 4px; font-style: italic; }
