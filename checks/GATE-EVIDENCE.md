@@ -583,3 +583,33 @@ Twenty-five assertions. **Seven deliberate breaks.**
 | E | mapper spreads the row instead of naming fields | 2 fail | ✅ 16 keys instead of 9, and the foreign column arrived |
 | F | screen dropped from the owner nav | 1 fails | ✅ "a route nobody can reach is a route that does not exist" |
 | G | "could not check" collapsed into "nothing is wrong" | 1 fails | ✅ |
+
+---
+
+## SR-05 — `check_ranking_policy.mjs` (30 August 2026)
+
+Twenty-seven assertions. **Eight deliberate breaks.** This gate guards a page of
+promises made to suppliers, so every break below is a way that page could have
+quietly become untrue.
+
+| # | Break | Expected | Result |
+|---|---|---|---|
+| A | the numbers typed into the page instead of read live | 4 fail | ✅ including the absurd-values assertion |
+| B | `PROMO_CAP` raised 3 → 8, page still says three | 1 fails | ✅ names the found value (8) |
+| C | popular shelf switched to rank on order count | 2 fail | ✅ the page's central claim to suppliers |
+| D | policy dropped from the wholesaler navigation | 1 fails | ✅ |
+| E | the "what cannot be traded for position" section removed | 1 fails | ✅ |
+| F | a failed fetch returns `{}` instead of `null` | 1 fails | ✅ blanks vs an admission |
+| G | `esc()` dropped from the published values | 1 fails | ✅ the injected `<img>` reached the DOM |
+| H | an internal note leaked onto the published page | 1 fails | ✅ **on the second attempt** — see below |
+
+### ⚠️ BREAK H PRODUCED ZERO FAILURES THE FIRST TIME
+
+Written as a *fallback* that only rendered when a parameter had no public
+explanation — and every parameter in the test fixture has one, so the fallback
+never ran. **The break did not happen.** Rewritten to leak the note
+unconditionally, the gate caught it on the first run.
+
+Third time in one night. The tell each time was the same: before believing a
+gate is blind, find a value the break must have moved and check that it moved.
+Here it was one `grep -c` on the edited file.
