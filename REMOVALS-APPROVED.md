@@ -567,3 +567,67 @@ decline could still happen with no reason — which is the feature not existing.
 `check_access_decisions_client.mjs` (25 assertions, red-proved three ways),
 including one assertion that fails specifically if either screen starts writing
 to `v2_signup_requests` directly again.
+
+---
+
+## 30 Aug 2026 — migration 105 (AC-07, AC-11, PB-01): one line
+
+### The line
+
+```
+js/views/directory.js
+-      p.textContent = "Waiting for them to approve you.";
+```
+
+That is the whole removal. One line, one file, replaced by 58.
+
+### Why it had to go rather than stay
+
+It is the dead end. A shop asks a wholesaler for access, and the only thing the
+product has ever said back is those six words — not that the request arrived,
+not how long the wholesaler usually takes, not what to do if nothing happens,
+and, when the answer finally comes, not that there was an answer at all. The
+complaint this feature is built from names exactly this:
+
+> "Without confirmation that suppliers have even seen the request, it makes it
+> nearly impossible to move forward with any certainty, which delays potential
+> sales."
+
+The sentence could not be kept alongside the new one, because the new one
+occupies the same place on the screen and says the same thing better. Two
+sentences in one slot is not a fallback, it is a bug.
+
+### What stands in its place
+
+The card now says what happened, how long that wholesaler says they take, and
+where the answer will appear — and once the request exists it is joined by a
+**"Your requests"** list above the grid, carrying all four states:
+
+- **waiting** — with that wholesaler's own stated time, in plain words ("about
+  2 days", never "48 hours")
+- **waiting too long** — past that wholesaler's own number, so the shop can
+  chase rather than assume it was ignored
+- **approved** — with the way in
+- **declined** — *with the reason*, in buyer wording, never the internal code
+
+None of the four is blank. That is asserted, not hoped:
+`check_access_request_standing_client.mjs` walks all four states and fails on a
+blank, on an `undefined`, and on a reason code leaking through as itself.
+
+### Proof the replacement is real, not a rename
+
+`check_access_request_standing_client.mjs` (27 assertions) contains an assertion
+that fails **if the old sentence comes back** — it was red-proved by restoring
+that exact line, which made the gate fire, and then undoing it.
+`check_access_request_standing.sql` (13 assertions) proves the server half,
+red-proved three ways, including by hardcoding a single global answer time,
+which makes assertions 5 and 7 fire.
+
+Verified against production on live data before the push: a shop sees its own
+requests and none of another shop's; twelve hours against a stated six reads
+late while a hundred hours against a stated two-forty does not (one global
+number could not produce both); a declined request reaches the buyer with its
+reason; the overdue list stays empty for a non-owner *while a genuinely overdue
+request exists*; and the recreated directory kept both of its grants.
+
+**ALLOW_DELETIONS=1 — approved, one line, accounted for above.**
