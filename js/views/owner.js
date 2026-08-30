@@ -276,6 +276,9 @@ async function onboardingView(outlet) {
     card.innerHTML = `
       <div>
         <div style="font-weight:650;">${esc(r.buyer_name)}</div>
+        <div style="font-size:13px;margin-top:2px;">${r.phone
+          ? `<a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ""))}" style="font-weight:600;">${esc(r.phone)}</a>`
+          : `<span style="color:var(--text-tertiary);">No number — asked before we collected one</span>`}</div>
         <div style="font-size:12px;color:var(--text-secondary);">${esc(r.location || "—")} · Volume: ${esc(r.volume || "—")} · Sells: ${esc(r.sells || "—")}</div>
         <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">Requested wid: ${esc(r.wid || "—")} · ${new Date(r.created_at).toLocaleDateString()}</div>
       </div>

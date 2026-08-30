@@ -5019,9 +5019,19 @@ async function requestsView(outlet) {
     const who = [r.location, r.volume ? `Volume: ${r.volume}` : null, r.sells ? `Sells: ${r.sells}` : null]
       .filter(Boolean).map(esc).join(" · ") || "No details given";
 
+    // Migration 108. THE NUMBER IS THE POINT OF THE WHOLE CARD: approving mints
+    // a password that this build cannot email, so without a way to reach them
+    // the decision cannot be acted on. A tel: link because the wholesaler is on
+    // a phone. Requests made before 108 have none, and say so rather than
+    // rendering an empty space that reads like a rendering fault.
+    const phoneHtml = r.phone
+      ? `<a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ""))}" style="font-weight:600;">${esc(r.phone)}</a>`
+      : `<span style="color:var(--text-tertiary);">No number — asked before we collected one</span>`;
+
     card.innerHTML = `
       <div style="min-width:0;flex:1 1 240px;">
         <div style="font-weight:650;">${esc(r.buyer_name)}</div>
+        <div style="font-size:13px;margin-top:2px;">${phoneHtml}</div>
         <div style="font-size:12px;color:var(--text-secondary);">${who}</div>
         <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">Asked ${new Date(r.created_at).toLocaleDateString()}</div>
       </div>
