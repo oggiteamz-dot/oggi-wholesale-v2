@@ -11,6 +11,9 @@ export const NAV_BY_ROLE = {
     { icon: "✉️", label: "Invites", path: "/owner/invites" },
     { icon: "📄", label: "Exports", path: "/owner/exports" },
     { icon: "🕓", label: "Audit Log", path: "/owner/audit" },
+    // SR-07. Separate from the Audit Log above on purpose: that one is a list of
+    // actions, this one is a settings screen that happens to keep a record.
+    { icon: "⚖️", label: "Ranking", path: "/owner/ranking" },
   ],
   wholesaler: [
     { icon: "◆", label: "Dashboard", path: "/wholesaler" },

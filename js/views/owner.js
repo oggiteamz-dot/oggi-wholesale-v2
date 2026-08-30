@@ -14,6 +14,9 @@ import { rowsToCsv, downloadCsv } from "../data/csv-export.js";
 // reused by the edit screen later.
 import { newWholesalerView } from "./owner-wholesaler-new.js";
 import { registerWholesalerDetailRoute } from "./owner-wholesaler-detail.js";
+// SR-07: the ranking settings and their permanent record. Own file for the same
+// reason as the wholesaler detail screen — this view is already long enough.
+import { registerOwnerRankingRoute } from "./owner-ranking.js";
 // CR-0002: subscription controls (extend / price / cancel / terminate).
 // The panel is a component so the wholesaler detail page can reuse the
 // exact same controls instead of growing a second, drifting copy.
@@ -539,4 +542,6 @@ export function registerOwnerRoutes(router) {
   router.register("/owner/audit", (outlet) => auditView(outlet));
   // CR-0001 R8/R9/R10 — the wholesaler drill-down.
   registerWholesalerDetailRoute(router);
+  // SR-07 — /owner/ranking.
+  registerOwnerRankingRoute(router);
 }

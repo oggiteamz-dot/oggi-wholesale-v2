@@ -528,3 +528,58 @@ same family — a check that quietly stops checking:**
    stock assertion unfalsifiable. It is written so that it touches zero rows
    when the balances do not exist at all: deleting every row from
    `v2_inventory_balances` still exits 2 with *"lowest SKU stock: 0"*. Proven.
+
+---
+
+## SR-07 — `check_ranking_config_versioned.sql` (30 August 2026)
+
+Nineteen assertions. **Ten deliberate breaks**, each applied to a replayed
+database, the gate run, then restored and re-run green.
+
+| # | Break | Expected | Result |
+|---|---|---|---|
+| 1 | `drop trigger trg_v2_ranking_config_record` | 2, 3, 10, 11 fail | ✅ 4 failures, each named |
+| 2 | `drop trigger trg_v2_rch_no_rewrite` | 5a, 5b fail | ✅ 3 failures — and 6 too, because the UPDATE 5a then succeeded really did break the chain |
+| 3 | `grant select on the history to authenticated` | 1 fails | ✅ "the browser roles hold 1 grant(s)" |
+| 4 | verifier replaced with one that always returns empty | 7 fails | ✅ "a row inserted with a forged hash verified clean" |
+| 5 | reason requirement removed from `v2_ranking_config_set` | 9a fails | ✅ 9a **and 9b** — the naive rewrite also accepted a typo'd key while returning `ok=true` |
+| 6 | no-op guard removed from the recorder | 4 fails | ✅ "a no-op update added 1 history row(s)" |
+| 7 | `as_of` rewritten to read the CURRENT table | 11, 12 fail | ✅ returned 45 for a date before the change, and 8 rows for the year 2000 |
+| 8 | one line added inside `v2_similar_products`, not snapshotted | 13 fails | ✅ names the function and prints the command that fixes it |
+| 9 | `v2_oggi_promoted` referenced from a ranking function | 14 fails | ✅ "paid placement has entered a shelf that claims to be earned" |
+| 10 | `v2_ranking_config_list` returns nothing to the owner | 8 fails | ✅ "the owner cannot read the ranking numbers" |
+
+### ⚠️ THREE BREAKS PRODUCED ZERO FAILURES, AND NONE OF THEM WAS A BLIND GATE
+
+Recorded because this is the failure the sentinel exists for, and it happened
+three times in one night:
+
+1. **`comment on function v2_popular_now is '…'`** — a comment is not part of
+   `pg_get_functiondef`, so the hash correctly did not move. **The break was a
+   no-op.** Not a defect: comments are documentation, the hash covers behaviour.
+2. **A rewrite that changed the return type** — Postgres refused it outright
+   (*"cannot change return type of existing function"*). **Nothing was broken.**
+3. **A textual patch of the function body** — produced a syntax error and the
+   `create or replace` never ran. **Nothing was broken.** The hash before and
+   after was byte-identical, which is what proved it.
+
+In all three the sentinel line printed, so the gate had run. Without it, all
+three would have read as *"the gate is blind"* — and the tempting next move is
+to "fix" a gate that is working. **A red proof that produces no failures has
+proven nothing until you have proven, separately, that the break happened.**
+The cheapest proof is a value the break must move: here, the source hash before
+and after.
+
+## SR-07 — `check_ranking_client.mjs` (30 August 2026)
+
+Twenty-five assertions. **Seven deliberate breaks.**
+
+| # | Break | Expected | Result |
+|---|---|---|---|
+| A | client stops requiring a reason | 3 fail | ✅ including "the refusal happens BEFORE the round trip" |
+| B | the note stops being rendered | 1 fails | ✅ "THE EXPLANATION IS RENDERED" |
+| C | `esc()` dropped from the note and the reason | 1 fails | ✅ the injected `<img>` reached the DOM |
+| D | integrity line hidden when nothing is wrong | 1 fails | ✅ |
+| E | mapper spreads the row instead of naming fields | 2 fail | ✅ 16 keys instead of 9, and the foreign column arrived |
+| F | screen dropped from the owner nav | 1 fails | ✅ "a route nobody can reach is a route that does not exist" |
+| G | "could not check" collapsed into "nothing is wrong" | 1 fails | ✅ |
