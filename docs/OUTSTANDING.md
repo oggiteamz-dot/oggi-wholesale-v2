@@ -1,6 +1,6 @@
 # Outstanding — raise these before calling anything finished
 
-**Last reconciled: 30 August 2026 (three times — see §7 and §8, added overnight).**
+**Last reconciled: 30 August 2026 (four times — see §7, §8 and §9, added overnight).**
 
 Written down because a thing agreed in conversation and not written down is a
 thing that quietly does not happen.
@@ -390,3 +390,70 @@ were in the approval panels being replaced anyway.
 **The work this leaves:** decide what each of the eleven should map to, and
 sweep them in one reviewable change in daylight. It is an afternoon, and it is
 not urgent — every one of them currently renders its fallback.
+
+
+---
+
+## 9. Found on the way to migration 108, 30 August 2026
+
+### 9.1 The shape hash was truncating every signature — FIXED
+
+`checks/replay_migrations.sh` hashed a UNION whose first branch is
+`c.relname`, of type `pg_catalog.name` — a fixed 64-byte type. Postgres resolved
+the whole column to it, so **every function signature was cut to 63 characters
+before hashing**. The gate's own comment calls this hash the sharper instrument,
+the one that catches "a substitution that happens to preserve the counts". It
+could not see any change past character 63 of a signature, which in this schema
+is most of them.
+
+Fixed with a cast, re-baselined against both sides, and given a canary that
+fails loudly if the cast is ever lost. Full account in
+`checks/GATE-EVIDENCE.md`.
+
+**Worth knowing:** the hash only ever moved when functions were ADDED or
+REMOVED. Every baseline move quoted it as evidence, and every one of those moves
+happened to involve added functions — which is why it looked healthy.
+
+### 9.2 A new shop cannot become an OGGI buyer — NOT fixed, needs Hadi
+
+Measured while working out why AC-12 could not be built:
+
+- The public request form now collects a phone (108), but an applicant approved
+  through it still gets a portal account with **no `person_id`**, and
+  `v2_set_marketplace_password` refuses to upgrade an account without one. So
+  that shop can never reach the directory, switch stores, or search across
+  stores.
+- **There is no marketplace sign-up at all.** The only function that creates a
+  person is `v2_backfill_person_identity`, the one-off utility. All six people on
+  production came from it.
+- **No phone has ever been verified.** Four channels exist, `verified_at` is
+  null on every one, and there is no OTP anywhere (ID-05).
+
+So the only working route for a new shop is wholesaler-initiated: the wholesaler
+enters their number (AC-02) or issues an invite (AC-03/04). A shop that finds
+OGGI on its own cannot get in.
+
+**Three decisions this needs, none of them guessable:**
+
+1. Should an approved anonymous applicant become a real OGGI buyer — a person, a
+   membership, the directory — or stay a store-scoped login? This is the
+   "customer side" of §3, which Hadi deferred and which the marketplace has now
+   reached.
+2. **Is a typed phone number enough to identify somebody?** Without OTP anyone
+   can claim any number. That is fine while wholesalers enter the numbers
+   themselves; it stops being fine the moment shops self-register.
+3. Should a shop be able to sign up to OGGI on its own before launch at all, or
+   is wholesaler-initiated onboarding the launch scope?
+
+### 9.3 AC-12 (auto-approve rules) is BLOCKED on 9.2, question 2
+
+Every key the registry proposes — *phone already in the wholesaler's contacts,
+by area, by referral* — is either **applicant-supplied free text** (the typed
+location: a rule on it auto-admits anyone who types the right city) or **an
+unverified claim** (the phone). A rule built on either auto-admits strangers to a
+wholesaler's price list, which is the thing this entire access-control block
+exists to prevent.
+
+Answer question 2 and the best rule — *"this phone is already in my client
+list"* — becomes safe and is the one a wholesaler actually wants. Until then
+AC-12 is not buildable, and building it anyway would be worse than not having it.
