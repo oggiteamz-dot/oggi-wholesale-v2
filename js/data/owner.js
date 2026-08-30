@@ -89,14 +89,26 @@ export async function listSignupRequests(status = "pending") {
   return data || [];
 }
 
-/** Rejection only -- a plain status flip is fine here since nothing gets
- * provisioned. Direct table write, now owner/wholesaler-RLS-scoped by
- * migration 023 (v2_is_owner() OR wid = v2_my_wid()), so this only ever
- * succeeds for a real, authenticated owner/wholesaler session. */
-export async function rejectSignupRequest(requestId, reviewerLabel) {
-  return sbCall(supabase.from("v2_signup_requests").update({
-    status: "rejected", reviewed_by: reviewerLabel, reviewed_at: new Date().toISOString(),
-  }).eq("id", requestId));
+/** Decline an access request. AC-08.
+ *
+ * WAS a direct table write with the comment "a plain status flip is fine here
+ * since nothing gets provisioned". That was true about provisioning and wrong
+ * about everything else: a status word has nowhere to put a REASON, leaves no
+ * audit entry, and put the rules about who may decide inside a browser. It now
+ * routes through v2_decline_signup_request, which requires a reason and refuses
+ * to decline something already approved.
+ *
+ * `reviewerLabel` is no longer sent. The database works out who is deciding
+ * from the session -- a label supplied by the caller is a label the caller can
+ * choose, which is not what an audit trail is for.
+ */
+export async function rejectSignupRequest(requestId, reasonCode, reasonText = null) {
+  const { data, error } = await sbCall(supabase.rpc("v2_decline_signup_request", {
+    p_id: requestId, p_reason_code: reasonCode, p_reason_text: reasonText || null,
+  }));
+  if (error) return { ok: false, message: "Could not decline this request." };
+  const row = Array.isArray(data) ? data[0] : data;
+  return { ok: !!row?.ok, message: row?.msg || "" };
 }
 
 /** Approval (Batch 14): routes through v2_approve_signup_request instead
