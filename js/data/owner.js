@@ -84,7 +84,22 @@ export async function listInvites() {
   return data || [];
 }
 
+/** AC-10. The pending queue comes from `v2_pending_access_requests`, which
+ *  carries the previous application on each row and derives its own scope --
+ *  owner sees every wholesaler's, a wholesaler sees only their own. That is the
+ *  same function js/data/wholesaler-admin.js calls, deliberately: this module
+ *  used to select with NO wid filter at all and trust RLS by itself, which is
+ *  correct today and one dropped policy away from being a cross-tenant list.
+ *
+ *  Other statuses keep the direct read. Nothing calls it that way today and it
+ *  is left working rather than narrowed, because a function that starts
+ *  answering [] to an argument it used to answer is a silent removal. */
 export async function listSignupRequests(status = "pending") {
+  if (status === "pending") {
+    const { data, error } = await sbCall(supabase.rpc("v2_pending_access_requests"));
+    if (error || !Array.isArray(data)) return [];
+    return data;
+  }
   const { data } = await sbCall(supabase.from("v2_signup_requests").select("*").eq("status", status).order("created_at", { ascending: false }));
   return data || [];
 }
@@ -127,7 +142,10 @@ export async function approveSignupRequest(requestId, username) {
   if (error) return { ok: false, error: error.message };
   const row = data?.[0];
   if (!row?.ok) return { ok: false, error: row?.msg || "Could not approve request" };
-  return { ok: true, username: row.username, tempPassword: row.temp_password, clientId: row.client_id, accountId: row.account_id };
+  // AC-01/ID-03 (107): two outcomes, and `message` is how the server says which.
+  // See the note in js/data/wholesaler-admin.js -- one explanation, not two.
+  return { ok: true, username: row.username, tempPassword: row.temp_password,
+           clientId: row.client_id, accountId: row.account_id, message: row.msg || "" };
 }
 
 /** Toggles a wholesaler active/inactive from the owner console.

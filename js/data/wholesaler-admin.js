@@ -132,11 +132,31 @@ export async function getCategoriesByWholesaler() {
 // every buyer read was rewritten in Batch S.
 // =============================================================================
 
-/** Access requests addressed to THIS wholesaler. */
+/** Access requests addressed to THIS wholesaler.
+ *
+ *  ==== AC-10: THE PENDING QUEUE IS AN RPC NOW ==============================
+ *
+ *  A `select *` cannot carry the previous application, and fetching it per card
+ *  afterwards would mean the history arrives AFTER the Approve and Decline
+ *  buttons — so the fastest route to a decision would stay the uninformed one.
+ *  `v2_pending_access_requests` returns the queue with the earlier attempt
+ *  already attached, and derives the scope from the session rather than from
+ *  the `.eq("wid", ...)` a client can drop.
+ *
+ *  Every OTHER status still reads the table directly, unchanged. Nothing calls
+ *  it that way today; it is left working rather than quietly narrowed, because
+ *  a function that starts returning [] for an argument it used to answer is a
+ *  silent removal and this project counts those.
+ */
 export async function listMySignupRequests(status = "pending") {
   const session = devAuth.getSession();
   const wid = session?.wid;
   if (!wid) return [];
+  if (status === "pending") {
+    const { data, error } = await sbCall(supabase.rpc("v2_pending_access_requests"));
+    if (error || !Array.isArray(data)) return [];
+    return data;
+  }
   const { data } = await sbCall(
     supabase.from("v2_signup_requests")
       .select("*")
@@ -177,7 +197,14 @@ export async function approveMySignupRequest(requestId, username) {
   if (error) return { ok: false, error: error.message };
   const row = data?.[0];
   if (!row?.ok) return { ok: false, error: row?.msg || "Could not approve this request" };
-  return { ok: true, username: row.username, tempPassword: row.temp_password, clientId: row.client_id, accountId: row.account_id };
+  // AC-01/ID-03 (107). `message` is new and it is the SERVER's account of what
+  // just happened. There are two outcomes now -- a membership for somebody who
+  // already signs in to OGGI, or a store-scoped login and a one-time password
+  // for somebody who does not -- and the browser is not the side that knows
+  // which. username and temp_password come back null on the first, and the
+  // panel keys off that rather than guessing from the shape of the request.
+  return { ok: true, username: row.username, tempPassword: row.temp_password,
+           clientId: row.client_id, accountId: row.account_id, message: row.msg || "" };
 }
 
 /** Decline. A STATE, never a deletion.

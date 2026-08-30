@@ -153,7 +153,7 @@ async function clientsView(outlet) {
     wrap.style.cssText = "display:flex;flex-direction:column;width:100%;";
     wrap.appendChild(row);
     const panel = document.createElement("div");
-    panel.style.cssText = "display:none;padding:14px;background:var(--surface-sunken,#f7f7f5);border-bottom:1px solid var(--border-subtle);";
+    panel.style.cssText = "display:none;padding:14px;background:var(--bg-sunken);border-bottom:1px solid var(--border-subtle);";
     wrap.appendChild(panel);
 
     let panelLoaded = false;

@@ -235,7 +235,7 @@ function renderCredentials(host, w) {
         Send these now — <strong>the password cannot be shown again</strong>. It is stored scrambled and
         nobody can read it back, so if it is lost you will need to set a new one.
       </div>
-      <div style="font-family:monospace;font-size:13px;background:var(--surface-sunken,#f7f7f5);border-radius:8px;padding:10px 12px;">
+      <div style="font-family:monospace;font-size:13px;background:var(--bg-sunken);border-radius:8px;padding:10px 12px;">
         <div>Login: <strong>${esc(w.loginEmail)}</strong></div>
         <div>Password: <strong>${esc(w.password)}</strong></div>
       </div>

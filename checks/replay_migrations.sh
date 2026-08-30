@@ -123,18 +123,62 @@ for f in $(ls "$ROOT"/supabase/migrations/*.sql | sort -V); do
   count=$((count + 1))
 done
 
-read -r t v fn pol shape <<<"$(psqlq -d "$DB" -Atc "
+# ==== THE SHAPE HASH WAS TRUNCATING EVERY SIGNATURE TO 63 CHARACTERS =========
+#
+# `c.relname` is of type `pg_catalog.name`, which is a FIXED 64-BYTE type. In a
+# UNION, Postgres resolves the result column to that type -- so every function
+# signature in the second branch was silently cut to 63 characters before being
+# hashed. Verified, not guessed:
+#
+#   [v2_submit_signup_request(p_wid text, p_buyer_name text, p_locat]  len=63
+#   [v2_access_reapply_standing(p_person uuid, p_wid text, p_name te]  len=63
+#
+# This file calls the hash "the sharper half: an md5 over every table, view and
+# function SIGNATURE in the schema. A substitution that happens to preserve the
+# counts still moves it." It did not. **Any change past character 63 of a
+# signature was invisible to it**, which in this schema is most of them: adding,
+# removing or retyping a parameter on any function with a name and argument list
+# longer than about fifty characters moved nothing at all.
+#
+# It was found because migration 108 changed THREE function signatures, added a
+# column, and the hash did not move by a single digit. The counts did not move
+# either -- 108 drops and recreates the same three functions -- so the gate
+# reported "MATCHES the production baseline exactly, shape included" for a
+# schema that had genuinely changed.
+#
+# The fix is `::text`, and the canary below is what stops it coming back: if the
+# cast is ever lost, every long signature collapses to exactly 63 characters and
+# `max(length)` drops to 63, which fails loudly instead of hashing quietly.
+read -r t v fn pol shape maxlen <<<"$(psqlq -d "$DB" -Atc "
   select (select count(*) from information_schema.tables where table_schema='wholesale_v2' and table_type='BASE TABLE')
       || ' ' || (select count(*) from information_schema.views  where table_schema='wholesale_v2')
       || ' ' || (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='wholesale_v2')
       || ' ' || (select count(*) from pg_policies where schemaname='wholesale_v2')
       || ' ' || (select md5(string_agg(nm, ',' order by nm)) from (
-                   select c.relname as nm from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                   select c.relname::text as nm from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                    where n.nspname='wholesale_v2' and c.relkind in ('r','v','p')
+                   union all
+                   select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+                     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='wholesale_v2'
+                 ) q)
+      || ' ' || (select max(length(nm)) from (
+                   select c.relname::text as nm from pg_class c join pg_namespace n on n.oid=c.relnamespace
                     where n.nspname='wholesale_v2' and c.relkind in ('r','v','p')
                    union all
                    select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
                      from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='wholesale_v2'
                  ) q)")"
+
+# THE CANARY. Not decoration: this exact condition was true for weeks and
+# nothing said so. If the longest thing being hashed is 63 characters, the
+# `name` type is back and the hash is lying about every signature.
+if [ "${maxlen:-0}" -le 63 ]; then
+  echo "!! THE SHAPE HASH IS TRUNCATING. Longest hashed signature is $maxlen characters,"
+  echo "   which means the union column resolved to pg_catalog.name (63 bytes) again."
+  echo "   Every function signature longer than that is being cut before hashing, so"
+  echo "   the hash below cannot be trusted. Restore the ::text cast on c.relname."
+  exit 1
+fi
 
 echo "== $count migrations applied, no errors"
 echo "   tables=$t views=$v functions=$fn policies=$pol"
@@ -216,8 +260,81 @@ echo "   shape=$shape"
 #   v2_directory_list(...)          28445788ba789fb34d1af691ea8dec99
 #   v2_my_access_requests(text)     d915706674ac84b7498b777612821741
 #   v2_overdue_access_requests()    5fa0a73163b7b0148b5fd7e33ca93623
-EXP_T=103 EXP_V=4 EXP_F=158 EXP_P=96
-EXP_SHAPE=d39bec768eef9e114ba8d9b646d88e46   # replay of 107 migrations AND production, 30 Aug 2026 -- measured on both sides, same query, replay first
+# Moved again 30 Aug 2026, after 106 (AC-10, applying again after a decline).
+# 103 -> 104 tables (v2_access_reapply_policy) and 158 -> 161 functions
+# (v2_shop_key, v2_access_reapply_standing, v2_pending_access_requests are new;
+# v2_directory_request_access and v2_submit_signup_request are replaced in
+# place, and v2_my_access_requests was DROPPED and recreated with seven more
+# output columns, which is a replace and not an addition). Policies unchanged at
+# 96 ON PURPOSE: the new table has RLS ON, NO policy, and its grants revoked
+# from every browser role -- the schema's standing default privileges would
+# otherwise hand it to `authenticated` on the day it was created, which is the
+# defect migration 098 had to correct and which this hash would not have moved
+# for either.
+#
+# Same order as every legitimate move: the 108-migration replay ran into an
+# empty Postgres FIRST and produced the hash below; production was then measured
+# with the SAME query and produced the same hash. All six touched function
+# bodies hash identically on both sides:
+#   v2_shop_key(text)                             feae626a5fcfbe338e252c15212a8410
+#   v2_access_reapply_standing(uuid,text,text)    fe6f65b6257871a968bfa8236112e6be
+#   v2_directory_request_access(text,text,text)   ad23bd0c325c6efdd29ac40eae81b76c
+#   v2_submit_signup_request(...)                 13a38e5c9b3ddefea7542331c8e8984e
+#   v2_my_access_requests(text)                   23e030ae2eb7579e3e60997d21268c90
+#   v2_pending_access_requests()                  a165e41ec87c7236cd5450daca7b3828
+#
+# AND THE PRODUCTION APPLY WAS PROVEN EQUIVALENT BEFORE IT RAN. 106 could not be
+# handed to the apply tool in one piece, so it went as four comment-stripped
+# chunks. Rather than trusting that, the same four chunks were first applied to a
+# SEPARATE replay of migrations 000-105 and the result compared with the
+# full-file replay: identical shape hash, and all six bodies byte-identical.
+# That is what makes the two hashes above evidence rather than coincidence --
+# migration 101 lost its in-body comments to exactly this step, one night before.
+# NOT moved for 107 (approval grants a membership), and that is the point worth
+# writing down: 107 replaces the BODY of v2_approve_signup_request and adds no
+# object at all, so all four counts and the shape hash are byte-identical before
+# and after it. The most consequential change of the weekend -- the one where
+# approving a shop went from granting nothing to granting access -- is exactly
+# the kind this instrument cannot see. Same blind spot as the ACL one 105 wrote
+# about. That is what checks/check_approval_grants_access.sql is for.
+# Moved again 30 Aug 2026, after 108 (a request nobody can answer is not a
+# request) AND after the truncation defect above was fixed. The old value is not
+# comparable to this one -- it was computed by a broken instrument -- so this is
+# a RE-BASELINE, not a drift.
+#
+# Measured on both sides at the SAME point before moving, which is the only
+# thing that makes moving a baseline legitimate:
+#
+#   corrected hash, replay at 107 ...... e656498f00a42358245a1f830ea0cc1a
+#   corrected hash, PRODUCTION at 107 .. e656498f00a42358245a1f830ea0cc1a   <- identical
+#   corrected hash, replay at 108 ...... 7801271d40a7d164eaec52bb2a8c3ab3   <- and it MOVES
+#
+# The first two agreeing is what proves the repo and production had not diverged
+# and that 108 is precisely the one migration outstanding. The third differing
+# from them is what proves the corrected instrument can see a signature change
+# at all -- the broken one returned the same digits for both.
+#
+# ⚠️ PRODUCTION IS DELIBERATELY AT 107 AS THIS IS WRITTEN. 108 makes the phone
+# required on the public request form, and the deployed sign-in screen has no
+# field to type one into, so it is applied AFTER the code rather than before it
+# -- the reverse of every other migration this weekend, for the reason stated in
+# the migration's own header. Until that apply happens, production will NOT
+# match the baseline below, and that is correct rather than a fault.
+# Moved again 30 Aug 2026, after 109 (AC-05, inviting a list of shops). ONE new
+# function, v2_issue_buyer_invites_bulk; no tables, no policies. 161 -> 162.
+#
+# NOTE THAT THE HASH MOVED, and that this is the first baseline move all weekend
+# where that sentence means anything: the previous instrument would have moved
+# for this too, because an ADDED function changes the short leading text. What
+# it could not see was 108's three changed signatures. See the truncation note
+# above.
+#
+# ⚠️ PRODUCTION IS STILL AT 107. Migrations 108 and 109 are applied to neither,
+# deliberately -- 108 makes the phone required and the deployed sign-in screen
+# has no field for one, so both go on after the code merges. Until then the
+# replay will not match production, and that is correct rather than a fault.
+EXP_T=104 EXP_V=4 EXP_F=162 EXP_P=96
+EXP_SHAPE=54e39f7c17ca67b159e3c2cb0442ad6f   # replay of 111 migrations, 30 Aug 2026
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the

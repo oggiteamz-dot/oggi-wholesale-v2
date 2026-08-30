@@ -65,6 +65,81 @@ export async function issueInvite({ shopName, phone, note, days } = {}) {
   return { ok: true, id: row.invite_id, token: row.token, expiresAt: row.expires_at };
 }
 
+/** AC-05. Invite a list of shops in one go.
+ *
+ *  `rows` is [{ shopName, phone, note }]. Returns one result per input row, IN
+ *  ORDER, including the ones that failed — a bulk operation that silently drops
+ *  rows is a wholesaler believing they invited forty shops when they invited
+ *  thirty-eight.
+ *
+ *  ==== NOTHING HERE DECIDES WHAT COUNTS AS A DUPLICATE ====================
+ *
+ *  A row whose phone already has a live invitation comes back as `existing`,
+ *  with the SAME token. That is decided by migration 109, matched on the same
+ *  normaliser the whole schema uses. The browser does not get an opinion,
+ *  because two live tokens for one shop means withdrawing the one you can see
+ *  leaves the other working. */
+export async function issueInvitesBulk(rows, days = 30) {
+  const payload = (Array.isArray(rows) ? rows : []).map((r) => ({
+    shop_name: r.shopName || null, phone: r.phone || null, note: r.note || null,
+  }));
+  if (!payload.length) return { ok: false, error: "Nothing to invite.", rows: [] };
+  const { data, error } = await sbCall(supabase.rpc("v2_issue_buyer_invites_bulk", {
+    p_rows: payload, p_days: days,
+  }));
+  if (error) return { ok: false, error: "Could not send those invitations.", rows: [] };
+  const out = (data || []).map((r) => ({
+    index: r.row_index, ok: !!r.ok, outcome: r.outcome,
+    shopName: r.shop_name || null, phone: r.phone || null,
+    inviteId: r.invite_id || null, token: r.token || null,
+    expiresAt: r.expires_at || null, message: r.msg || null,
+  }));
+  // A refusal of the WHOLE batch comes back as one row with index 0 — too many
+  // rows, no session, nothing to invite. Told apart from per-row failures here
+  // so the screen can say "none of this was sent" rather than listing one line.
+  const whole = out.length === 1 && out[0].index === 0 && !out[0].ok;
+  return whole
+    ? { ok: false, error: out[0].message || "Could not send those invitations.", rows: [] }
+    : { ok: true, rows: out };
+}
+
+/** The list a wholesaler pastes somewhere else. CSV because it opens in the
+ *  spreadsheet they already keep their customers in, and because a link is
+ *  useless in a screenshot.
+ *
+ *  Every field is quoted and every embedded quote doubled: a shop name with a
+ *  comma in it would otherwise shift every column after it, which is the kind
+ *  of corruption nobody notices until the wrong shop gets the wrong link. */
+export function invitesCsv(results) {
+  const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const head = ["Shop", "Phone", "Link", "Expires", "Status"].map(q).join(",");
+  const lines = (results || []).filter((r) => r.token).map((r) => [
+    r.shopName || "", r.phone || "", inviteLink(r.token),
+    r.expiresAt ? new Date(r.expiresAt).toISOString().slice(0, 10) : "",
+    r.outcome === "existing" ? "Already invited — same link" : "Invited",
+  ].map(q).join(","));
+  return [head, ...lines].join("\r\n");
+}
+
+/** One pasted line to one row. "Maison Rita, 03 456 789" and
+ *  "Maison Rita 03 456 789" and a bare number all have to work, because this is
+ *  a box a person pastes into from wherever their customer list already lives.
+ *
+ *  THE NUMBER IS FOUND AT THE END OF THE LINE, not by splitting on the comma:
+ *  a shop name may contain one ("Rita, Beirut") and a phone number may not.
+ *  Splitting on the comma would put half the shop name in the phone column. */
+export function parseInviteLines(text) {
+  return String(text || "").split(/\r?\n/)
+    .map((l) => l.trim()).filter(Boolean)
+    .map((line) => {
+      const m = line.match(/^(.*?)[,;\s]*([+0-9][0-9\s().+-]{5,})$/);
+      if (m && m[2]) {
+        return { shopName: m[1].replace(/[,;\s]+$/, "").trim() || null, phone: m[2].trim() };
+      }
+      return { shopName: line.replace(/[,;]+$/, "").trim() || null, phone: null };
+    });
+}
+
 export async function revokeInvite(inviteId) {
   const { data, error } = await sbCall(supabase.rpc("v2_revoke_buyer_invite", { p_invite_id: inviteId }));
   if (error) return { ok: false, error: error.message };

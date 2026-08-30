@@ -16,6 +16,14 @@ import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, s
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
 // AC-01, 28 Aug 2026 — the wholesaler's own access-request queue.
 import { listMySignupRequests, countMyPendingRequests, approveMySignupRequest, rejectMySignupRequest } from "../data/wholesaler-admin.js";
+// AC-10. The previous application, rendered by the SAME component the owner
+// console uses -- see js/components/prior-application.js for why it is one
+// component and not two blocks of markup.
+import { priorApplication } from "../components/prior-application.js";
+// AC-01/ID-03 (107). Approving has two outcomes now and the panel that says
+// which is shared with the owner console -- the two hand-rolled copies it
+// replaces had already drifted in wording AND in the token they styled with.
+import { approvalResult } from "../components/approval-result.js";
 import { getVisibilityMirror, getVisibilityQueries } from "../data/visibility.js";
 // SR-05: the published ranking policy, linked from the visibility mirror below
 // as well as carrying its own navigation entry.
@@ -25,7 +33,8 @@ import { DECLINE_REASONS } from "../data/decline-reasons.js";
 // Batch N step 4, 28 Aug 2026 — handing one order to someone outside the app.
 import { orderLink, whatsappHref, rotateOrderToken } from "../data/order-handoff.js";
 // AC-03, 29 Aug 2026 — Door A: inviting a shop into this store.
-import { listMyInvites, issueInvite, revokeInvite, inviteLink, inviteWhatsappHref } from "../data/buyer-invites.js";
+import { listMyInvites, issueInvite, revokeInvite, inviteLink, inviteWhatsappHref,
+         issueInvitesBulk, invitesCsv, parseInviteLines } from "../data/buyer-invites.js";
 import { getInventoryIntelligenceReport, getCycleCountSchedule, logCycleCount } from "../data/inventory-intelligence.js";
 import { getInventorySignals, getVariantStatuses } from "../data/inventory-signals.js";
 import { getMovementLedger, movementTypeLabel, referenceLabel, MOVEMENT_TYPES } from "../data/inventory-movements.js";
@@ -2768,9 +2777,31 @@ async function clientsView(outlet) {
           <span style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:2px;">Shop name (optional)</span>
           <input class="input" data-f="shop" type="text" placeholder="Maison Rita">
         </label>
+        <label style="flex:1 1 150px;min-width:0;">
+          <span style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:2px;">Their phone (optional)</span>
+          <input class="input" data-f="phone" type="tel" inputmode="tel" placeholder="03 456 789">
+        </label>
         <button type="button" class="btn btn-primary btn-sm" data-a="new">Create invitation</button>
       </div>
       <div data-slot="msg" style="font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
+
+      <!-- AC-05. The single form above is for the shop you are thinking of right
+           now. This is for the forty you already have. -->
+      <details data-bulk style="margin-top:10px;">
+        <summary style="cursor:pointer;font-size:12.5px;font-weight:600;padding:4px 0;">Invite a whole list</summary>
+        <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 6px;">
+          One shop per line — name and number, however you already have them written:
+          <code>Maison Rita, 03 456 789</code>. A shop you have already invited comes back
+          with the same link, not a second one.
+        </p>
+        <textarea class="input" data-f="bulk" rows="5" style="width:100%;font-family:monospace;font-size:12.5px;"
+                  placeholder="Maison Rita, 03 456 789&#10;Noor Boutique 71 333 444&#10;Cedar Kids"></textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary btn-sm" data-a="bulk">Invite them all</button>
+          <span data-slot="bulk-count" style="font-size:12px;color:var(--text-secondary);"></span>
+        </div>
+        <div data-slot="bulk-out" style="margin-top:10px;"></div>
+      </details>
       ${rows.length ? `
         <div style="margin-top:12px;border-top:1px solid var(--border-subtle);padding-top:10px;">
           <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--text-tertiary);margin-bottom:6px;">
@@ -2794,9 +2825,118 @@ async function clientsView(outlet) {
 
     const msg = invites.querySelector('[data-slot="msg"]');
 
+    // AC-05. The count updates as they paste, so "invite them all" is never a
+    // press into the dark -- the number of shops about to be invited is the one
+    // thing a person wants confirmed before doing forty of something.
+    const bulkBox = invites.querySelector('[data-f="bulk"]');
+    const bulkCount = invites.querySelector('[data-slot="bulk-count"]');
+    if (bulkBox) {
+      const recount = () => {
+        const rows = parseInviteLines(bulkBox.value);
+        const withNumber = rows.filter((r) => r.phone).length;
+        bulkCount.textContent = rows.length
+          ? `${rows.length} shop${rows.length === 1 ? "" : "s"}, ${withNumber} with a number`
+          : "";
+      };
+      bulkBox.addEventListener("input", recount);
+      recount();
+    }
+
+    invites.querySelector('[data-a="bulk"]')?.addEventListener("click", async () => {
+      const btn = invites.querySelector('[data-a="bulk"]');
+      const out = invites.querySelector('[data-slot="bulk-out"]');
+      const rows = parseInviteLines(bulkBox.value);
+      if (!rows.length) { toast("Nothing to invite — paste a list first", { type: "danger" }); return; }
+      btn.disabled = true; btn.textContent = "Inviting…";
+      const res = await issueInvitesBulk(rows, 30);
+      btn.disabled = false; btn.textContent = "Invite them all";
+      if (!res.ok) { toast(res.error || "Could not send those invitations", { type: "danger" }); return; }
+
+      // EVERY ROW IS SHOWN, including the ones that failed and the ones that
+      // were already invited. A bulk screen that lists only the successes is a
+      // wholesaler believing they invited forty shops when they invited
+      // thirty-eight, and never finding out which two.
+      const made = res.rows.filter((r) => r.token);
+      out.textContent = "";
+      const head = document.createElement("div");
+      head.style.cssText = "font-size:12.5px;font-weight:650;margin-bottom:6px;";
+      head.textContent = `${res.rows.filter((r) => r.outcome === "invited").length} invited, `
+        + `${res.rows.filter((r) => r.outcome === "existing").length} already had a live link, `
+        + `${res.rows.filter((r) => !r.ok).length} skipped`;
+      out.appendChild(head);
+
+      res.rows.forEach((r) => {
+        const line = document.createElement("div");
+        line.setAttribute("data-outcome", r.outcome || "");
+        line.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;"
+          + "font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--border-subtle);";
+        const who = document.createElement("span");
+        who.style.cssText = "flex:1 1 140px;min-width:0;";
+        who.textContent = [r.shopName, r.phone].filter(Boolean).join(" · ") || `Line ${r.index}`;
+        line.appendChild(who);
+        const tag = document.createElement("span");
+        tag.className = "badge " + (r.outcome === "invited" ? "badge-success"
+          : r.outcome === "existing" ? "badge-info" : "badge-neutral");
+        tag.textContent = r.outcome === "invited" ? "Invited"
+          : r.outcome === "existing" ? "Same link" : "Skipped";
+        line.appendChild(tag);
+        if (r.message) {
+          const why = document.createElement("span");
+          why.style.cssText = "flex:1 1 100%;font-size:11.5px;color:var(--text-secondary);";
+          why.textContent = r.message;
+          line.appendChild(why);
+        }
+        if (r.token) {
+          const wa = document.createElement("a");
+          wa.className = "btn btn-secondary btn-sm";
+          wa.href = inviteWhatsappHref(r.token, { wholesalerName: session?.wholesalerName || "", shopName: r.shopName });
+          wa.target = "_blank"; wa.rel = "noopener";
+          wa.textContent = "WhatsApp";
+          line.appendChild(wa);
+        }
+        out.appendChild(line);
+      });
+
+      if (made.length) {
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "btn btn-ghost btn-sm";
+        copy.style.marginTop = "8px";
+        copy.textContent = `Copy all ${made.length} links`;
+        copy.addEventListener("click", async () => {
+          const csv = invitesCsv(made);
+          try {
+            await navigator.clipboard.writeText(csv);
+            copy.textContent = "Copied";
+          } catch {
+            // Same fallback the single Copy link button uses: a textarea the
+            // person can select from. A clipboard API that is not available is
+            // not a reason to lose forty links.
+            const ta = document.createElement("textarea");
+            ta.value = csv;
+            ta.style.cssText = "width:100%;height:120px;font-family:monospace;font-size:11px;margin-top:6px;";
+            out.appendChild(ta); ta.select();
+            copy.textContent = "Select and copy from the box";
+          }
+        });
+        out.appendChild(copy);
+      }
+
+      // ⚠️ DELIBERATELY NO paintInvites() HERE, and it is not an oversight.
+      // Repainting rebuilds this card's innerHTML, which would destroy the
+      // results above -- every link and the button that copies them -- to
+      // refresh a list of previous invitations sitting underneath. That trade
+      // is the wrong way round: the links are the deliverable and they are why
+      // the button was pressed. Same reasoning as the single-invite path
+      // showing its link rather than toasting it, and the same reasoning as the
+      // approval panel replacing its card. The list below is one page load out
+      // of date, which costs nothing.
+    });
+
     invites.querySelector('[data-a="new"]').addEventListener("click", async () => {
       const shop = invites.querySelector('[data-f="shop"]').value.trim();
-      const r = await issueInvite({ shopName: shop || null });
+      const phone = invites.querySelector('[data-f="phone"]').value.trim();
+      const r = await issueInvite({ shopName: shop || null, phone: phone || null });
       if (!r.ok) { toast(r.error || "Could not create the invitation", { type: "danger" }); return; }
       await paintInvites();
       // Shown, not toasted. This link is the whole deliverable, and a
@@ -3123,7 +3263,7 @@ async function teamView(outlet) {
 
     formCard.querySelector("#team-result").innerHTML = `
       <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Save these now — the password will not be shown again.</div>
-      <div style="display:flex;gap:16px;font-family:monospace;font-size:13px;background:var(--surface-sunken,#f7f7f5);border-radius:8px;padding:10px 12px;">
+      <div style="display:flex;gap:16px;font-family:monospace;font-size:13px;background:var(--bg-sunken);border-radius:8px;padding:10px 12px;">
         <div><span style="color:var(--text-tertiary);">Username:</span> <strong>${esc(username)}</strong></div>
         <div><span style="color:var(--text-tertiary);">Password:</span> <strong>${esc(password)}</strong></div>
       </div>
@@ -5011,9 +5151,19 @@ async function requestsView(outlet) {
     const who = [r.location, r.volume ? `Volume: ${r.volume}` : null, r.sells ? `Sells: ${r.sells}` : null]
       .filter(Boolean).map(esc).join(" · ") || "No details given";
 
+    // Migration 108. THE NUMBER IS THE POINT OF THE WHOLE CARD: approving mints
+    // a password that this build cannot email, so without a way to reach them
+    // the decision cannot be acted on. A tel: link because the wholesaler is on
+    // a phone. Requests made before 108 have none, and say so rather than
+    // rendering an empty space that reads like a rendering fault.
+    const phoneHtml = r.phone
+      ? `<a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ""))}" style="font-weight:600;">${esc(r.phone)}</a>`
+      : `<span style="color:var(--text-tertiary);">No number — asked before we collected one</span>`;
+
     card.innerHTML = `
       <div style="min-width:0;flex:1 1 240px;">
         <div style="font-weight:650;">${esc(r.buyer_name)}</div>
+        <div style="font-size:13px;margin-top:2px;">${phoneHtml}</div>
         <div style="font-size:12px;color:var(--text-secondary);">${who}</div>
         <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">Asked ${new Date(r.created_at).toLocaleDateString()}</div>
       </div>
@@ -5022,6 +5172,12 @@ async function requestsView(outlet) {
         <button class="btn btn-primary btn-sm" data-action="approve">Approve</button>
       </div>
     `;
+
+    // AC-10. BEFORE the buttons in the DOM, so a screen reader and a thumb both
+    // meet the history on the way to the decision rather than after it. Renders
+    // nothing at all for a first application, which is most of them.
+    const prior = priorApplication(r);
+    if (prior) card.insertBefore(prior, card.querySelector('[data-action="reject"]').parentElement);
 
     card.querySelector('[data-action="approve"]').addEventListener("click", async () => {
       const btn = card.querySelector('[data-action="approve"]');
@@ -5034,27 +5190,23 @@ async function requestsView(outlet) {
         btn.textContent = "Approve";
         return;
       }
-      // The card is REPLACED rather than toasted. This is the only moment the
-      // password will ever be visible; a notification that fades is the wrong
-      // container for a string nothing can recover.
-      card.innerHTML = `
-        <div style="width:100%;">
-          <div style="font-weight:650;margin-bottom:6px;">✅ ${esc(r.buyer_name)} can now buy from you</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Copy these now — <strong>the password will not be shown again.</strong> Send them to the shop yourself; nothing is emailed automatically.</div>
-          <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:monospace;font-size:13px;background:var(--bg-sunken);border-radius:8px;padding:10px 12px;">
-            <div><span style="color:var(--text-tertiary);">Username</span> <strong>${esc(result.username)}</strong></div>
-            <div><span style="color:var(--text-tertiary);">Password</span> <strong>${esc(result.tempPassword)}</strong></div>
-          </div>
-          <button class="btn btn-secondary btn-sm" data-action="dismiss" style="margin-top:10px;">Done</button>
-        </div>
-      `;
-      card.querySelector('[data-action="dismiss"]').addEventListener("click", () => card.remove());
+      // The card is REPLACED rather than toasted. When there IS a password this
+      // is the only moment it will ever be visible, and a notification that
+      // fades is the wrong container for a string nothing can recover. When
+      // there is not -- because the shop already signs in to OGGI -- the panel
+      // says so instead of rendering an empty box the wholesaler would go
+      // hunting through.
+      card.textContent = "";
+      card.appendChild(approvalResult(r.buyer_name, result, () => card.remove()));
     });
 
     card.querySelector('[data-action="reject"]').addEventListener("click", async () => {
       const yes = await confirmAction({
         title: `Decline ${r.buyer_name}?`,
-        body: "They will not get access, and they are not told automatically — there is no email in the system yet. They can ask again later, and you will see it as a new request.",
+        // AC-10 made the second half of this sentence true in a specific way:
+        // WHEN they may ask again now depends on the reason you are about to
+        // pick, and a re-application arrives with this decision attached.
+        body: "They will not get access, and they are not told automatically — there is no email in the system yet. They can ask again later — how soon depends on the reason you pick next — and it will arrive with this decision attached to it.",
         confirmLabel: "Decline",
         danger: true,
       });

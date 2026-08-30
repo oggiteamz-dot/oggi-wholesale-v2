@@ -546,6 +546,59 @@ broke · ❌ not built
 | 359 | **The directory carries each wholesaler's stated time**, so the confirmation can name a real number without one round trip per card — and DR-05 still holds: no price, no product, no count in that projection | `v2_directory_list()` | migration 105 assertion 6, `check_wholesaler_directory.sql`, `check_wholesaler_directory.mjs` | ✅ |
 | 360 | **The directory mapper is still an EXACT field set** — seven now, not six. Adding the answer time could not be used as cover for a price slipping in beside it | `js/data/directory.js` | `check_wholesaler_directory.mjs` (red-proved by adding `price_from`) | ✅ |
 
+| 361 | **A shop turned down by a wholesaler can ask again**, and is told so on the screen where they came to find out what happened. Before this, re-applying already worked — instantly, unlimited times — and nothing anywhere said so, so only the buyers who kept clicking got through | `v2_directory_request_access()`, `js/views/directory.js` | `check_access_reapply.sql` (1, 6), `check_access_reapply_client.mjs` | ✅ |
+| 362 | **⭐ …and the wholesaler sees the previous application ATTACHED.** This is what AC-10 is for. Blocking a re-application is the lesser half; reviewing the same shop blind for the third time is the complaint | `v2_pending_access_requests()`, `js/components/prior-application.js` | `check_access_reapply.sql` (12), `check_access_reapply_client.mjs` (red-proved by unlinking the chain) | ✅ |
+| 363 | **⭐ THE SECOND DOOR WAS FOUND AND CLOSED.** `v2_submit_signup_request` — the sign-in screen's "Don't have an account? Request access" — is also granted to `anon` and also inserts an access request. A buyer inside a cooldown could sign out and use it. Every rule in this block was one sign-out from meaningless | `v2_submit_signup_request()` | `check_access_reapply.sql` (10, red-proved by restoring the old body), migration 106 assertion 7 | ✅ |
+| 364 | **⭐ …and the assertion asks the RIGHT question.** The first draft asserted there is exactly ONE anon-callable inserter, which is how the second door was found — by the assertion failing. Counting doors was wrong; the assertion now says every door must walk through the check, and stays right when a third is added | migration 106 assertion 7 | `check_access_reapply.sql`, red-proved | ✅ |
+| 365 | **The cooldown depends on WHY they were declined**, not on one number for everything. "We could not verify you" is the buyer's to fix, so it has no cooldown at all — making a shop wait sixty days before sending the details we asked for is punishing them for the thing we asked for | `v2_access_reapply_policy` | `check_access_reapply.sql` (4), migration 106 assertion 4 | ✅ |
+| 366 | **"Not taking new clients" is treated as what it is — about us, not them.** Thirty days, no note needed, and more attempts allowed than any other reason | `v2_access_reapply_policy` | `check_access_reapply.sql` (9b) | ✅ |
+| 367 | **"You already have an account under another name" refuses with what would ACTUALLY help**, rather than a date. A fourth request does not recover an account; contacting the store does | `v2_access_reapply_standing()` | `check_access_reapply.sql` (7, red-proved by making it re-appliable) | ✅ |
+| 368 | **The numbers live in a table, not in a function body.** Migration 101's rule: a number that decides behaviour and is typed into a function is a number nobody can read and nothing records changing | `v2_access_reapply_policy` | `check_access_reapply.sql` (9b — moves the row's number and watches the answer follow) | ✅ |
+| 369 | **⭐ A MISSING POLICY ROW NO LONGER PERMITS EVERYTHING.** Found by a red proof that produced zero failures: with no row the whole record is NULL, every guard is a NULL comparison, and the function fell through all three to `ok`. Deleting the `existing_account` row would have let the one refused applicant straight in, silently | `v2_access_reapply_standing()` | `check_access_reapply.sql` (9b), migration 106 §3 | ✅ |
+| 370 | **Every decline made before reasons existed is still re-appliable.** Every pre-104 row has `reason_code = null`; without the `__unknown__` policy row, every one of those shops would have been locked out permanently and nothing would have said so | `v2_access_reapply_policy` | `check_access_reapply.sql` (9), migration 106 assertion 3 | ✅ |
+| 371 | **Sending the same words again is refused as what it is.** Compared case-insensitively with whitespace collapsed — "the same thing again" is a claim about words, not spacing | `v2_directory_request_access()` | `check_access_reapply.sql` (5, red-proved by deleting the comparison) | ✅ |
+| 372 | **A re-application is a NEW row linked to the one it replaces**, never an edit of it. AC-09's rule: the decline stays a state, so the history survives and the same applicant cannot loop forever with nobody able to see it | `v2_signup_requests.supersedes`, `.attempt` | `check_access_reapply.sql` (6, red-proved by dropping both from the insert) | ✅ |
+| 373 | **There is an attempt cap, and past it the app says so plainly** rather than offering another date that will not help | `v2_access_reapply_policy.max_attempts` | `check_access_reapply.sql` (8, red-proved by raising the cap out of reach) | ✅ |
+| 374 | **⭐ The browser never decides whether a shop may ask again.** Every branch switches on the server's state; the gate forbids date arithmetic and cooldown constants in both client files. Two answers to "may I ask again" means the one the buyer sees is the one developer tools can edit | `js/data/access-requests.js`, `js/views/directory.js` | `check_access_reapply_client.mjs` (red-proved both operand orders) | ✅ |
+| 375 | **No declined row is a dead end either.** May ask now, must wait until a date, asking will not help, out of attempts — each produces a real sentence. A decline with nothing after it is PB-01's dead end one step later | `reapplyStanding()` | `check_access_reapply_client.mjs` (all five states, plus no `undefined`/`Invalid Date` leaking in) | ✅ |
+| 376 | **One "Ask again" button per wholesaler, on the newest attempt only**, and the older ones fold into history the buyer can still open. Two live buttons for one relationship is one button that lies | `js/views/directory.js`, `v2_my_access_requests()` | `check_access_reapply.sql` (13, 13b), `check_access_reapply_client.mjs` (red-proved by ignoring `superseded`) | ✅ |
+| 377 | **Asking again goes through the SAME function as a first application.** One door in the database and one in the browser — a second client helper would be a second place for the note rules to drift | `js/views/directory.js` | `check_access_reapply_client.mjs` (red-proved by inventing a second RPC) | ✅ |
+| 378 | **Both review screens share ONE history component.** The wholesaler's queue and the owner console both review access requests; two copies would drift, and the way anyone would find out is one screen deciding without history the other shows | `js/components/prior-application.js` | `check_access_reapply_client.mjs` (red-proved by giving the owner console its own) | ✅ |
+| 379 | **…and it renders BEFORE the approve/decline buttons**, so a thumb and a screen reader both meet the context on the way to the decision rather than after it | `js/views/wholesaler.js`, `js/views/owner.js` | `check_access_reapply_client.mjs` | ✅ |
+| 380 | **A buyer-typed note cannot inject markup into the wholesaler's queue.** Every line of the history component is `textContent`, which is a stronger guarantee than remembering to call an escape helper | `js/components/prior-application.js` | `check_access_reapply_client.mjs` (red-proved with `<img onerror>`) | ✅ |
+| 381 | **The pending queue is an RPC that derives its own scope**, for the wholesaler's screen and the owner console alike. The owner module used to select with no `wid` filter at all and trust RLS by itself — correct today, one dropped policy from being a cross-tenant list | `v2_pending_access_requests()` | `check_access_reapply.sql` (12, 14), `check_access_reapply_client.mjs` | ✅ |
+| 382 | **The re-apply policy is not readable by any browser role.** "We decline for X and let you back after N days" is an operating rule, and a shop that can read it picks the reason that comes back soonest | `v2_access_reapply_policy` | `check_access_reapply.sql` (15, red-proved by granting `anon`) | ✅ |
+| 383 | **The standing helper is granted to nobody at all.** It takes an identity, so only the definer functions that have already established who is asking may call it — migration 105's rule, kept | `v2_access_reapply_standing()` | `check_access_reapply.sql` (15b), migration 106 assertion 5 | ✅ |
+| 384 | **⚠️ THE KNOWN GAP IS ASSERTED, NOT HIDDEN.** The anonymous door matches on a typed shop name, so a different name is a different applicant. Stated as a passing assertion rather than a comment: if somebody makes name matching cleverer, it goes red and they have to decide deliberately | `v2_shop_key()` | `check_access_reapply.sql` (11), migration 106 assertion 13 | ✅ |
+| 385 | **…and the normaliser is deliberately dumb.** No stemming, no fuzzy distance. A normaliser that guesses eventually tells a wholesaler they declined somebody they have never seen | `v2_shop_key()` | `check_access_reapply.sql`, migration 106 assertion 13 (both directions) | ✅ |
+| 386 | **The "Your requests" list has styles of its own.** It shipped on 30 Aug rendering as a run of unstyled elements — legible, and not a screen. State is on the row as `data-status`/`data-reapply` so a gate need not read the copy | `css/components.css` | `check_contrast.mjs`, `check_token_completeness.mjs` | ✅ |
+
+> **Rows 361–386 are AC-10** — applying again after a decline. One migration
+> (`106`), two new gates (`check_access_reapply.sql`, 18 assertions;
+> `check_access_reapply_client.mjs`, 46), red-proved **fourteen** ways.
+>
+> **The finding that reshaped it.** The first draft's own assertion 7 — "there
+> is exactly ONE anon-callable function that inserts an access request" — failed
+> against production. `v2_submit_signup_request` is a second one, and it is live
+> behind a button on the sign-in screen. Every rule in this block would have
+> been one sign-out away from meaningless. The assertion was then rewritten to
+> ask the right question: not *how many* doors there are, but that **every** door
+> walks through the check — which stays true when a third is added.
+>
+> **The red proof that produced zero failures, again.** Deleting the
+> `__unknown__` policy row changed nothing, and the reason was worse than a
+> blind gate: with no row the policy record is NULL, all three guards are NULL
+> comparisons, and the function fell through to `ok`. **A missing policy row
+> silently permitted everything.** Row 369. Sixth time this weekend that "no
+> failures" meant "the break did not happen" — and the third time the break
+> itself was the finding.
+>
+> **What is deliberately NOT closed.** The anonymous door can only match a typed
+> shop name, so somebody who types a different one gets a fresh request. That is
+> row 384, asserted rather than hidden: the point of AC-10 is that no wholesaler
+> reviews the same shop blind, not that a determined applicant cannot be
+> determined.
+
 > **Rows 346–360 are AC-07, AC-11 and PB-01** — the requester's side. One
 > migration (`105`), two new gates (`check_access_request_standing.sql`, 13
 > assertions; `check_access_request_standing_client.mjs`, 27), red-proved four
@@ -569,12 +622,115 @@ broke · ❌ not built
 > function, it fired immediately. **Fourth and fifth time this weekend that the
 > answer to "no failures" was "the break did not happen".**
 
+| 387 | **⭐ APPROVING A SHOP NOW ACTUALLY LETS THEM IN.** `v2_approve_signup_request` never wrote a membership, and a membership is the only thing that puts a store in the buyer's switcher, opens it, or makes the directory say "you have access". Approval granted nothing | `v2_approve_signup_request()` | `check_approval_grants_access.sql` (2, red-proved by restoring the pre-107 body) | ✅ |
+| 388 | **…and the buyer's OWN SESSION can open the store**, proven through `v2_session_account` with a real token rather than by observing that a row exists. A membership that does not open the door is the same defect one layer down | `v2_session_account()` | `check_approval_grants_access.sql` (3, red-proved by writing the membership inactive) | ✅ |
+| 389 | **…and it appears in their store switcher**, which is where they will actually look for it | `v2_session_stores()` | `check_approval_grants_access.sql` (4) | ✅ |
+| 390 | **⭐ The directory and "Your requests" now AGREE.** Before 107 one said "Approved — you can shop here now" and the other offered the Ask button again, three days after that sentence shipped | `v2_directory_list()` | `check_approval_grants_access.sql` (5) | ✅ |
+| 391 | **⭐ No second credential for somebody who already signs in to OGGI.** Two logins for one human at one company is how "who is this shop" stops having one answer | `v2_approve_signup_request()` | `check_approval_grants_access.sql` (6, 6b — red-proved with a hash of the empty string) | ✅ |
+| 392 | **…and the account behind that membership cannot be signed into at all** — a bcrypt hash of a random secret nobody ever sees, not a sentinel, because `crypt()` RAISES on an invalid salt and a junk value would turn every login attempt into a 500 instead of a refusal | `v2_approve_signup_request()` | `check_approval_grants_access.sql` (6b, tries the empty password, the username, and "password") | ✅ |
+| 393 | **⭐ The applicant with NO OGGI account keeps exactly what they had** — a store-scoped login and a one-time password — because there is nobody to grant a membership to. Proven by *signing in with the password the function just issued*, not by seeing a string come back | `v2_approve_signup_request()` | `check_approval_grants_access.sql` (8, 8b, 8c — red-proved by removing the password) | ✅ |
+| 394 | **A store that exists in v1 with no marketplace record refuses in words**, rather than dying on a foreign key in front of a wholesaler | `v2_approve_signup_request()` | `check_approval_grants_access.sql` (10, red-proved by deleting the check — it raises) | ✅ |
+| 395 | **Approving twice is refused**, so a double click cannot mint a second account and a second client row | `v2_approve_signup_request()` | `check_approval_grants_access.sql` (9) | ✅ |
+| 396 | **Migration 104's decision recorder survived the rewrite.** AC-17 asks "who let this shop in", and 107 rewrote the function that answers it | `v2_audit_access_request()` | `check_approval_grants_access.sql` (11, 12) | ✅ |
+| 397 | **No backfill was attempted, and the migration refuses to install quietly where the defect has already bitten.** Nothing records which portal account belongs to which approved request, so a repair would have to guess by matching a shop name — and a fragile repair is how a wrong membership gets written to somebody's account | migration 107 assertion 7 | migration 107, self-asserting | ✅ |
+| 398 | **⭐ One approval panel, both review screens**, replacing two hand-rolled copies that had already drifted in wording, in labels, and in the surface token one of them used | `js/components/approval-result.js` | `check_approval_grants_access_client.mjs` (red-proved by giving the owner console its own back) | ✅ |
+| 399 | **No empty password box**, ever. When there is nothing to send the panel says so, instead of rendering `Username: null` and sending a wholesaler hunting for a string that was never minted | `js/components/approval-result.js` | `check_approval_grants_access_client.mjs` (red-proved by rendering it unconditionally) | ✅ |
+| 400 | **…and no silent drop the other way.** When there IS a password this is the only time it will ever be visible — the database keeps its hash | `js/components/approval-result.js` | `check_approval_grants_access_client.mjs` (red-proved by hiding it) | ✅ |
+| 401 | **Half a response is not a credentials outcome.** A username with no password is the shape a partial failure takes, and a box with one field filled is worse than no box | `js/components/approval-result.js` | `check_approval_grants_access_client.mjs` (both halves asserted, red-proved) | ✅ |
+| 402 | **The panel is built entirely with `textContent`** and imports no escape helper — a sink that cannot parse markup beats one somebody has to remember to call. Both copies it replaces used `innerHTML`, and a generated username is derived from a shop's own name | `js/components/approval-result.js` | `check_approval_grants_access_client.mjs` (red-proved with `<script>` and `<img onerror>`) | ✅ |
+| 403 | **⭐ The token gate now reads `js/` as well as `css/`.** This app writes a great deal of style inline from JavaScript, and the gate had never looked there. `--surface-sunken` was referenced in five inline styles across four files, has never been defined, and had been falling back to a hardcoded grey for weeks | `checks/check_token_completeness.mjs` | itself, red-proved four ways | ✅ |
+| 404 | **…and the eleven it found are allowlisted by name, not hidden.** A twelfth fails; so does any of them appearing in a stylesheet; so does an allowlist entry no longer used anywhere, so the list shrinks as they are fixed and cannot rot | `checks/check_token_completeness.mjs` | itself (red-proved: a new token, a stale entry, a stylesheet use, a deleted definition) | ✅ |
+
+> **Rows 387–404 are the approval fix and the token gate** — migration `107`,
+> two new gates (`check_approval_grants_access.sql`, 17 assertions;
+> `check_approval_grants_access_client.mjs`, 29), red-proved **eighteen** ways.
+>
+> **This was not on the plan.** It was found doing a code census for AC-12
+> (auto-approve rules) and AC-12 was stopped for it, because auto-approve means
+> approving with nobody in the room and wiring a rule to that function would
+> have multiplied the defect across every buyer, silently.
+>
+> **Two assertions in these gates were wrong, and the code was right both
+> times.** One guessed at the SHAPE of a credential inside free text and fired
+> on ordinary prose. The other signed in with a username belonging to a
+> different store, so it failed for the wrong reason and would have passed with
+> the account's password set to a hash of the empty string — found by a red
+> proof that produced zero failures, the **seventh** time this weekend that "no
+> failures" meant "the break did not happen".
+>
+> **Row 397 is a deliberate absence.** Production has zero approved requests, so
+> there is nothing to repair; anywhere else, the migration stops and gets a
+> person looking rather than guessing which account belongs to which request.
+
+| 405 | **⭐ A REQUEST CAN NOW BE ANSWERED.** The public "Request access" form collected no phone and no email, so a wholesaler could approve a shop and then had nobody to send the minted password to. Live since Batch 4; never noticed, because production has zero approved requests | `js/views/login.js`, `v2_submit_signup_request()` | `check_access_reapply.sql` (10c), `check_access_reapply_client.mjs` (red-proved by removing the field, the refusal, and the argument) | ✅ |
+| 406 | **The number is VALIDATED, not merely collected**, through the same `v2_normalise_channel` the rest of the schema uses — so "12" and "call me" are refused rather than stored as a contact detail that is not one. One definition of "is this a phone number" in the schema, not two | `v2_submit_signup_request()` | `check_access_reapply.sql` (10d, red-proved) | ✅ |
+| 407 | **⭐ The normalised key is a GENERATED COLUMN**, not something a function remembers to compute. `v2_normalise_channel` is IMMUTABLE, so Postgres holds it — and no second insert path, no hand-typed UPDATE, and no future function can make the key disagree with the raw value | `v2_signup_requests.phone_key` | migration 108 assertion 1 | ✅ |
+| 408 | **⭐ …and it narrows the gap AC-10 had to leave open eight hours earlier.** A re-application through the anonymous door now matches on the number, so renaming the shop no longer escapes the cooldown. Precedence is person, then phone, then name | `v2_access_reapply_standing()` | `check_access_reapply.sql` (10b, red-proved by dropping the phone from the precedence) | ✅ |
+| 409 | **The residual gap is still asserted rather than hidden.** A different name AND a different number is a different applicant, and that line is a passing assertion so the next person to make matching cleverer has to decide deliberately | `v2_access_reapply_standing()` | `check_access_reapply.sql` (11) | ✅ |
+| 410 | **An unusable number does not silently become a match key.** "12" normalises to null and falls back to the name, rather than matching every other applicant who also typed nonsense | `v2_access_reapply_standing()` | migration 108 assertion 5, red-proved | ✅ |
+| 411 | **Both review screens show the number, as something you can press to call**, and a request made before 108 says why it has none rather than rendering a blank that reads like a fault | `js/views/wholesaler.js`, `js/views/owner.js` | `check_access_reapply_client.mjs` (red-proved separately on each screen) | ✅ |
+| 412 | **The buyer-typed number is stripped before it reaches a `tel:` href.** It is a string a stranger typed, going into an HTML attribute | `js/views/wholesaler.js`, `js/views/owner.js` | `check_access_reapply_client.mjs` (red-proved) | ✅ |
+| 413 | **⭐ THE SHAPE HASH HAD BEEN TRUNCATING EVERY SIGNATURE TO 63 CHARACTERS.** `c.relname` is of type `pg_catalog.name`, a fixed 64-byte type, and in a UNION Postgres resolved the whole column to it — so every function signature was cut before hashing. The repo's sharpest structural instrument was blind to any change past character 63, which in this schema is most of them | `checks/replay_migrations.sh` | itself, and the measurement below | ✅ |
+| 414 | **…proven, not argued.** Two replays with identical object counts (104/4/161/96) and two differing function signatures produced the SAME old hash (`61d82639…`) and DIFFERENT corrected hashes (`e656498f…` vs `7801271d…`) | `checks/replay_migrations.sh` | measured on both databases | ✅ |
+| 415 | **…and a canary stops it coming back.** If the cast is ever lost, every long signature collapses to exactly 63 characters, so `max(length)` drops to 63 and the script refuses to print a hash at all rather than printing one that cannot be trusted | `checks/replay_migrations.sh` | red-proved by removing the cast — it fires | ✅ |
+| 416 | **The baseline was re-measured on both sides before being moved.** Corrected hash of the repo at 107 and of PRODUCTION at 107 are identical (`e656498f…`), which is what proves the two had not diverged and that 108 is precisely the one migration outstanding | `checks/replay_migrations.sh` | measured on the replay and on production with the same query | ✅ |
+
+> **Rows 405–416 are migration 108 and the truncation defect.** One migration,
+> no new gate files — the two AC-10 gates were extended instead, because the
+> question "can this request be answered" belongs beside "may this shop ask
+> again", and a third file asserting on the same two functions would drift.
+>
+> **Row 413 is the largest instrument failure found this weekend.** The shape
+> hash is described in `replay_migrations.sh` as *"the sharper half… a
+> substitution that happens to preserve the counts still moves it."* It did not.
+> Migration 108 changed three function signatures and added a column, and the
+> gate printed **"MATCHES the production baseline exactly, shape included."**
+>
+> **⚠️ 108 IS THE ONE MIGRATION THIS WEEKEND NOT APPLIED TO PRODUCTION FIRST.**
+> It makes the phone required, and the deployed sign-in screen has no field to
+> type one into, so applying it early would break that form for as long as the
+> pull request sat unmerged. It goes on AFTER the code. Until then production
+> will not match the baseline, and that is correct rather than a fault.
+
+| 417 | **A wholesaler can invite a whole list of shops at once** — paste them one per line, however they are already written, and each gets its own link. Forty existing customers was forty separate presses and no export | `v2_issue_buyer_invites_bulk()`, `js/views/wholesaler.js` | `check_bulk_invite.sql` (2, 3), `check_bulk_invite_client.mjs` | ✅ |
+| 418 | **⭐ Bulk is a LOOP OVER the function that already issues one**, never its own insert. That function clamps the expiry, stamps `created_by`, re-checks the wid inside itself and fires migration 104's audit trigger — a second insert path would drift on all four, and the audit is the one that would be missed silently | `v2_issue_buyer_invites_bulk()` | `check_bulk_invite.sql` (11 — a 9999-day request comes back clamped; red-proved with a bulk path that inserts for itself) | ✅ |
+| 419 | **⭐ A shop already invited gets the SAME link back, not a second token.** Two live invitations for one shop means withdrawing the one you can see leaves the other working — the worst shape for a thing whose job is to let somebody in | `v2_issue_buyer_invites_bulk()` | `check_bulk_invite.sql` (4, red-proved by removing the guard) | ✅ |
+| 420 | **…matched on the normalised NUMBER**, so a shop retyped with a different name is still the same shop — and on the same normaliser the rest of the schema uses, not a second idea of what one number is | `v2_normalise_channel()` | `check_bulk_invite.sql` (4b, red-proved by matching the raw string) | ✅ |
+| 421 | **A withdrawn or expired invitation does not block a fresh one.** Withdrawing somebody is not a ban, and treating it as one would lock a shop out permanently by accident | `v2_issue_buyer_invites_bulk()` | `check_bulk_invite.sql` (5, red-proved) | ✅ |
+| 422 | **⭐ Every pasted line comes back, in order, including the failures.** A bulk operation that silently drops rows is a wholesaler believing they invited forty shops when they invited thirty-eight, and never learning which two | `v2_issue_buyer_invites_bulk()`, `js/views/wholesaler.js` | `check_bulk_invite.sql` (6, 6b), `check_bulk_invite_client.mjs` (red-proved by rendering only the successes) | ✅ |
+| 423 | **The batch is capped at 200, in the function rather than in the screen.** Ten thousand rows pasted by accident is a wholesaler's mistake; ten thousand live tokens is the product's | `v2_issue_buyer_invites_bulk()` | `check_bulk_invite.sql` (9, 9b — and the refused batch mints nothing) | ✅ |
+| 424 | **The audit fires once per invitation, not once per batch.** Migration 104 made issuing one an access decision, and bulk must not be a way to issue many without a record | `v2_audit_buyer_invite()` | `check_bulk_invite.sql` (8), and 8b — no token reaches the log | ✅ |
+| 425 | **⭐ The results are NOT destroyed to refresh a list.** Repainting the card rebuilds its innerHTML, which would take every link with it. The links are the deliverable; the list underneath is a convenience and is one page load out of date | `js/views/wholesaler.js` | `check_bulk_invite_client.mjs` (red-proved by adding the repaint back) | ✅ |
+| 426 | **The pasted line is parsed with the number at the END, not by splitting on the comma.** A shop name may contain one ("Rita, Beirut") and a phone number may not — splitting puts half the shop name in the phone column | `parseInviteLines()` | `check_bulk_invite_client.mjs` (six shapes asserted; red-proved with a comma split, which yields phone="Beirut") | ✅ |
+| 427 | **The exported CSV is quoted, and embedded quotes are doubled.** A shop name with a comma would otherwise shift every column after it, and the wrong shop would get the wrong link | `invitesCsv()` | `check_bulk_invite_client.mjs` (red-proved by removing the quoting) | ✅ |
+| 428 | **The single-invite form finally collects the shop's phone.** `v2_issue_buyer_invite` has taken one since migration 089 and the column has existed just as long — the screen never asked, so `phone` is null on every invitation this product has ever issued | `js/views/wholesaler.js` | `check_bulk_invite_client.mjs` (red-proved by dropping it at the call site) | ✅ |
+| 429 | **AC-06 was already built, and the registry was wrong.** It records "invited, not yet accepted" as ⚠️ *state exists, no resend button*. A waiting invitation has carried WhatsApp, Copy link and Withdraw since 29 August — and for an invitation "resend" IS the WhatsApp button, because the link never changed. Corrected here rather than built twice | `js/views/wholesaler.js` | `check_wholesaler_onboarding.mjs`, `check_bulk_invite_client.mjs` | ✅ |
+
+> **Rows 417–429 are AC-05, and row 429 is AC-06 corrected rather than built.**
+> One migration (`109`), two new gates (`check_bulk_invite.sql`, 18 assertions;
+> `check_bulk_invite_client.mjs`, 28), red-proved eleven ways.
+>
+> **The census came first and changed the work.** AC-06 was listed as missing a
+> resend button; it has had one since 29 August. Building it again would have
+> produced a second control doing what an existing one already does. This is the
+> same failure `docs/OUTSTANDING.md` §1 records — a document saying the
+> inventory revamp had not started while seven batches of it were shipping — and
+> the reason that file carries a date at the top.
+>
+> **Row 418 is the assertion worth understanding.** Nothing else in the gate
+> could tell a delegating bulk path from one that inserts for itself: the audit
+> trigger is on the TABLE, so it fires either way, and every other assertion
+> still passes. The expiry clamp lives only inside `v2_issue_buyer_invite`, so
+> asking for 9999 days and getting 180 back is the one observable difference —
+> which turns "bulk is a loop over the single-invite function" from a comment in
+> a header into something a machine checks.
+
 ## Reconciliation — 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **360** |
-| Enforced and proven (✅) | **342** |
+| Features listed | **429** |
+| Enforced and proven (✅) | **411** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |

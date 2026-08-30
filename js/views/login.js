@@ -286,6 +286,9 @@ export function renderLogin(outlet, onLoggedIn) {
         <input class="input" id="req-wid" style="width:100%;margin-bottom:10px;" placeholder="from your wholesaler" />
         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Shop / business name</label>
         <input class="input" id="req-name" style="width:100%;margin-bottom:10px;" />
+        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Phone number</label>
+        <input class="input" id="req-phone" type="tel" inputmode="tel" autocomplete="tel" style="width:100%;margin-bottom:4px;" placeholder="e.g. 03 456 789" />
+        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;">This is how they send you your login. Nothing is emailed.</div>
         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Location</label>
         <input class="input" id="req-loc" style="width:100%;margin-bottom:10px;" />
         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Typical order volume</label>
@@ -301,13 +304,22 @@ export function renderLogin(outlet, onLoggedIn) {
       panel.querySelector("#req-btn").addEventListener("click", async () => {
         const wid = panel.querySelector("#req-wid").value.trim();
         const name = panel.querySelector("#req-name").value.trim();
+        const phone = panel.querySelector("#req-phone").value.trim();
+        // Migration 108. Until 30 Aug this form collected NO way to reach the
+        // applicant, so a wholesaler could approve them and then had nobody to
+        // send the password to. The server refuses without a usable number; this
+        // check exists so the refusal is instant and next to the field, not a
+        // round trip later. The server's rule is the one that counts -- it also
+        // rejects "12", which this cannot judge.
         if (!wid || !name) { status(statusEl, "Wholesaler code and shop name are required", "error"); return; }
+        if (!phone) { status(statusEl, "A phone number is required — it is how they send you your login", "error"); return; }
         const btn = panel.querySelector("#req-btn"); btn.disabled = true;
         const result = await devAuth.requestBuyerAccess(
           wid, name,
           panel.querySelector("#req-loc").value.trim(),
           panel.querySelector("#req-vol").value.trim(),
-          panel.querySelector("#req-sells").value.trim()
+          panel.querySelector("#req-sells").value.trim(),
+          phone
         );
         btn.disabled = false;
         if (!result.ok) { status(statusEl, result.error, "error"); return; }

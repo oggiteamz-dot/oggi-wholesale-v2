@@ -1,6 +1,6 @@
 # Outstanding — raise these before calling anything finished
 
-**Last reconciled: 30 August 2026 (twice — see §7, added overnight).**
+**Last reconciled: 30 August 2026 (four times — see §7, §8 and §9, added overnight).**
 
 Written down because a thing agreed in conversation and not written down is a
 thing that quietly does not happen.
@@ -317,3 +317,143 @@ true. A plain HTTPS request to the REST API works from the session container,
 and the Supabase MCP tools are connected and answering — migrations `101` and
 `102` were applied through `apply_migration` rather than by driving the
 dashboard. The browser is still the only write path for **GitHub**.
+
+
+---
+
+## 8. Found on the way to AC-12, 30 August 2026
+
+### 8.1 Approving a shop did not let them in — FIXED, migration 107
+
+Recorded here because it is the biggest thing found this weekend and the fix
+should not be the only trace of it.
+
+`v2_approve_signup_request` never wrote a `v2_person_memberships` row. A
+membership is the only thing that puts a store in a buyer's switcher
+(`v2_session_stores` reads nothing else), lets them open it
+(`v2_session_account` re-checks it on every entry), or makes the directory say
+"you have access". So a buyer who asked a wholesaler through the directory and
+was approved got **nothing**: the store never appeared in their app, and the
+directory card went back to offering them the "Ask for access" button — while
+their own requests list said *"Approved — you can shop here now."*
+
+Two shipped screens contradicting each other, and the false one was written the
+night before.
+
+**Nobody noticed because production has ZERO approved requests, ever.** All six
+memberships that exist were written by `v2_backfill_person_identity`, the
+one-off utility that linked pre-marketplace store logins to people. The path had
+never run. It is the exact shape `FEATURE-MANIFEST.md` was written about: every
+name correct, every function present, a feature never wired to what it promises.
+
+Fixed in migration 107, gated by `check_approval_grants_access.sql` (17
+assertions, red-proved eight ways) and
+`check_approval_grants_access_client.mjs` (29, red-proved six).
+
+**It was found while doing a code census for AC-12 (auto-approve rules), and
+AC-12 was stopped because of it.** Auto-approve means approving with no human in
+the room; wiring a rule to that function would have multiplied the defect across
+every buyer, silently.
+
+### 8.2 Eleven undefined design tokens, live in twenty files — NOT fixed
+
+`check_token_completeness.mjs` read `css/` only. This app writes a great deal of
+style inline from JavaScript, and pointing the same scan at `js/` found eleven
+custom properties that **have never been defined in this repo**, every one with
+a hardcoded fallback quietly doing the work:
+
+```
+--danger  --danger-600  --danger-bg  --success  --success-600
+--warning --warning-600 --info-600
+--surface --surface-2   --surface-subtle
+```
+
+`tokens.css` defines `--danger-700`, `--success-700`, `--bg-surface-2` and so
+on. The inline styles reach for names from an older palette this repo has never
+had. CSS answers an undefined custom property with silence, so nothing was ever
+wrong out loud.
+
+**Deliberately not swept.** Rewriting eleven colours across twenty files is a
+visual change to most of the application, made overnight, that nobody can review
+until morning — and this gate exists to stop colour changes nobody decided.
+
+**What was done instead:** the gate now scans `js/` as well and carries a named,
+dated allowlist of exactly these eleven. A twelfth fails immediately; so does
+any of the eleven appearing in a *stylesheet* rather than an inline style; and
+so does an allowlist entry that is no longer used anywhere, so the list shrinks
+as they are fixed and cannot rot into a graveyard. Red-proved four ways.
+
+`--surface-sunken` was a twelfth and came straight off the list: all five of its
+uses were repointed at `--bg-sunken` in the same change, because two of them
+were in the approval panels being replaced anyway.
+
+**The work this leaves:** decide what each of the eleven should map to, and
+sweep them in one reviewable change in daylight. It is an afternoon, and it is
+not urgent — every one of them currently renders its fallback.
+
+
+---
+
+## 9. Found on the way to migration 108, 30 August 2026
+
+### 9.1 The shape hash was truncating every signature — FIXED
+
+`checks/replay_migrations.sh` hashed a UNION whose first branch is
+`c.relname`, of type `pg_catalog.name` — a fixed 64-byte type. Postgres resolved
+the whole column to it, so **every function signature was cut to 63 characters
+before hashing**. The gate's own comment calls this hash the sharper instrument,
+the one that catches "a substitution that happens to preserve the counts". It
+could not see any change past character 63 of a signature, which in this schema
+is most of them.
+
+Fixed with a cast, re-baselined against both sides, and given a canary that
+fails loudly if the cast is ever lost. Full account in
+`checks/GATE-EVIDENCE.md`.
+
+**Worth knowing:** the hash only ever moved when functions were ADDED or
+REMOVED. Every baseline move quoted it as evidence, and every one of those moves
+happened to involve added functions — which is why it looked healthy.
+
+### 9.2 A new shop cannot become an OGGI buyer — NOT fixed, needs Hadi
+
+Measured while working out why AC-12 could not be built:
+
+- The public request form now collects a phone (108), but an applicant approved
+  through it still gets a portal account with **no `person_id`**, and
+  `v2_set_marketplace_password` refuses to upgrade an account without one. So
+  that shop can never reach the directory, switch stores, or search across
+  stores.
+- **There is no marketplace sign-up at all.** The only function that creates a
+  person is `v2_backfill_person_identity`, the one-off utility. All six people on
+  production came from it.
+- **No phone has ever been verified.** Four channels exist, `verified_at` is
+  null on every one, and there is no OTP anywhere (ID-05).
+
+So the only working route for a new shop is wholesaler-initiated: the wholesaler
+enters their number (AC-02) or issues an invite (AC-03/04). A shop that finds
+OGGI on its own cannot get in.
+
+**Three decisions this needs, none of them guessable:**
+
+1. Should an approved anonymous applicant become a real OGGI buyer — a person, a
+   membership, the directory — or stay a store-scoped login? This is the
+   "customer side" of §3, which Hadi deferred and which the marketplace has now
+   reached.
+2. **Is a typed phone number enough to identify somebody?** Without OTP anyone
+   can claim any number. That is fine while wholesalers enter the numbers
+   themselves; it stops being fine the moment shops self-register.
+3. Should a shop be able to sign up to OGGI on its own before launch at all, or
+   is wholesaler-initiated onboarding the launch scope?
+
+### 9.3 AC-12 (auto-approve rules) is BLOCKED on 9.2, question 2
+
+Every key the registry proposes — *phone already in the wholesaler's contacts,
+by area, by referral* — is either **applicant-supplied free text** (the typed
+location: a rule on it auto-admits anyone who types the right city) or **an
+unverified claim** (the phone). A rule built on either auto-admits strangers to a
+wholesaler's price list, which is the thing this entire access-control block
+exists to prevent.
+
+Answer question 2 and the best rule — *"this phone is already in my client
+list"* — becomes safe and is the one a wholesaler actually wants. Until then
+AC-12 is not buildable, and building it anyway would be worse than not having it.
