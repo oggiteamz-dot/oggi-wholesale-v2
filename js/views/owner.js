@@ -11,6 +11,11 @@ import {
   listSignupRequests, approveSignupRequest, rejectSignupRequest, setWholesalerActive, getAuditLog, listInvites,
   listOverdueAccessRequests,
 } from "../data/owner.js";
+// AC-10. One component, shared with js/views/wholesaler.js, so the two screens
+// that review access requests cannot drift into showing different histories.
+import { priorApplication } from "../components/prior-application.js";
+// AC-01/ID-03 (107). The same panel the wholesaler's own queue renders.
+import { approvalResult } from "../components/approval-result.js";
 import { rowsToCsv, downloadCsv } from "../data/csv-export.js";
 // CR-0001 R1: the "Add wholesaler" screen. Kept in its own file rather
 // than inlined here so this view stays readable and the form can be
@@ -279,6 +284,13 @@ async function onboardingView(outlet) {
         <button class="btn btn-primary btn-sm" data-action="approve">Approve</button>
       </div>
     `;
+    // AC-10. Inserted before the buttons, and absent entirely for a first
+    // application. Same component as the wholesaler's own queue.
+    const prior = priorApplication(r);
+    if (prior) {
+      card.style.flexWrap = "wrap";
+      card.insertBefore(prior, card.querySelector('[data-action="reject"]').parentElement);
+    }
     card.querySelector('[data-action="approve"]').addEventListener("click", async () => {
       const btn = card.querySelector('[data-action="approve"]');
       btn.disabled = true;
@@ -297,18 +309,8 @@ async function onboardingView(outlet) {
       // buyer out-of-band by whoever approved the request. Replacing the
       // card (rather than a toast, which auto-dismisses) is deliberate:
       // this is the ONLY moment this password will ever be visible again.
-      card.innerHTML = `
-        <div style="width:100%;">
-          <div style="font-weight:650;margin-bottom:6px;">✅ ${esc(r.buyer_name)} approved — account created</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Save these credentials now — the password will not be shown again. Relay them to the buyer yourself (no email is sent automatically).</div>
-          <div style="display:flex;gap:16px;font-family:monospace;font-size:13px;background:var(--surface-sunken,#f7f7f5);border-radius:8px;padding:10px 12px;">
-            <div><span style="color:var(--text-tertiary);">Username:</span> <strong>${esc(result.username)}</strong></div>
-            <div><span style="color:var(--text-tertiary);">Password:</span> <strong>${esc(result.tempPassword)}</strong></div>
-          </div>
-          <button class="btn btn-secondary btn-sm" data-action="dismiss" style="margin-top:10px;">Done</button>
-        </div>
-      `;
-      card.querySelector('[data-action="dismiss"]').addEventListener("click", () => card.remove());
+      card.textContent = "";
+      card.appendChild(approvalResult(r.buyer_name, result, () => card.remove()));
     });
     card.querySelector('[data-action="reject"]').addEventListener("click", async () => {
       // Batch 8A. Note what the native version could not say: the buttons
@@ -421,7 +423,7 @@ async function invitesView(outlet) {
     btn.textContent = "Create invite";
     if (!result.ok) { toast(result.error || "Could not create invite", { type: "danger" }); return; }
     formCard.querySelector("#inv-result").innerHTML = `
-      <div style="font-family:monospace;font-size:13px;background:var(--surface-sunken,#f7f7f5);border-radius:8px;padding:10px 12px;">
+      <div style="font-family:monospace;font-size:13px;background:var(--bg-sunken);border-radius:8px;padding:10px 12px;">
         Invite code: <strong>${esc(result.code)}</strong>
       </div>
     `;

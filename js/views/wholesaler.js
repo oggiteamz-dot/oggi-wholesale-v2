@@ -16,6 +16,14 @@ import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, s
 import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesaler-settings.js";
 // AC-01, 28 Aug 2026 — the wholesaler's own access-request queue.
 import { listMySignupRequests, countMyPendingRequests, approveMySignupRequest, rejectMySignupRequest } from "../data/wholesaler-admin.js";
+// AC-10. The previous application, rendered by the SAME component the owner
+// console uses -- see js/components/prior-application.js for why it is one
+// component and not two blocks of markup.
+import { priorApplication } from "../components/prior-application.js";
+// AC-01/ID-03 (107). Approving has two outcomes now and the panel that says
+// which is shared with the owner console -- the two hand-rolled copies it
+// replaces had already drifted in wording AND in the token they styled with.
+import { approvalResult } from "../components/approval-result.js";
 import { getVisibilityMirror, getVisibilityQueries } from "../data/visibility.js";
 // SR-05: the published ranking policy, linked from the visibility mirror below
 // as well as carrying its own navigation entry.
@@ -3123,7 +3131,7 @@ async function teamView(outlet) {
 
     formCard.querySelector("#team-result").innerHTML = `
       <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Save these now — the password will not be shown again.</div>
-      <div style="display:flex;gap:16px;font-family:monospace;font-size:13px;background:var(--surface-sunken,#f7f7f5);border-radius:8px;padding:10px 12px;">
+      <div style="display:flex;gap:16px;font-family:monospace;font-size:13px;background:var(--bg-sunken);border-radius:8px;padding:10px 12px;">
         <div><span style="color:var(--text-tertiary);">Username:</span> <strong>${esc(username)}</strong></div>
         <div><span style="color:var(--text-tertiary);">Password:</span> <strong>${esc(password)}</strong></div>
       </div>
@@ -5023,6 +5031,12 @@ async function requestsView(outlet) {
       </div>
     `;
 
+    // AC-10. BEFORE the buttons in the DOM, so a screen reader and a thumb both
+    // meet the history on the way to the decision rather than after it. Renders
+    // nothing at all for a first application, which is most of them.
+    const prior = priorApplication(r);
+    if (prior) card.insertBefore(prior, card.querySelector('[data-action="reject"]').parentElement);
+
     card.querySelector('[data-action="approve"]').addEventListener("click", async () => {
       const btn = card.querySelector('[data-action="approve"]');
       btn.disabled = true;
@@ -5034,27 +5048,23 @@ async function requestsView(outlet) {
         btn.textContent = "Approve";
         return;
       }
-      // The card is REPLACED rather than toasted. This is the only moment the
-      // password will ever be visible; a notification that fades is the wrong
-      // container for a string nothing can recover.
-      card.innerHTML = `
-        <div style="width:100%;">
-          <div style="font-weight:650;margin-bottom:6px;">✅ ${esc(r.buyer_name)} can now buy from you</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Copy these now — <strong>the password will not be shown again.</strong> Send them to the shop yourself; nothing is emailed automatically.</div>
-          <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:monospace;font-size:13px;background:var(--bg-sunken);border-radius:8px;padding:10px 12px;">
-            <div><span style="color:var(--text-tertiary);">Username</span> <strong>${esc(result.username)}</strong></div>
-            <div><span style="color:var(--text-tertiary);">Password</span> <strong>${esc(result.tempPassword)}</strong></div>
-          </div>
-          <button class="btn btn-secondary btn-sm" data-action="dismiss" style="margin-top:10px;">Done</button>
-        </div>
-      `;
-      card.querySelector('[data-action="dismiss"]').addEventListener("click", () => card.remove());
+      // The card is REPLACED rather than toasted. When there IS a password this
+      // is the only moment it will ever be visible, and a notification that
+      // fades is the wrong container for a string nothing can recover. When
+      // there is not -- because the shop already signs in to OGGI -- the panel
+      // says so instead of rendering an empty box the wholesaler would go
+      // hunting through.
+      card.textContent = "";
+      card.appendChild(approvalResult(r.buyer_name, result, () => card.remove()));
     });
 
     card.querySelector('[data-action="reject"]').addEventListener("click", async () => {
       const yes = await confirmAction({
         title: `Decline ${r.buyer_name}?`,
-        body: "They will not get access, and they are not told automatically — there is no email in the system yet. They can ask again later, and you will see it as a new request.",
+        // AC-10 made the second half of this sentence true in a specific way:
+        // WHEN they may ask again now depends on the reason you are about to
+        // pick, and a re-application arrives with this decision attached.
+        body: "They will not get access, and they are not told automatically — there is no email in the system yet. They can ask again later — how soon depends on the reason you pick next — and it will arrive with this decision attached to it.",
         confirmLabel: "Decline",
         danger: true,
       });
