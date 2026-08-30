@@ -154,3 +154,28 @@ export async function setWholesalerActive(wid, active, reason, actorLabel) {
   }
   return { error };
 }
+
+/** AC-11, the escalation half. Every access request that has aged past its OWN
+ *  wholesaler's stated answer time.
+ *
+ *  There is no email in this build, so "escalation" is not a notification — it
+ *  is this list, so OGGI can nudge the wholesaler. Claiming anything more would
+ *  be the overclaim this project keeps a file about.
+ *
+ *  Owner-gated inside the function: a non-owner gets zero rows, not an error.
+ *  It is a list of who is keeping shops waiting, and it is not the other
+ *  wholesalers' business.
+ */
+export async function listOverdueAccessRequests() {
+  const { data, error } = await sbCall(supabase.rpc("v2_overdue_access_requests"));
+  if (error || !Array.isArray(data)) return [];
+  return data.map((r) => ({
+    requestId: r.request_id,
+    wid: r.wid,
+    wholesalerName: r.wholesaler_name,
+    buyerName: r.buyer_name,
+    requestedAt: r.requested_at,
+    slaHours: r.sla_hours,
+    hoursWaiting: r.hours_waiting,
+  }));
+}

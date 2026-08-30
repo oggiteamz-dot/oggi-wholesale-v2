@@ -54,6 +54,12 @@ export async function listDirectory({ search = "", limit = 50, offset = 0 } = {}
     // every .map() downstream, and a directory that throws is a blank screen.
     categories: Array.isArray(r.categories) ? r.categories : [],
     access: r.access || "none",
+    // AC-11. How long THIS wholesaler says they take to answer. Rides along on
+    // the listing rather than costing one round trip per card on a screen whose
+    // whole job is to list all of them. Falls back to the same 48 the database
+    // defaults to, so a v1 row with no v2 twin still says something true.
+    accessSlaHours: Number.isFinite(Number(r.access_sla_hours))
+      ? Number(r.access_sla_hours) : 48,
   }));
 }
 
