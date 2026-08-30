@@ -1,6 +1,6 @@
 # Outstanding — raise these before calling anything finished
 
-**Last reconciled: 30 August 2026 (twice — see §7, added overnight).**
+**Last reconciled: 30 August 2026 (three times — see §7 and §8, added overnight).**
 
 Written down because a thing agreed in conversation and not written down is a
 thing that quietly does not happen.
@@ -317,3 +317,76 @@ true. A plain HTTPS request to the REST API works from the session container,
 and the Supabase MCP tools are connected and answering — migrations `101` and
 `102` were applied through `apply_migration` rather than by driving the
 dashboard. The browser is still the only write path for **GitHub**.
+
+
+---
+
+## 8. Found on the way to AC-12, 30 August 2026
+
+### 8.1 Approving a shop did not let them in — FIXED, migration 107
+
+Recorded here because it is the biggest thing found this weekend and the fix
+should not be the only trace of it.
+
+`v2_approve_signup_request` never wrote a `v2_person_memberships` row. A
+membership is the only thing that puts a store in a buyer's switcher
+(`v2_session_stores` reads nothing else), lets them open it
+(`v2_session_account` re-checks it on every entry), or makes the directory say
+"you have access". So a buyer who asked a wholesaler through the directory and
+was approved got **nothing**: the store never appeared in their app, and the
+directory card went back to offering them the "Ask for access" button — while
+their own requests list said *"Approved — you can shop here now."*
+
+Two shipped screens contradicting each other, and the false one was written the
+night before.
+
+**Nobody noticed because production has ZERO approved requests, ever.** All six
+memberships that exist were written by `v2_backfill_person_identity`, the
+one-off utility that linked pre-marketplace store logins to people. The path had
+never run. It is the exact shape `FEATURE-MANIFEST.md` was written about: every
+name correct, every function present, a feature never wired to what it promises.
+
+Fixed in migration 107, gated by `check_approval_grants_access.sql` (17
+assertions, red-proved eight ways) and
+`check_approval_grants_access_client.mjs` (29, red-proved six).
+
+**It was found while doing a code census for AC-12 (auto-approve rules), and
+AC-12 was stopped because of it.** Auto-approve means approving with no human in
+the room; wiring a rule to that function would have multiplied the defect across
+every buyer, silently.
+
+### 8.2 Eleven undefined design tokens, live in twenty files — NOT fixed
+
+`check_token_completeness.mjs` read `css/` only. This app writes a great deal of
+style inline from JavaScript, and pointing the same scan at `js/` found eleven
+custom properties that **have never been defined in this repo**, every one with
+a hardcoded fallback quietly doing the work:
+
+```
+--danger  --danger-600  --danger-bg  --success  --success-600
+--warning --warning-600 --info-600
+--surface --surface-2   --surface-subtle
+```
+
+`tokens.css` defines `--danger-700`, `--success-700`, `--bg-surface-2` and so
+on. The inline styles reach for names from an older palette this repo has never
+had. CSS answers an undefined custom property with silence, so nothing was ever
+wrong out loud.
+
+**Deliberately not swept.** Rewriting eleven colours across twenty files is a
+visual change to most of the application, made overnight, that nobody can review
+until morning — and this gate exists to stop colour changes nobody decided.
+
+**What was done instead:** the gate now scans `js/` as well and carries a named,
+dated allowlist of exactly these eleven. A twelfth fails immediately; so does
+any of the eleven appearing in a *stylesheet* rather than an inline style; and
+so does an allowlist entry that is no longer used anywhere, so the list shrinks
+as they are fixed and cannot rot into a graveyard. Red-proved four ways.
+
+`--surface-sunken` was a twelfth and came straight off the list: all five of its
+uses were repointed at `--bg-sunken` in the same change, because two of them
+were in the approval panels being replaced anyway.
+
+**The work this leaves:** decide what each of the eleven should map to, and
+sweep them in one reviewable change in daylight. It is an afternoon, and it is
+not urgent — every one of them currently renders its fallback.
