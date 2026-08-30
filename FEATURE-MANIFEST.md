@@ -1,6 +1,6 @@
 # Feature Manifest — OGGI Wholesale v2
 
-**Last reconciled: 23 August 2026** (previous: 15 August — six days and seven
+**Last reconciled: 30 August 2026** (previous: 15 August — six days and seven
 batches out of date, which is the problem this rewrite exists to stop repeating.)
 
 One row per shipped feature, naming **the file it lives in** and **the assertion
@@ -403,14 +403,56 @@ broke · ❌ not built
 | 303 | **No anchor means no call at all.** "More like this" with no "this" is not a question worth asking the server | `js/data/similar.js` | `check_similar_client.mjs` — red-proved D4 | ✅ |
 | 304 | **Ten fields, no row spread**, and the shelf is fetched without being awaited | `js/data/similar.js` `SIMILAR_FIELDS`, `js/views/buyer.js` | `check_similar_client.mjs` — red-proved D1 and D5 | ✅ |
 | 305 | **The stop list and every similarity threshold live in `v2_ranking_config`**, which gained a `text_value` column. Which words carry no meaning in a Lebanese wholesale catalogue is a product decision, not a constant to freeze into a function — the same argument as SR-09's alias table. Still closed to `anon` and `authenticated` | `wholesale_v2.v2_ranking_config` | `check_similar_products.sql`, `check_anon_grants.sql` | ✅ |
+| 306 | **Every change to a ranking number is recorded, and the recorder is a TRIGGER rather than the app.** Until this shipped, nothing in the application had ever written to `v2_ranking_config` — every change ever made to those eight numbers was hand-typed in the Supabase SQL editor, which is exactly the path an application-level audit cannot see. An audit written in JavaScript would have recorded nothing while looking perfectly healthy | `supabase/migrations/101_v2_ranking_config_history.sql` | `check_ranking_config_versioned.sql` (assertions 2, 3) | ✅ |
+| 307 | **The old value is kept, not just the new one.** `updated_at` was overwritten in place: it said a change had happened and destroyed the evidence of what it was. Old and new are stored side by side and typed — not as a jsonb blob, because reconstructing "what was every number on 4 March" out of jsonb is the fragile query nobody gets right under pressure | `wholesale_v2.v2_ranking_config_history` | `check_ranking_config_versioned.sql` (assertion 2) | ✅ |
+| 308 | **A change made against the database is recorded as having NO named human, rather than being attributed to a convenient one.** `actor_source` is `app` or `database`, and a row claiming `app` must name an actor — enforced by a check constraint, not a comment | `wholesale_v2.v2_ranking_config_history` | `check_ranking_config_versioned.sql` (assertion 3) | ✅ |
+| 309 | **A no-op update is not an event.** Touching a row without changing a value records nothing, so the timeline stays readable — and a timeline nobody can read is the same thing as not having one | `v2_ranking_config_record()` | `check_ranking_config_versioned.sql` (assertion 4) | ✅ |
+| 310 | **The record is append-only, enforced twice.** A `before update or delete` trigger raises, AND the grants are revoked. Neither alone is enough: a future `disable trigger` leaves only the grant, a future `grant` leaves only the trigger | `v2_rch_no_rewrite()` | `check_ranking_config_versioned.sql` (assertions 5a, 5b) | ✅ |
+| 311 | **The record is hash-chained, and the verifier is proven to DETECT a planted row** — not merely to return "fine". The gate switches the chaining trigger off, inserts a forged row, and asserts the verifier names it. A verifier that has only ever said "intact" is not a verifier | `v2_ranking_history_verify()` | `check_ranking_config_versioned.sql` (assertions 6, 7) | ✅ |
+| 312 | **Appends are serialised with an advisory lock.** Two transactions reading the chain head before either inserts would fork the chain — the specific concurrency failure of every naive hash-chained audit | `v2_rch_chain()` | `check_ranking_config_versioned.sql` (assertion 6) | ⚠️ |
+| 313 | **Every setting has a baseline row from the moment the record began.** Without it an as-of query for any date before the first *change* returns nothing, which reads as "there were no rules" rather than "the rules were these and nobody had touched them" | `supabase/migrations/101_v2_ranking_config_history.sql` | `check_ranking_config_versioned.sql` (assertion 12), migration 101 assertion 4 | ✅ |
+| 314 | **`v2_ranking_config_as_of(when)` — what every ranking number WAS on a given day**, rebuilt from the history and never from the current table. This is the whole point: storage without it is a filing cabinet nobody can open, and reading the current table would be right by luck and wrong the moment it mattered | `v2_ranking_config_as_of()` | `check_ranking_config_versioned.sql` (assertions 11, 12) | ✅ |
+| 315 | **A ranking number cannot be changed without a stated reason**, refused server-side and again in the client before the round trip. The same argument already made and won for deactivating a wholesaler in Batch 8A | `v2_ranking_config_set()` | `check_ranking_config_versioned.sql` (9a), `check_ranking_client.mjs` | ✅ |
+| 316 | **A typo'd key is refused outright rather than quietly inserted.** A ninth row nothing reads would leave the shelf using its old value with a plausible-looking config row sitting beside it — a change that looks applied and is not | `v2_ranking_config_set()` | `check_ranking_config_versioned.sql` (9b) | ✅ |
+| 317 | **The STRUCTURAL half: the ranking functions' own source is versioned too.** Git holds their history but git is not the database — it cannot say which version was LIVE on a given date, and a commit is not a deploy. `pg_get_functiondef`, not `prosrc`, so a change to the signature, return type, volatility or search_path changes the hash | `v2_ranking_model_snapshot`, `v2_ranking_model_hash()` | `check_ranking_config_versioned.sql` (assertion 13) | ✅ |
+| 318 | **Forgetting to record a structural change is LOUD.** Change a ranking function in a future migration without snapshotting it and the gate names the function and prints the one command that fixes it | `check_ranking_config_versioned.sql` | itself (assertion 13, red-proved by editing an installed function body) | ✅ |
+| 319 | **The owner console screen renders the EXPLANATION as prominently as the number.** `popular_min_buyers = 3` means nothing alone; a screen that shows eight numbers and hides their meaning invites a wrong edit | `js/views/owner-ranking.js` | `check_ranking_client.mjs` | ✅ |
+| 320 | **The integrity line is shown whether or not anything is wrong.** A tamper check you only ever see on failure is one nobody knows exists, and its silence cannot be told from it never having run. "Could not check" is a third answer, distinct from "nothing is wrong" | `js/views/owner-ranking.js`, `verifyRankingHistory()` | `check_ranking_client.mjs` | ✅ |
+| 321 | **No ranking function reads the promotion table** — restated inside the SR-07 gate rather than left to the RC gates, because this is the file somebody will open when asked whether ranking was neutral, and the answer must not depend on a different file having been run | `v2_popular_now`, `v2_similar_products`, `v2_buy_it_again` | `check_ranking_config_versioned.sql` (assertion 14) | ✅ |
 
-## Reconciliation — 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+> **Rows 306–321 are SR-07 — the ranking record.** Two migrations (`101`, `102`),
+> two new gates (`check_ranking_config_versioned.sql`, 19 assertions;
+> `check_ranking_client.mjs`, 25 assertions), each red-proved: ten deliberate
+> breaks for the SQL gate, seven for the client one.
+>
+> **The finding that shaped the design:** nothing in the application had ever
+> written to `v2_ranking_config`. Every change to those eight numbers had been
+> hand-typed in the Supabase SQL editor. An application-level audit — the
+> obvious build, and the one Supabase's own published pattern describes — would
+> therefore have recorded **nothing at all**, while looking entirely healthy.
+> The recorder is a trigger for that reason.
+>
+> **Row 312 is deliberately ⚠️.** The advisory lock that stops two concurrent
+> appends forking the chain is real and correct, but nothing here demonstrates
+> a race — proving it would need two concurrent sessions inside one gate, and
+> marking it ✅ on the strength of reading the code is exactly the claim this
+> file exists to stop.
+>
+> **Red proofs worth keeping:** three of the ten deliberate breaks for the SQL
+> gate produced ZERO failures, and in every case the break itself had silently
+> failed — a comment change that `pg_get_functiondef` does not cover, and two
+> statements Postgres rejected outright. The sentinel assertion is what
+> distinguished "the gate is blind" from "nothing was actually broken". Without
+> it, all three would have read as a blind gate.
+
+
+## Reconciliation — 30 August 2026 (SR-07) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **305** |
-| Enforced and proven (✅) | **289** |
-| Present but unproven (⚠️) | **16** |
+| Features listed | **321** |
+| Enforced and proven (✅) | **304** |
+| Present but unproven (⚠️) | **17** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
 
