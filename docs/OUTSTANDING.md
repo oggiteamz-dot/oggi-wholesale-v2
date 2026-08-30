@@ -1,6 +1,6 @@
 # Outstanding — raise these before calling anything finished
 
-**Last reconciled: 30 August 2026.**
+**Last reconciled: 30 August 2026 (twice — see §7, added overnight).**
 
 Written down because a thing agreed in conversation and not written down is a
 thing that quietly does not happen.
@@ -234,3 +234,86 @@ is expensive to be wrong about, because the money is real.
 - **When Hadi asks what is left, read this file out loud — do not answer from
   memory.** Answering from memory is how §1 stayed wrong for two days while the
   work it described was being finished.
+
+---
+
+## 7. Found on the way to SR-07, overnight 30 August 2026
+
+Three things the documents asserted and the database contradicted. Recorded
+here the hour they were found, because a finding that lives only in a session
+log is a finding the next session re-discovers.
+
+### 7.1 "11 of 92 gates fail and they are all environmental" — wrong twice over
+
+Measured on a fresh clone at `f07536c`, replayed into an empty Postgres 16.
+
+- **Two of the eleven actually PASS.** `check_intelligence_zero_setup.sql`
+  (11/11) and `check_movement_partitions.sql` (4/4) signal success by raising
+  `ROLLBACK_WITH_REPORT` — they roll themselves back on purpose, so psql exits
+  non-zero **on a pass**. Any runner that reads the exit code alone marks them
+  failed. They have been on the "known failures" list for days for that reason
+  and nothing was ever wrong with them.
+- **One of the eleven is a real gate reporting a real production condition.**
+  `check_tenant_isolation.sql` needs no fixture at all. It ran, and reported
+  43 problems. See 7.2.
+- The corrected pre-change baseline is **83 pass / 9 fail** — 8 environmental,
+  1 real. After SR-07: **85 pass / 9 fail of 94**, the failing set byte-identical.
+
+**The eight genuinely environmental ones**, each for a stated reason rather than
+by assumption: `check_pack_moq.sh` (says so itself — needs the `wtest` fixture
+database), `check_client_ban.sql` (FK, needs a seeded wholesaler),
+`check_line_pricing.sql` ("no active wholesaler to hang a fixture on"),
+`check_reservation_expiry.sql` ("no variant with >= 3 on hand"),
+`check_size_ratios.sql` (missing fixture product),
+`check_bulk_price_safety.sql` (empty `request.jwt.claims` → `''::jsonb` raises),
+`check_movement_ledger.sql` and `check_valuation_and_dead_stock.sql`
+(permission denied — the replay does not reproduce production's
+`authenticated` grants, which the shape hash does not cover either).
+
+**Building the `wtest` fixture would retire seven of the eight.** It is a
+legitimate piece of work and it is not a prerequisite for anything.
+
+### 7.2 The movement-ledger partitions have RLS OFF on production
+
+**Measured, not inferred.** 41 future monthly partitions of
+`v2_inventory_movements` plus `_default` have `relrowsecurity = false`, while
+`authenticated` holds SELECT/INSERT/UPDATE/DELETE on them directly — handed out
+by the schema's standing `alter default privileges ... to authenticated`, the
+`authenticated` twin of the `anon` rule migration 085 revoked.
+
+**Demonstrated in a replay, not theorised:** wholesaler A querying the PARENT
+table sees only their own movements; querying the PARTITION by name sees both
+wholesalers' rows, and can DELETE the other wholesaler's ledger entries.
+Postgres applies the policies of the relation actually named, and a partition
+with RLS disabled has none.
+
+**It is NOT reachable through the app's API, and that is the honest verdict.**
+Probed against production with the app's own shipped publishable key:
+`v2_inventory_movements_2026_09` returns `PGRST205 could not find the table in
+the schema cache` — PostgREST does not expose partitions. **Sanity-checked in
+both directions**, the lesson from Batch S: the parent table returns
+`401 permission denied` and an invented table name returns the same 404 as the
+partition, so the probe can tell a shut door from a shut shop.
+
+So: **a latent defect, not a live breach.** Reaching it needs a direct Postgres
+connection, which needs the database password. It is written down rather than
+fixed tonight because Phase 7 — the security audit — is deliberately last by
+Hadi's instruction, and this belongs to it. The fix when it comes is small:
+enable RLS on every partition, and make whatever creates the next month's
+partition do the same.
+
+**And the gate that found it has been failing, correctly, for days.**
+`check_tenant_isolation.sql` also flags `v2_live_holds` as a definer view
+readable by a browser role — which is deliberate and documented in `CLAUDE.md`
+(invoker rights would report zero holds to a buyer and let them oversell). One
+known-and-accepted finding sitting inside a red gate is how the other 42 went
+unread. **A gate that is allowed to stay red stops being a gate.**
+
+### 7.3 The sandbox CAN reach Supabase
+
+`CLAUDE.md` says *"the sandbox CAN'T reach Supabase (network-restricted) — run
+SQL by DRIVING Hadi's logged-in Supabase in the browser"*. That is no longer
+true. A plain HTTPS request to the REST API works from the session container,
+and the Supabase MCP tools are connected and answering — migrations `101` and
+`102` were applied through `apply_migration` rather than by driving the
+dashboard. The browser is still the only write path for **GitHub**.
