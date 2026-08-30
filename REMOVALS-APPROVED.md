@@ -854,3 +854,24 @@ actually reaches the server — red-proved by removing the field, by removing th
 client-side refusal, and by collecting the number and dropping it before the RPC.
 
 **ALLOW_DELETIONS=1 — approved, two lines, both accounted for above.**
+
+---
+
+## 30 Aug 2026 — migration 109 (inviting a list of shops): two lines
+
+**Approved by:** the standing instruction of 30 August. Both are widened
+call sites, the only shape this change can take.
+
+| Gone | Replaced by |
+|---|---|
+| the `buyer-invites.js` import line | the same, plus `issueInvitesBulk`, `invitesCsv`, `parseInviteLines` |
+| `const r = await issueInvite({ shopName: shop || null });` | the same, plus `phone: phone || null` |
+
+The second is worth reading. `v2_issue_buyer_invite` has taken a `p_phone` since
+migration 089 and `v2_buyer_invites` has had the column just as long — **the
+screen simply never collected one**, so `phone` is null on every invitation this
+product has ever issued. That is what made the invite list unmatched by
+migration 108's phone-keyed re-application check, and it is why the single form
+now has a field beside the shop name.
+
+**ALLOW_DELETIONS=1 — approved, two lines, both accounted for above.**

@@ -692,12 +692,45 @@ broke · ❌ not built
 > pull request sat unmerged. It goes on AFTER the code. Until then production
 > will not match the baseline, and that is correct rather than a fault.
 
+| 417 | **A wholesaler can invite a whole list of shops at once** — paste them one per line, however they are already written, and each gets its own link. Forty existing customers was forty separate presses and no export | `v2_issue_buyer_invites_bulk()`, `js/views/wholesaler.js` | `check_bulk_invite.sql` (2, 3), `check_bulk_invite_client.mjs` | ✅ |
+| 418 | **⭐ Bulk is a LOOP OVER the function that already issues one**, never its own insert. That function clamps the expiry, stamps `created_by`, re-checks the wid inside itself and fires migration 104's audit trigger — a second insert path would drift on all four, and the audit is the one that would be missed silently | `v2_issue_buyer_invites_bulk()` | `check_bulk_invite.sql` (11 — a 9999-day request comes back clamped; red-proved with a bulk path that inserts for itself) | ✅ |
+| 419 | **⭐ A shop already invited gets the SAME link back, not a second token.** Two live invitations for one shop means withdrawing the one you can see leaves the other working — the worst shape for a thing whose job is to let somebody in | `v2_issue_buyer_invites_bulk()` | `check_bulk_invite.sql` (4, red-proved by removing the guard) | ✅ |
+| 420 | **…matched on the normalised NUMBER**, so a shop retyped with a different name is still the same shop — and on the same normaliser the rest of the schema uses, not a second idea of what one number is | `v2_normalise_channel()` | `check_bulk_invite.sql` (4b, red-proved by matching the raw string) | ✅ |
+| 421 | **A withdrawn or expired invitation does not block a fresh one.** Withdrawing somebody is not a ban, and treating it as one would lock a shop out permanently by accident | `v2_issue_buyer_invites_bulk()` | `check_bulk_invite.sql` (5, red-proved) | ✅ |
+| 422 | **⭐ Every pasted line comes back, in order, including the failures.** A bulk operation that silently drops rows is a wholesaler believing they invited forty shops when they invited thirty-eight, and never learning which two | `v2_issue_buyer_invites_bulk()`, `js/views/wholesaler.js` | `check_bulk_invite.sql` (6, 6b), `check_bulk_invite_client.mjs` (red-proved by rendering only the successes) | ✅ |
+| 423 | **The batch is capped at 200, in the function rather than in the screen.** Ten thousand rows pasted by accident is a wholesaler's mistake; ten thousand live tokens is the product's | `v2_issue_buyer_invites_bulk()` | `check_bulk_invite.sql` (9, 9b — and the refused batch mints nothing) | ✅ |
+| 424 | **The audit fires once per invitation, not once per batch.** Migration 104 made issuing one an access decision, and bulk must not be a way to issue many without a record | `v2_audit_buyer_invite()` | `check_bulk_invite.sql` (8), and 8b — no token reaches the log | ✅ |
+| 425 | **⭐ The results are NOT destroyed to refresh a list.** Repainting the card rebuilds its innerHTML, which would take every link with it. The links are the deliverable; the list underneath is a convenience and is one page load out of date | `js/views/wholesaler.js` | `check_bulk_invite_client.mjs` (red-proved by adding the repaint back) | ✅ |
+| 426 | **The pasted line is parsed with the number at the END, not by splitting on the comma.** A shop name may contain one ("Rita, Beirut") and a phone number may not — splitting puts half the shop name in the phone column | `parseInviteLines()` | `check_bulk_invite_client.mjs` (six shapes asserted; red-proved with a comma split, which yields phone="Beirut") | ✅ |
+| 427 | **The exported CSV is quoted, and embedded quotes are doubled.** A shop name with a comma would otherwise shift every column after it, and the wrong shop would get the wrong link | `invitesCsv()` | `check_bulk_invite_client.mjs` (red-proved by removing the quoting) | ✅ |
+| 428 | **The single-invite form finally collects the shop's phone.** `v2_issue_buyer_invite` has taken one since migration 089 and the column has existed just as long — the screen never asked, so `phone` is null on every invitation this product has ever issued | `js/views/wholesaler.js` | `check_bulk_invite_client.mjs` (red-proved by dropping it at the call site) | ✅ |
+| 429 | **AC-06 was already built, and the registry was wrong.** It records "invited, not yet accepted" as ⚠️ *state exists, no resend button*. A waiting invitation has carried WhatsApp, Copy link and Withdraw since 29 August — and for an invitation "resend" IS the WhatsApp button, because the link never changed. Corrected here rather than built twice | `js/views/wholesaler.js` | `check_wholesaler_onboarding.mjs`, `check_bulk_invite_client.mjs` | ✅ |
+
+> **Rows 417–429 are AC-05, and row 429 is AC-06 corrected rather than built.**
+> One migration (`109`), two new gates (`check_bulk_invite.sql`, 18 assertions;
+> `check_bulk_invite_client.mjs`, 28), red-proved eleven ways.
+>
+> **The census came first and changed the work.** AC-06 was listed as missing a
+> resend button; it has had one since 29 August. Building it again would have
+> produced a second control doing what an existing one already does. This is the
+> same failure `docs/OUTSTANDING.md` §1 records — a document saying the
+> inventory revamp had not started while seven batches of it were shipping — and
+> the reason that file carries a date at the top.
+>
+> **Row 418 is the assertion worth understanding.** Nothing else in the gate
+> could tell a delegating bulk path from one that inserts for itself: the audit
+> trigger is on the TABLE, so it fires either way, and every other assertion
+> still passes. The expiry clamp lives only inside `v2_issue_buyer_invite`, so
+> asking for 9999 days and getting 180 back is the one observable difference —
+> which turns "bulk is a loop over the single-invite function" from a comment in
+> a header into something a machine checks.
+
 ## Reconciliation — 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **416** |
-| Enforced and proven (✅) | **398** |
+| Features listed | **429** |
+| Enforced and proven (✅) | **411** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
