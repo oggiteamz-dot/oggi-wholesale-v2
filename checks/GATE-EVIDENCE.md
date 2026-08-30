@@ -731,3 +731,297 @@ and only then narrow to a path for the positive assertions.
 The tell here was available and was nearly skipped: the deployed-bytes check at
 the end of the push was treated as a formality. It was the only thing in the
 night that asked the whole-file question.
+
+---
+
+## AC-10 — `check_access_reapply.sql` (30 August 2026)
+
+**The question:** *"a wholesaler turned a shop down. What happens the next time
+that shop asks — and can the wholesaler see they have asked before?"*
+
+18 assertions. Rolls itself back; a pass raises `ROLLBACK_WITH_REPORT`, so a
+runner reading only the exit code will call a pass a failure (§7.1).
+
+### Red-proved eleven ways
+
+| Break | Result |
+|---|---|
+| A — the cooldown branch deleted from `v2_access_reapply_standing` | **5 red** (3, 4, 5, 6, 10) |
+| B — `v2_submit_signup_request` restored to its pre-106 body | **1 red** (10) |
+| C — `supersedes`/`attempt` dropped from the directory door's insert | **2 red** (6, 12) |
+| D — `existing_account` made re-appliable | **1 red** (7) |
+| E — the "note must be new" comparison deleted | **2 red** (5, 6) |
+| F — the `__unknown__` policy row deleted | **first: ZERO. See below.** then **1 red** (9b) |
+| G — `anon` granted `select` on the policy table | **1 red** (15) |
+| H — the standing computed for every row, not the newest | **1 red** (13) |
+| I — `v2_shop_key` made an identity function | **1 red** (10) |
+| J — `max_attempts` raised out of reach | **1 red** (8) |
+| K — the queue's join to the superseded row removed | **1 red** (12) |
+
+### ⚠️ BREAK F PRODUCED ZERO FAILURES, AND THE REASON WAS A DEFECT
+
+Deleting the `__unknown__` policy row was expected to turn assertion 9 red.
+Nothing happened. The gate was blind — and the thing it was blind to was worse
+than a blind gate.
+
+With no policy row, `v_pol` is an all-NULL record, and every guard in the
+function is a comparison against NULL:
+
+```
+not v_pol.reappliable          -> NULL -> branch does not fire
+v_used >= v_pol.max_attempts   -> NULL -> branch does not fire
+now() < v_next                 -> NULL -> branch does not fire   (v_next is NULL too)
+```
+
+So the function fell through all three and returned `ok`. **A missing policy row
+silently permitted everything.** Delete the `existing_account` row — the one
+applicant this feature refuses outright — and they would have been let straight
+in, with nothing anywhere saying a word.
+
+Assertion 9 could not see it because `ok` was also the right answer for the
+right reason. **Two different causes, one observable outcome, is the definition
+of a blind assertion.**
+
+**Both halves were fixed.** The function now writes out an explicit fallback
+instead of leaving the answer to three-valued logic (migration 106 §3), and
+assertion **9b** proves the ROW is what decides by moving its number and
+watching the answer follow. 9b goes red on break F, and would go red on any
+future change that replaced the table with constants in a function body.
+
+**Sixth time this weekend that "no failures" meant "the break did not happen",
+and the third time the break itself was the finding.**
+
+### ⚠️ AND THE FIRST DRAFT OF ASSERTION 7 IN THE MIGRATION FAILED — CORRECTLY
+
+Migration 106's self-assertion 7 originally read: *there is exactly ONE
+anon-callable function that inserts into `v2_signup_requests`.* It failed
+against production, and that failure is the reason section 6 of the migration
+exists.
+
+`v2_submit_signup_request` (migration 024) is a second one, granted to `anon`,
+live behind "Don't have an account? Request access" on the sign-in screen
+(`js/views/login.js:306`). A buyer inside a cooldown could sign out and use it.
+Every rule in the feature was one sign-out from meaningless.
+
+**Counting the doors was the wrong question.** The assertion now says that
+EVERY anon-callable function which inserts an access request must reference
+`v2_access_reapply_standing` — a property of all of them, which stays correct
+when a third door is added. Same shape as §7b's lesson, one level up: assert the
+property over the whole artefact, not over the instance you happened to write.
+
+### The known gap, asserted rather than hidden
+
+Assertion **11** passes when a DIFFERENT typed shop name is treated as a
+different applicant by the anonymous door. That is a limitation, and it is
+written as a passing assertion on purpose: a limitation nothing checks is a
+limitation that quietly becomes a surprise. Anyone who later makes name matching
+cleverer will find this line red and will have to decide deliberately.
+
+The anonymous door has one handle — a typed name — because there is no account
+behind it. The point of AC-10 is that **no wholesaler reviews the same shop
+blind**, not that a determined applicant cannot be determined.
+
+---
+
+## AC-10 — `check_access_reapply_client.mjs` (30 August 2026)
+
+46 assertions, run against a real DOM.
+
+### The properties, in the order they would hurt
+
+1. **The browser never decides whether a shop may ask again.** Every branch
+   switches on the server's `reapply_state`. The gate forbids date arithmetic
+   and cooldown constants in both client files, because two answers to "may I
+   ask again" means the one the buyer sees is the one developer tools can edit.
+2. **No declined row is a dead end** — five states, five real sentences.
+3. **One "Ask again" button per wholesaler**, on the newest attempt only.
+4. **Asking again uses the same `requestAccess` as a first application.**
+5. **Both review screens share one history component.**
+
+### Red-proved seven ways
+
+| Break | Result |
+|---|---|
+| the "must wait" sentence returns `""` | **2 red** |
+| the standing rendered on superseded rows too | **1 red** |
+| the view computes the cooldown itself (`new Date(x) < new Date()`) | **2 red** |
+| the data module computes it instead (`Date.now() > …`) | **1 red** |
+| the view invents a second `v2_reapply_for_access` RPC | **2 red** |
+| a first application gets an empty history box | **1 red** |
+| the buyer's note written with `innerHTML` | **1 red** |
+| the owner console grows its own history markup | **1 red** |
+| the wholesaler queue reverts to a raw `select` | **2 red** |
+
+### ⚠️ THE DATE ASSERTION WAS WRONG TWICE, IN OPPOSITE DIRECTIONS
+
+**First draft — too narrow.** It read
+`/Date\.now\(\)|new Date\(\)\s*[<>]|getTime\(\)\s*[<>+-]/` and a red proof
+written as `new Date(r.reapplyAt) < new Date()` walked straight past it. The
+comparison was right there; the bare `new Date()` was on the RIGHT of the
+operator and the pattern only looked at the left. **A regex that asks about one
+side of an operator is the same mistake as a gate that asks about one code
+path.**
+
+**Second draft — too wide.** Widening `[<>]` to `[<>=]` made
+`const d = new Date(iso);` inside `formatDay` match on the ASSIGNMENT, and the
+gate went red on correct code. Relational operators mean "deciding a cooldown";
+`=` means "parsing a date in order to print it", which the presentation helper
+is allowed to do.
+
+**What it reads now** matches both operand orders and only relational operators:
+
+```
+/Date\.now\(\)|new Date\([^)]*\)\s*[<>]|[<>]\s*=?\s*new Date\(|getTime\(\)\s*[<>+-]/
+```
+
+Red-proved in both orders and in both files afterwards.
+
+---
+
+## DR-05 / AC-07 restated — `check_access_request_standing_client.mjs` widened 11 → 18 (30 August 2026)
+
+AC-10 added seven fields to the same mapped row, so the fixed-field assertion in
+that gate was widened with the new names written out.
+
+**The assertion is not about the number.** It is about `js/data/access-requests.js`
+declaring an explicit field list rather than spreading the row, so a column added
+for one screen cannot surface on another because nobody was looking. Widening it
+deliberately is how that property is kept; deleting it is how it is lost. Same
+decision, same reasoning, as widening `check_wholesaler_directory.mjs` 33 → 34
+the same night.
+
+---
+
+## AC-01 / ID-03 — `check_approval_grants_access.sql` (30 August 2026)
+
+**The question:** *"a wholesaler pressed Approve. Can that shop now actually buy
+from them?"*
+
+It sounds too obvious to test. It was **false in production for the whole life
+of the marketplace front door**, and nothing said so, because the path had never
+once run — production has zero approved requests and every membership that
+exists came from a one-off backfill.
+
+17 assertions. Rolls itself back; a pass raises `ROLLBACK_WITH_REPORT` (§7.1).
+
+### Red-proved eight ways
+
+| Break | Result |
+|---|---|
+| A — the membership insert removed (the pre-107 defect, restored) | **4 red** (2, 3, 4, 5) |
+| B — the membership written `active = false` | **4 red** (2, 3, 4, 5) |
+| C — a password minted for the marketplace buyer too | **1 red** (6) |
+| D — the anonymous path loses its password | **2 red** (8, 8b) |
+| E — the membership written unconditionally, with no person | **the gate dies on a NOT NULL violation** — red |
+| F — the marketplace account given `crypt('')` as its hash | **first: ZERO. See below.** then **1 red** (6b) |
+| G — the marketplace-record check removed | **1 red** (10) — it raises on a foreign key instead of refusing in words |
+| H — `decided_at` / `reviewed_by` dropped from the person path | **1 red** (12) |
+
+Break A is the important row: it restores exactly what production did before
+this migration, and **four assertions fire**. That is the measurement that says
+this gate would have caught the original defect.
+
+### ⚠️ BREAK F PRODUCED ZERO FAILURES — ASSERTION 6b WAS BLIND
+
+6b meant to prove that the account minted behind a membership cannot be signed
+into. It read:
+
+```sql
+select b.ok from wholesale_v2.v2_buyer_login(wB, 'gate_appr', '') b;
+```
+
+`gate_appr` is the fixture's username **at store A**. There is no such user at
+store B, so the login failed for the wrong reason and the assertion passed no
+matter what password the store-B account carried. Replacing the random hash with
+`crypt('')` — a hash of the empty string, which anyone could sign in with —
+changed nothing at all.
+
+It now looks the username **up** from the account the membership actually points
+at, and tries the three passwords a broken hash would accept: the empty string,
+the username itself, and `password`. Break F then fires immediately.
+
+**Seventh time this weekend that "no failures" meant "the break did not
+happen", and the second time the blind assertion was testing the wrong object
+rather than the wrong property.**
+
+### ⚠️ AND ASSERTION 7 WAS WRONG WHILE THE CODE WAS RIGHT
+
+7 read `msg !~* 'password to send.*[A-Za-z0-9]{8}'`, meaning "the success
+message does not contain an actual password". It fired on the correct message,
+because ordinary prose after the words *"password to send"* is also eight
+alphanumerics.
+
+Guessing at the SHAPE of a credential inside free text is not a check. Whether a
+credential was returned is a **structural** question and assertion 6 already
+answers it. 7 now asserts the real behavioural difference between the two paths:
+the legacy one returns an empty `msg` and expects a password box, this one
+returns a sentence.
+
+### Two assertions that exist because a fixture can lie
+
+- **Assertion 1** checks the store is NOT in the switcher *before* approval. An
+  end-state assertion with no before-state can pass on a fixture that was
+  already correct.
+- **Assertion 8b** proves the anonymous applicant's password works by **signing
+  in with it**, not by observing that a string came back. Half of migration 107
+  is a promise that nothing was taken from the person with no OGGI account, and
+  the only honest way to keep that promise is to use the credential.
+
+---
+
+## AC-01 / ID-03 — `check_approval_grants_access_client.mjs` (30 August 2026)
+
+29 assertions against a real DOM. Red-proved six ways: the credentials box
+rendered with nothing in it, the password hidden when there is one, half a
+response treated as credentials, the panel written with `innerHTML`, the owner
+console given its own copy back, and the data module dropping the server's
+message.
+
+### The assertion that had to be rewritten to be about structure
+
+`!/Username|Password/i.test(text)` looked like a fine way to say "there is no
+credentials box". It went red on correct code, because the sentence for the
+OTHER outcome contains the word: *"there is no password to send"*.
+
+The box now carries `data-creds` and the assertion reads the DOM. **Same lesson
+as the `data-access` attributes on the directory cards, learned again: an
+assertion that greps for the words on a screen breaks the moment the wording
+improves, which teaches people to stop improving wording.**
+
+---
+
+## `check_token_completeness.mjs` widened to `js/` (30 August 2026)
+
+The gate read `css/` only. This app writes a great deal of style inline from
+JavaScript — `style.cssText`, and `style=""` inside template literals — and the
+gate had never looked there.
+
+**`--surface-sunken` was referenced in five inline styles across four view
+files, has never been defined anywhere in this repo, and had been falling back
+to a hardcoded `#f7f7f5` for weeks.** It was found because two hand-rolled
+approval panels were being replaced by one component, and this was *how* the two
+copies had drifted: one used `var(--bg-sunken)`, the other `var(--surface-sunken)`.
+
+Pointing the same scan at `js/` found **ten more**, across twenty files.
+
+### The eleven are allowlisted by name, and the allowlist cannot rot
+
+Rewriting eleven colours across twenty files is a visual change to most of the
+application, made overnight, that nobody can review until morning — and this
+gate exists to stop colour changes nobody decided. So they are named, dated, and
+the gate is green on exactly them.
+
+Three separate ways it stays honest, each red-proved:
+
+| Break | Result |
+|---|---|
+| a new undefined token in an inline `js/` style | **red** |
+| an allowlisted token used in a **stylesheet** rather than inline | **red** |
+| an allowlist entry no longer used anywhere | **red** |
+| a token deleted from `tokens.css` (the original behaviour) | **red** |
+
+The third is what stops the list becoming a graveyard: it shrinks as the tokens
+get fixed, and an entry that has stopped being true fails the gate.
+
+`--surface-sunken` was a twelfth entry and came straight off, because all five
+of its uses were repointed at `--bg-sunken` in the same change.

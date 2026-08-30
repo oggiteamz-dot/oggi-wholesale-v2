@@ -216,8 +216,45 @@ echo "   shape=$shape"
 #   v2_directory_list(...)          28445788ba789fb34d1af691ea8dec99
 #   v2_my_access_requests(text)     d915706674ac84b7498b777612821741
 #   v2_overdue_access_requests()    5fa0a73163b7b0148b5fd7e33ca93623
-EXP_T=103 EXP_V=4 EXP_F=158 EXP_P=96
-EXP_SHAPE=d39bec768eef9e114ba8d9b646d88e46   # replay of 107 migrations AND production, 30 Aug 2026 -- measured on both sides, same query, replay first
+# Moved again 30 Aug 2026, after 106 (AC-10, applying again after a decline).
+# 103 -> 104 tables (v2_access_reapply_policy) and 158 -> 161 functions
+# (v2_shop_key, v2_access_reapply_standing, v2_pending_access_requests are new;
+# v2_directory_request_access and v2_submit_signup_request are replaced in
+# place, and v2_my_access_requests was DROPPED and recreated with seven more
+# output columns, which is a replace and not an addition). Policies unchanged at
+# 96 ON PURPOSE: the new table has RLS ON, NO policy, and its grants revoked
+# from every browser role -- the schema's standing default privileges would
+# otherwise hand it to `authenticated` on the day it was created, which is the
+# defect migration 098 had to correct and which this hash would not have moved
+# for either.
+#
+# Same order as every legitimate move: the 108-migration replay ran into an
+# empty Postgres FIRST and produced the hash below; production was then measured
+# with the SAME query and produced the same hash. All six touched function
+# bodies hash identically on both sides:
+#   v2_shop_key(text)                             feae626a5fcfbe338e252c15212a8410
+#   v2_access_reapply_standing(uuid,text,text)    fe6f65b6257871a968bfa8236112e6be
+#   v2_directory_request_access(text,text,text)   ad23bd0c325c6efdd29ac40eae81b76c
+#   v2_submit_signup_request(...)                 13a38e5c9b3ddefea7542331c8e8984e
+#   v2_my_access_requests(text)                   23e030ae2eb7579e3e60997d21268c90
+#   v2_pending_access_requests()                  a165e41ec87c7236cd5450daca7b3828
+#
+# AND THE PRODUCTION APPLY WAS PROVEN EQUIVALENT BEFORE IT RAN. 106 could not be
+# handed to the apply tool in one piece, so it went as four comment-stripped
+# chunks. Rather than trusting that, the same four chunks were first applied to a
+# SEPARATE replay of migrations 000-105 and the result compared with the
+# full-file replay: identical shape hash, and all six bodies byte-identical.
+# That is what makes the two hashes above evidence rather than coincidence --
+# migration 101 lost its in-body comments to exactly this step, one night before.
+# NOT moved for 107 (approval grants a membership), and that is the point worth
+# writing down: 107 replaces the BODY of v2_approve_signup_request and adds no
+# object at all, so all four counts and the shape hash are byte-identical before
+# and after it. The most consequential change of the weekend -- the one where
+# approving a shop went from granting nothing to granting access -- is exactly
+# the kind this instrument cannot see. Same blind spot as the ACL one 105 wrote
+# about. That is what checks/check_approval_grants_access.sql is for.
+EXP_T=104 EXP_V=4 EXP_F=161 EXP_P=96
+EXP_SHAPE=61d82639528d44bfaa0ab9ebed42a7c4   # replay of 108 migrations AND production, 30 Aug 2026 -- measured on both sides, same query, replay first
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the

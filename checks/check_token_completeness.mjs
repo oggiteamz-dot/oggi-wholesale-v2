@@ -124,24 +124,118 @@ const dangling = new Map();
 // var() reference, as the red proof in checks/GATE-EVIDENCE.md shows.
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, " ");
 
-for (const file of readdirSync(CSS_DIR).filter((f) => f.endsWith(".css"))) {
-  const css = stripComments(readFileSync(join(CSS_DIR, file), "utf8"));
-  for (const m of css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*(?:,|\))/g)) {
+// ==== AND THE STYLESHEETS ARE NOT WHERE ALL THE TOKENS ARE ==================
+//
+// WIDENED 30 Aug 2026, because this gate had a blind spot the width of the
+// application. It read css/ only, and this app writes a great deal of style
+// inline from JavaScript -- `style.cssText`, and style="" inside template
+// literals. `--surface-sunken` was referenced in FIVE such places across four
+// view files, has NEVER been defined in tokens.css, and had been quietly
+// falling back to a hardcoded `#f7f7f5` while the rest of the app used
+// `--bg-sunken` for the same surface. Nothing said a word, for weeks, because
+// the gate was looking at the wrong files.
+//
+// It was found while replacing two hand-rolled approval panels with one shared
+// component -- the two copies had drifted, and this was HOW they had drifted.
+//
+// The js/ scan is deliberately the same regex on the same stripped text. A
+// second, cleverer matcher for "the same question, over there" is how two
+// answers to one question start.
+//
+// ==== WHAT THE WIDENING FOUND, AND WHY THERE IS AN ALLOWLIST ===============
+//
+// Turning the scan on js/ did not find one stray token. It found ELEVEN,
+// referenced from more than twenty files, every one of them with a hardcoded
+// fallback doing the actual work:
+//
+//     --danger --danger-600 --danger-bg --success --success-600
+//     --warning --warning-600 --info-600 --surface --surface-2 --surface-subtle
+//
+// tokens.css defines --danger-700, --success-700, --bg-surface-2 and so on. The
+// inline styles reach for names from an older palette that this repo has never
+// had, and CSS answers an undefined custom property with silence, so the
+// fallback renders and nothing is ever wrong out loud.
+//
+// THEY ARE NOT FIXED HERE, AND THEY ARE NOT HIDDEN EITHER. Rewriting eleven
+// colours across twenty files is a visual change to most of the application,
+// made in one night, that nobody can review until morning -- and this gate's
+// whole purpose is to stop colour changes nobody decided. So they are named
+// below, with the date, and the gate is GREEN on exactly these and RED on a
+// twelfth. Same posture as check_single_low_stock_threshold.sh, which
+// allowlists its one known duplicate rather than pretending it is not there.
+//
+// THE LIST CANNOT ROT. An entry that is no longer used anywhere fails the gate
+// too, so the allowlist shrinks as the tokens get fixed and cannot quietly
+// become a graveyard. `--surface-sunken` was on this list when it was written
+// and came straight off it, because all five of its uses were repointed at
+// `--bg-sunken` in the same change.
+const LEGACY_INLINE_TOKENS = new Set([
+  "--danger", "--danger-600", "--danger-bg",
+  "--success", "--success-600",
+  "--warning", "--warning-600",
+  "--info-600",
+  "--surface", "--surface-2", "--surface-subtle",
+]);
+
+const JS_DIR = join(ROOT, "js");
+const jsFiles = [];
+(function walk(dir, rel) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) walk(join(dir, e.name), rel + e.name + "/");
+    else if (e.name.endsWith(".js")) jsFiles.push([rel + e.name, join(dir, e.name)]);
+  }
+})(JS_DIR, "js/");
+
+const sources = [
+  ...readdirSync(CSS_DIR).filter((f) => f.endsWith(".css"))
+      .map((f) => ["css/" + f, join(CSS_DIR, f)]),
+  ...jsFiles,
+];
+
+for (const [label, path] of sources) {
+  // JS carries `//` comments as well as `/* */`, and the same reasoning applies:
+  // writing down the wrong token beside the right one must not fail the gate.
+  const text = stripComments(readFileSync(path, "utf8"))
+    .split("\n").map((l) => l.replace(/(^|\s)\/\/.*$/, "")).join("\n");
+  for (const m of text.matchAll(/var\(\s*(--[a-z0-9-]+)\s*(?:,|\))/g)) {
     const name = m[1];
     if (!defined.has(name)) {
       if (!dangling.has(name)) dangling.set(name, new Set());
-      dangling.get(name).add(file);
+      dangling.get(name).add(label);
     }
   }
 }
-if (dangling.size) {
-  console.log(`\n  ✗ ${dangling.size} token(s) USED but never defined:\n`);
-  for (const [name, files] of dangling) {
+// An allowlisted token is tolerated ONLY in inline styles inside js/. If one
+// ever appears in a stylesheet, that is a new decision in the place where
+// colour decisions belong and it goes through the front door.
+const real = new Map();
+for (const [name, files] of dangling) {
+  const inCss = [...files].filter((f) => f.startsWith("css/"));
+  if (!LEGACY_INLINE_TOKENS.has(name)) real.set(name, files);
+  else if (inCss.length) real.set(name, new Set(inCss));
+}
+
+if (real.size) {
+  console.log(`\n  ✗ ${real.size} token(s) USED but never defined:\n`);
+  for (const [name, files] of real) {
     console.log(`      ${name}  — used in ${[...files].join(", ")}`);
   }
-  failures.push(`${dangling.size} undefined token(s) referenced: ${[...dangling.keys()].join(", ")}`);
+  failures.push(`${real.size} undefined token(s) referenced: ${[...real.keys()].join(", ")}`);
 } else {
-  console.log("  ✓ every var(--token) in css/ resolves to a defined token");
+  console.log(`  ✓ every var(--token) in css/ AND js/ resolves to a defined token`);
+  console.log(`    (${sources.length} files; ${LEGACY_INLINE_TOKENS.size} known inline legacy tokens allowlisted by name)`);
+}
+
+// The allowlist must describe reality in BOTH directions. An entry nobody uses
+// any more is a line that stops being true, and a list that is allowed to stop
+// being true is the thing this file exists to prevent one level down.
+const unusedLegacy = [...LEGACY_INLINE_TOKENS].filter((t) => !dangling.has(t));
+if (unusedLegacy.length) {
+  console.log(`\n  ✗ ${unusedLegacy.length} allowlisted token(s) are no longer used anywhere — delete them from LEGACY_INLINE_TOKENS:\n`);
+  console.log(`      ${unusedLegacy.join(", ")}`);
+  failures.push(`the legacy-token allowlist has ${unusedLegacy.length} stale entr(ies): ${unusedLegacy.join(", ")}`);
+} else {
+  console.log("  ✓ ...and every allowlisted legacy token is still genuinely in use");
 }
 
 console.log("------------------------------------------------------------");

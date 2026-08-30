@@ -73,13 +73,21 @@ const ROW = (over = {}) => ({
 });
 
 // ================================================= 1. THE FIELD LIST IS FIXED
+// WIDENED 11 -> 18 on 30 Aug 2026 by AC-10 (migration 106), which added the
+// re-apply standing to the same row. The assertion below is NOT about the
+// number: it is about the mapper declaring a FIXED list rather than spreading
+// the row, so a column added for one screen cannot surface on another because
+// nobody was looking. Widening it deliberately, with the new names written out,
+// is how that property is kept -- deleting the assertion is how it is lost.
 const FIELDS = ["requestId","wid","wholesalerName","brand","status","requestedAt",
-                "decidedAt","slaHours","hoursWaiting","overdue","declineWording"];
+                "decidedAt","slaHours","hoursWaiting","overdue","declineWording",
+                "attempt","superseded","reapplyState","canReapply","reapplyAt",
+                "reapplyNoteRequired","reapplyAdvice"];
 RPC = { v2_my_access_requests: async () => ({ data: [ROW()], error: null }) };
 let rows = await listMyAccessRequests();
 ok(rows.length === 1, "a request comes through the mapper");
 ok(JSON.stringify(Object.keys(rows[0])) === JSON.stringify(FIELDS),
-   `the mapper returns exactly the eleven declared fields (got: ${Object.keys(rows[0]).join(",")})`);
+   `the mapper returns exactly the eighteen declared fields (got: ${Object.keys(rows[0]).join(",")})`);
 ok(!("reason_code" in rows[0]) && !("reasonCode" in rows[0]),
    "⭐ the internal reason CODE does not reach the view at all — only the wording does");
 

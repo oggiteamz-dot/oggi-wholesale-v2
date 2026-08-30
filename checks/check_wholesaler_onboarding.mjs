@@ -40,6 +40,10 @@ const ok = (c, m) => (c ? pass : fail).push(m);
 const read = (p) => { try { return readFileSync(p, "utf8"); } catch { return ""; } };
 
 const view = read("js/views/wholesaler.js");
+// AC-01/ID-03 (107): the approval outcome is rendered by a component shared with
+// the owner console, so the assertions about it read that file rather than this
+// view. See the note above the password block.
+const panel = readFileSync(new URL("../js/components/approval-result.js", import.meta.url), "utf8");
 const data = read("js/data/wholesaler-admin.js");
 const nav  = read("js/lib/nav-config.js");
 
@@ -96,14 +100,40 @@ ok(/listMySignupRequests/.test(data),
 }
 
 // ------------------------------------------- the password is shown, not toasted --
+//
+// ⚠️ RE-AIMED 30 Aug 2026, AND THIS GATE WENT RED FIRST, WHICH IS WHY.
+//
+// The panel that renders the one-time password moved out of this view into
+// js/components/approval-result.js, because approval now has TWO outcomes and
+// the two review screens had each grown their own drifting copy (migration 107).
+// This block used to read `requestsView` and grep it for `tempPassword`, so the
+// move turned it red on a screen that had not lost anything.
+//
+// It is NOT weakened to match. The property is unchanged -- the password is
+// rendered, permanently, and never inside something that fades -- and it is now
+// asserted against the file that actually renders it. Deleting the assertion
+// because the code moved is how a gate becomes decoration.
 {
   const v = (view.match(/async function requestsView[\s\S]*?\n}\n/) || [""])[0];
   ok(v.length > 400, "the screen itself exists");
-  ok(/tempPassword/.test(v),
+  ok(/approvalResult\(/.test(v) && /approval-result\.js/.test(view),
+     "the screen renders the approval outcome through the shared panel");
+  // ⚠️ AND THIS ONE WAS TOO LOOSE. `/tempPassword/` matched the word anywhere
+  // in the file -- including the branch that decides which panel to show, and
+  // the comment explaining it -- so deleting the Password FIELD from the
+  // rendered row produced no failure at all. It is aimed at the render site.
+  //
+  // A regex on source is a weak instrument and this file says so: the
+  // BEHAVIOURAL proof that both values reach the DOM lives in
+  // check_approval_grants_access_client.mjs, which builds the panel and reads
+  // the text out of it. This assertion exists so that the wholesaler
+  // onboarding gate still fails if the password stops being rendered, rather
+  // than delegating its most important promise to a file it does not run.
+  ok(/\["Password", result\.tempPassword\]/.test(panel),
      "the one-time password is rendered on the screen");
-  ok(v.length > 400 && !/toast\(\s*[`"'][^`"']*\$\{?\s*(result\.)?tempPassword/.test(v),
+  ok(!/toast\(\s*[`"'][^`"']*\$\{?\s*(result\.)?tempPassword/.test(panel + v),
      "and NOT inside a toast — a toast auto-dismisses, and this string is never recoverable");
-  ok(/not be shown again|only time|never be shown/i.test(v),
+  ok(/not be shown again|only time|never be shown/i.test(panel),
      "and the screen says out loud that it will not be shown again");
   ok(/confirmAction|ask\(/.test(v),
      "rejecting asks for confirmation first");
