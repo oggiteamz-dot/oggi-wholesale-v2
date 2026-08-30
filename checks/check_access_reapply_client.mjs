@@ -227,6 +227,51 @@ for (const [name, text] of [["js/data/wholesaler-admin.js", wsData], ["js/data/o
 ok(/status === "pending"/.test(wsData) && /status === "pending"/.test(ownerData),
    "...and the other statuses still read the table, so nothing that used to answer now returns [] silently");
 
+// ============================ 8. THE REQUEST CAN BE ANSWERED (migration 108)
+//
+// Until 30 Aug the public request form collected NO contact detail at all, so a
+// wholesaler could approve somebody and then had nobody to send the password
+// to. There is no email in this build; the number is the whole channel.
+const loginView = strip(await src("../js/views/login.js"));
+const devAuthSrc = strip(await src("../js/lib/dev-auth.js"));
+ok(/id="req-phone"/.test(loginView),
+   "⭐ the public request form asks for a phone number");
+ok(/type="tel"/.test(loginView) && /inputmode="tel"/.test(loginView),
+   "...with a telephone keypad, because it is filled in on a phone");
+ok(/if \(!phone\)/.test(loginView),
+   "...and the form refuses to send without one");
+ok(/p_phone: phone/.test(devAuthSrc),
+   "the number reaches the server rather than being collected and dropped");
+
+// The wholesaler and the owner must both be able to SEE it. A number recorded
+// and not shown is the same as no number.
+//
+// ⚠️ THE FIRST VERSION OF THIS WAS BLIND AND A RED PROOF CAUGHT IT. It read
+// `/r\.phone/` against the whole file, which still matches the line that
+// COMPUTES the number — so deleting the line that RENDERS it changed nothing.
+// Computing a value and putting it on the screen are different claims, and a
+// gate that cannot tell them apart is asserting the easier one.
+//
+// Each screen is now asserted against the thing it actually interpolates into
+// the card, which differs between the two files, so they are named separately
+// rather than swept into one loop with one loose regex.
+ok(/\$\{phoneHtml\}/.test(wholesalerView),
+   "⭐ the wholesaler's queue RENDERS the number into the card, not merely computes it");
+ok(/\$\{r\.phone\s*$|r\.phone\s*\n\s*\? `<a href="tel:/m.test(ownerView) || /r\.phone\s*\n\s*\? `<a href="tel:/.test(ownerView),
+   "⭐ the owner console RENDERS the number into the card");
+for (const [name, text] of [["the wholesaler's queue", wholesalerView], ["the owner console", ownerView]]) {
+  ok(/href="tel:/.test(text),
+     `...as something you can press to call (${name})`);
+  ok(/asked before we collected one/.test(text),
+     `...and a request made before 108 says why it has none, rather than rendering a blank (${name})`);
+}
+// The tel: href is built from a buyer-typed string. Strip everything but digits
+// and a leading plus, or a typed quote closes the attribute.
+for (const [name, text] of [["wholesaler.js", wholesalerView], ["owner.js", ownerView]]) {
+  ok(/replace\(\/\[\^0-9\+\]\/g, ""\)/.test(text),
+     `⭐ ${name} strips the buyer-typed number before putting it in a tel: href`);
+}
+
 // ------------------------------------------------- report
 console.log("\n=== check_access_reapply_client.mjs ===");
 for (const m of pass) console.log("  PASS  " + m);

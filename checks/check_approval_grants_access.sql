@@ -169,8 +169,12 @@ begin
   -- ⭐ THE OTHER HALF OF THE PROMISE: the anonymous applicant is untouched.
   -- Proven by LOGGING IN with the password the function just issued, not by
   -- checking that a string came back.
+  -- The sixth argument is the phone, required since migration 108: this door
+  -- collected no contact detail at all until then, so approving one of its
+  -- requests minted a password with nobody to send it to. This gate's fixture
+  -- is the applicant, so it supplies one.
   select d.ok into v_ok
-    from wholesale_v2.v2_submit_signup_request(wB, 'Walk In Shop', 'Tripoli', '100/mo', 'kidswear') d;
+    from wholesale_v2.v2_submit_signup_request(wB, 'Walk In Shop', 'Tripoli', '100/mo', 'kidswear', '76 543 210') d;
   select id into reqAnon from wholesale_v2.v2_signup_requests
    where wid = wB and buyer_name = 'Walk In Shop' and person_id is null;
 

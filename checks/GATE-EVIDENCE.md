@@ -1025,3 +1025,116 @@ get fixed, and an entry that has stopped being true fails the gate.
 
 `--surface-sunken` was a twelfth entry and came straight off, because all five
 of its uses were repointed at `--bg-sunken` in the same change.
+
+---
+
+## ⚠️ THE SHAPE HASH WAS TRUNCATING EVERY SIGNATURE TO 63 CHARACTERS (30 August 2026)
+
+The largest instrument failure found this weekend, and it was in the gate that
+exists to catch instrument failures.
+
+`checks/replay_migrations.sh` describes its shape hash as *"the sharper half: an
+md5 over every table, view and function SIGNATURE in the schema. A substitution
+that happens to preserve the counts still moves it."*
+
+**It did not.** Migration 108 changed three function signatures and added a
+column, and the script printed:
+
+```
+   tables=104 views=4 functions=161 policies=96
+   shape=61d82639528d44bfaa0ab9ebed42a7c4
+   MATCHES the 30 Aug 2026 production baseline exactly, shape included.
+```
+
+### The mechanism
+
+```sql
+select c.relname as nm from pg_class ...      -- type: pg_catalog.name
+union all
+select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+```
+
+`relname` is of type `name`, a **fixed 64-byte type**. In a UNION, Postgres
+resolves the result column to it — so every function signature in the second
+branch was silently cut to 63 characters before being hashed:
+
+```
+[v2_submit_signup_request(p_wid text, p_buyer_name text, p_locat]  len=63
+[v2_access_reapply_standing(p_person uuid, p_wid text, p_name te]  len=63
+```
+
+Any change past character 63 of a signature was invisible. In this schema that
+is **most of them**: adding, removing or retyping a parameter on any function
+whose name and argument list run past about fifty characters moved nothing at
+all. The hash had only ever moved when functions were **added or removed**,
+because that changes the short leading text — which is why it looked healthy for
+weeks and was quoted as evidence in three baseline moves.
+
+### Proven, not argued
+
+Two replays, identical object counts, two differing signatures:
+
+| | old (truncating) | corrected (`::text`) |
+|---|---|---|
+| replay at 107 | `61d82639528d44bfaa0ab9ebed42a7c4` | `e656498f00a42358245a1f830ea0cc1a` |
+| replay at 108 | `61d82639528d44bfaa0ab9ebed42a7c4` | `7801271d40a7d164eaec52bb2a8c3ab3` |
+| | **identical — blind** | **different — visible** |
+
+### The baseline move is legitimate because both sides were measured first
+
+```
+corrected hash, replay at 107 ...... e656498f00a42358245a1f830ea0cc1a
+corrected hash, PRODUCTION at 107 .. e656498f00a42358245a1f830ea0cc1a   <- identical
+corrected hash, replay at 108 ...... 7801271d40a7d164eaec52bb2a8c3ab3
+```
+
+The first two agreeing is what proves the repo and production had not diverged
+under the corrected instrument, and that 108 is precisely the one migration
+outstanding. Moving a baseline without that comparison is just silencing an
+alarm — the script says so itself, and this move obeys it.
+
+### The canary, red-proved
+
+If the `::text` cast is ever lost, every long signature collapses to exactly 63
+characters. The script now measures `max(length)` over the same set and refuses
+to print a hash at all if it is 63 or less:
+
+```
+!! THE SHAPE HASH IS TRUNCATING. Longest hashed signature is 63 characters,
+   which means the union column resolved to pg_catalog.name (63 bytes) again.
+```
+
+Red-proved by removing the cast: it fires, and the script exits before printing
+a hash that cannot be trusted. **This exact condition was true for weeks and
+nothing said so**, which is the argument for a canary rather than a comment.
+
+---
+
+## ⚠️ AND THE RED-PROOF RUNNER REPORTED ZERO FAILURES TWICE (30 August 2026)
+
+Worth recording because it is the same failure one level up, and it nearly
+banked two blind assertions as proven.
+
+The throwaway harness used to apply breaks took the gate to run from a variable
+edited by `sed` between rounds. Twice the `sed` pattern matched nothing, the
+harness kept running the **previous** gate, and every break against the new one
+came back "ZERO FAILURES" — for breaks it had never applied to the gate under
+test.
+
+Both times the giveaway was the same: a break that obviously should fire,
+producing nothing. It is now passed the gate name as an argument, and it
+sentinels on the gate's own `passed:` line — if the gate did not run at all,
+that is reported as "GATE DID NOT RUN", not as a pass.
+
+**An instrument that reports on something other than what you think it is
+reporting on is exactly the defect this whole file exists for, and the tooling
+around the gates is not exempt from it.**
+
+### And one genuinely blind assertion it caught
+
+`/r\.phone/` tested against a whole view file to ask "does this screen show the
+number". It matched the line that **computes** the number, so deleting the line
+that **renders** it changed nothing. Computing a value and putting it on the
+screen are different claims. Each screen is now asserted against the thing it
+actually interpolates into the card, named separately rather than swept into one
+loop with one loose regex — and red-proved on each.

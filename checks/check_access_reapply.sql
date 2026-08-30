@@ -18,12 +18,14 @@
 --     whole feature is decorative, because the bypass is one sign-out away and
 --     the app puts a button on it.
 --
---   * ASSERTION 11 — THE KNOWN GAP, ASSERTED ON PURPOSE. The anonymous door
---     matches on a typed shop name and nothing else, so a different name is a
---     different applicant. That is stated here as an assertion rather than left
---     in a comment, because a limitation nothing checks is a limitation that
---     quietly becomes a surprise. If somebody later makes name matching
---     cleverer, this line goes red and they have to decide deliberately.
+--   * ASSERTIONS 10b AND 11 — THE KNOWN GAP, AND HOW FAR IT MOVED. When this
+--     gate was written the anonymous door had only a typed shop name to match
+--     on, so renaming the shop escaped the cooldown, and 11 said so out loud
+--     rather than leaving it in a comment. Migration 108 gave that door a phone
+--     number: 10b now asserts that a DIFFERENT NAME ON THE SAME NUMBER is
+--     caught, and 11 concedes only the narrower case — a different name AND a
+--     different number. A limitation nothing checks is a limitation that
+--     quietly becomes a surprise; one that is asserted moves visibly.
 --
 --   * ASSERTION 9b — added AFTER a red proof produced zero failures. Assertion
 --     9 alone passed whether or not the policy table had a row in it, because a
@@ -50,6 +52,8 @@ declare
   wprof  uuid := '44444444-dddd-4ddd-8ddd-444444444444';
   r1 uuid; r2 uuid; r3 uuid;
   v_ok boolean; v_msg text; v_state text; v_att int; v_sup uuid;
+  v_phone  text := '03 456 789';        -- 108: the anonymous door now requires one
+  v_phone2 text := '71 222 333';        -- a different shop, a different number
   NOTE_OLD text := 'We are a childrenswear shop in Tripoli, open six years.';
   NOTE_NEW text := 'Commercial registration 12345, shop on Azmi street, open six years.';
 begin
@@ -193,21 +197,47 @@ begin
   -- above it in this file.
   update wholesale_v2.v2_signup_requests
      set reason_code='outside_area', decided_at = now() where id = r3;
+  update wholesale_v2.v2_signup_requests set phone = v_phone where id = r3;
   select d.ok, d.msg into v_ok, v_msg
-    from wholesale_v2.v2_submit_signup_request(w, 'noor  BOUTIQUE.', null, null, NOTE_NEW) d;
+    from wholesale_v2.v2_submit_signup_request(w, 'noor  BOUTIQUE.', null, null, NOTE_NEW, v_phone) d;
   if not v_ok and v_msg ~* 'can ask again on' then
-    rep := rep || E'\n10  ok   the sign-in screen door obeys the SAME cooldown, matched on the shop name';
+    rep := rep || E'\n10  ok   the sign-in screen door obeys the SAME cooldown';
   else fails := fails+1; rep := rep || format(E'\n10  FAIL the anonymous door bypassed the cooldown: ok=%s msg=%L', v_ok, v_msg); end if;
+
+  -- --------------------------------------------------------------- 10b ------
+  -- ⭐ MIGRATION 108 NARROWED THE GAP BELOW. A phone number outranks a shop
+  -- name, so renaming the shop no longer escapes the cooldown -- which is what
+  -- assertion 11 had to concede when the name was the only handle this door had.
+  select d.ok, d.msg into v_ok, v_msg
+    from wholesale_v2.v2_submit_signup_request(w, 'A Completely Different Name', null, null, NOTE_NEW, v_phone) d;
+  if not v_ok and v_msg ~* 'can ask again on' then
+    rep := rep || E'\n10b ok   ⭐ ...and a DIFFERENT SHOP NAME on the same number is still matched — 106 could not do this';
+  else fails := fails+1; rep := rep || format(E'\n10b FAIL renaming the shop escaped the cooldown: ok=%s msg=%L', v_ok, v_msg); end if;
+
+  -- --------------------------------------------------------------- 10c ------
+  -- The door REFUSES without a usable number at all. A request nobody can
+  -- answer is not a request: approving one mints a password with nowhere to
+  -- send it, which is what this form did from Batch 4 until 108.
+  select d.ok, d.msg into v_ok, v_msg
+    from wholesale_v2.v2_submit_signup_request(w, 'No Number Shop', null, null, NOTE_NEW, null) d;
+  if not v_ok and v_msg ~* 'phone number is required' then
+    rep := rep || E'\n10c ok   ⭐ a request with no phone number is refused — it could never have been answered';
+  else fails := fails+1; rep := rep || format(E'\n10c FAIL a contactless request was accepted: ok=%s msg=%L', v_ok, v_msg); end if;
+
+  select d.ok into v_ok
+    from wholesale_v2.v2_submit_signup_request(w, 'Junk Number Shop', null, null, NOTE_NEW, '12') d;
+  if not v_ok then rep := rep || E'\n10d ok   ...and so is one that is not a phone number, judged by the same normaliser the schema uses everywhere else';
+  else fails := fails+1; rep := rep || E'\n10d FAIL "12" was accepted as a phone number'; end if;
 
   -- --------------------------------------------------------------- 11 -------
   -- ⚠️ THE KNOWN GAP, ASSERTED SO IT CANNOT BECOME A SURPRISE. A typed name is
   -- the only handle the anonymous door has. A different name is a different
   -- applicant, and this line says so out loud rather than leaving it in prose.
   select d.ok into v_ok
-    from wholesale_v2.v2_submit_signup_request(w, 'A Completely Different Shop', null, null, NOTE_NEW) d;
+    from wholesale_v2.v2_submit_signup_request(w, 'A Completely Different Shop', null, null, NOTE_NEW, v_phone2) d;
   if v_ok then
-    rep := rep || E'\n11  ok   KNOWN GAP, asserted deliberately: a different typed name is a different applicant to the anonymous door';
-  else fails := fails+1; rep := rep || E'\n11  FAIL a brand new shop name was refused — the name match is catching people it should not'; end if;
+    rep := rep || E'\n11  ok   KNOWN GAP, narrowed by 108 and still asserted: a different name AND a different number is a different applicant';
+  else fails := fails+1; rep := rep || E'\n11  FAIL a genuinely new shop was refused — the match is catching people it should not'; end if;
 
   -- --------------------------------------------------------------- 12 -------
   -- WHAT THIS FEATURE IS FOR. The wholesaler opens the queue and the previous
