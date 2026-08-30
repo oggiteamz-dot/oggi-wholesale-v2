@@ -20,6 +20,8 @@ import { getVisibilityMirror, getVisibilityQueries } from "../data/visibility.js
 // SR-05: the published ranking policy, linked from the visibility mirror below
 // as well as carrying its own navigation entry.
 import { registerRankingPolicyRoute } from "./ranking-policy.js";
+// AC-08: the shared decline vocabulary, matched to the database constraint.
+import { DECLINE_REASONS } from "../data/decline-reasons.js";
 // Batch N step 4, 28 Aug 2026 — handing one order to someone outside the app.
 import { orderLink, whatsappHref, rotateOrderToken } from "../data/order-handoff.js";
 // AC-03, 29 Aug 2026 — Door A: inviting a shop into this store.
@@ -5057,9 +5059,34 @@ async function requestsView(outlet) {
         danger: true,
       });
       if (!yes) return;
-      await rejectMySignupRequest(r.id, session?.actorLabel || "Wholesaler");
-      toast(`${r.buyer_name} declined`, { type: "default" });
-      card.remove();
+      // AC-08. Same two steps and the same shared reason list as the owner
+      // console — one vocabulary for the product, not one per screen.
+      const reason = await ask({
+        title: `Decline ${r.buyer_name}'s request?`,
+        body: "They keep their place in the record and can apply again. The reason is recorded, and it is what they will be told.",
+        label: "Why?",
+        choices: DECLINE_REASONS.map((d) => ({ value: d.value, label: d.label, hint: d.hint })),
+        confirmLabel: "Next",
+      });
+      if (reason === null) return;
+
+      let note = null;
+      if (reason === "other") {
+        note = await ask({
+          title: "Explain the reason",
+          body: "You chose “something else”, so this is the only thing the buyer will be told. Write it as if they are reading it, because they are.",
+          label: "Reason (recorded, and shown to the buyer)",
+          confirmLabel: "Decline the request",
+          validate: (v) => (v.trim().length >= 5 ? null : "A few words at least."),
+        });
+        if (note === null) return;
+      }
+
+      const res = await rejectMySignupRequest(r.id, reason, note);
+      toast(res.ok ? `${r.buyer_name} declined, and the reason is recorded`
+                   : (res.message || "Could not decline this request"),
+            { type: res.ok ? "default" : "danger" });
+      if (res.ok) card.remove();
     });
 
     outlet.appendChild(card);

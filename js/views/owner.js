@@ -2,6 +2,8 @@
 import { emptyState } from "../components/empty-state.js";
 import { toast } from "../components/toast.js";
 import { ask, confirmAction } from "../components/ask.js";
+// AC-08: one shared reason list, asserted against the database's own constraint.
+import { DECLINE_REASONS } from "../data/decline-reasons.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import {
@@ -290,16 +292,36 @@ async function onboardingView(outlet) {
       // Batch 8A. Note what the native version could not say: the buttons
       // were "OK" and "Cancel", so the only thing naming the act was the
       // question, and the destructive answer was the one on the left.
-      const yes = await confirmAction({
-        title: `Reject ${r.buyer_name}'s request?`,
-        body: "They will not get access. They can request again later, and you would see it as a new request.",
-        confirmLabel: "Reject request",
-        danger: true,
+      // AC-08. Two steps, and the REASON is the first one — not a confirmation
+      // dialog with a reason bolted on afterwards. The database refuses a
+      // decline without one, so asking after confirming would mean confirming
+      // something that then fails.
+      const reason = await ask({
+        title: `Decline ${r.buyer_name}'s request?`,
+        body: "They keep their place in the record and can apply again. The reason is recorded, and it is what they will be told.",
+        label: "Why?",
+        choices: DECLINE_REASONS.map((d) => ({ value: d.value, label: d.label, hint: d.hint })),
+        confirmLabel: "Next",
       });
-      if (!yes) return;
-      await rejectSignupRequest(r.id, session?.actorLabel || "Owner");
-      toast(`${r.buyer_name} rejected`, { type: "default" });
-      card.remove();
+      if (reason === null) return;
+
+      let note = null;
+      if (reason === "other") {
+        note = await ask({
+          title: "Explain the reason",
+          body: "You chose “something else”, so this is the only thing the buyer will be told. Write it as if they are reading it, because they are.",
+          label: "Reason (recorded, and shown to the buyer)",
+          confirmLabel: "Decline the request",
+          validate: (v) => (v.trim().length >= 5 ? null : "A few words at least."),
+        });
+        if (note === null) return;
+      }
+
+      const res = await rejectSignupRequest(r.id, reason, note);
+      toast(res.ok ? `${r.buyer_name} declined, and the reason is recorded`
+                   : (res.message || "Could not decline this request"),
+            { type: res.ok ? "default" : "danger" });
+      if (res.ok) card.remove();
     });
     outlet.appendChild(card);
   });
