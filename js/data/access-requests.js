@@ -9,6 +9,11 @@
 //    it nearly impossible to move forward with any certainty, which delays
 //    potential sales."
 //
+// AC-10, 30 Aug 2026: and what happens when the answer was no. The states a
+// declined shop can be in are NOT decided here either — the database answers
+// `reapply_state` and this module turns it into a sentence. A cooldown the
+// browser computes is a cooldown the browser can be talked out of.
+//
 // ==== NOTHING HERE DECIDES WHAT THE BUYER IS TOLD ==========================
 //
 // The wording for a decline comes from js/data/decline-reasons.js, which is the
@@ -53,7 +58,61 @@ export async function listMyAccessRequests() {
     declineWording: r.status === "rejected"
       ? declineWordingForBuyer(r.reason_code, r.reason_text)
       : null,
+    // AC-10. All five come from the server and none is recomputed here.
+    // `superseded` is the older attempts, which are history and not a state;
+    // the standing is on exactly one row per wholesaler, the newest.
+    attempt: Number(r.attempt) || 1,
+    superseded: !!r.superseded,
+    reapplyState: r.reapply_state || null,
+    canReapply: !!r.can_reapply,
+    reapplyAt: r.reapply_at || null,
+    reapplyNoteRequired: !!r.reapply_note_required,
+    reapplyAdvice: r.reapply_advice || null,
   }));
+}
+
+/** What a declined shop may do next, as one sentence.
+ *
+ *  Returns null when there is nothing to say — approved, still pending, or an
+ *  older attempt that has been superseded. A row with nothing to say renders
+ *  nothing, rather than an empty box with a heading over it.
+ *
+ *  ==== WHY THIS TAKES THE SERVER'S WORD FOR IT ============================
+ *
+ *  Every branch below switches on `reapplyState`, which migration 106 computed.
+ *  None of them recomputes a date or counts an attempt. The button this feeds
+ *  can therefore be wrong in only one direction — it can offer to send
+ *  something the server then refuses, which is a wasted tap — and never in the
+ *  other, where it hides a door that is actually open.
+ */
+export function reapplyStanding(r) {
+  if (!r || r.superseded || r.status !== "rejected") return null;
+  switch (r.reapplyState) {
+    case "ok":
+      return r.reapplyNoteRequired
+        ? `You can ask again. ${r.reapplyAdvice || "Tell them something they did not have last time."}`
+        : "You can ask this store again.";
+    case "wait":
+      return `You can ask again on ${formatDay(r.reapplyAt)}.`
+           + (r.reapplyAdvice ? ` ${r.reapplyAdvice}` : "");
+    case "blocked":
+      return r.reapplyAdvice
+          || "Asking again will not help here — contact the store directly.";
+    case "exhausted":
+      return "You have asked this store more than once and been turned down. "
+           + "Talking to them directly will get further than another request.";
+    default:
+      return null;
+  }
+}
+
+/** A date a person would say out loud. Falls back to nothing rather than to
+ *  "Invalid Date", which is the kind of string that ends up in a screenshot. */
+export function formatDay(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 /** The sentence under a request. Written here rather than in the view so the
