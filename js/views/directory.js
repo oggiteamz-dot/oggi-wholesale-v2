@@ -21,6 +21,9 @@
 import { esc, pageHeader } from "../lib/utils.js";
 import { emptyState } from "../components/empty-state.js";
 import { listDirectory, requestAccess } from "../data/directory.js";
+// AC-07/AC-11/PB-01: where the requests this buyer has already made stand.
+import { listMyAccessRequests, requestStanding, humanHours }
+  from "../data/access-requests.js";
 
 const ACCESS_LABEL = {
   member:  "You have access",
@@ -151,10 +154,55 @@ export async function directoryView(outlet) {
   form.append(label, input, go);
   wrap.appendChild(form);
 
+  // AC-07/AC-11. Above the grid, not below it: a buyer who has already asked
+  // came back to find out what happened, and making them scroll past the
+  // thing they already did to reach the answer is the dead end again.
+  const mine = document.createElement("section");
+  mine.className = "dir-mine";
+  mine.setAttribute("data-mine", "");
+  wrap.appendChild(mine);
+
   const grid = document.createElement("div");
   grid.className = "dir-grid";
   wrap.appendChild(grid);
   outlet.appendChild(wrap);
+
+  async function paintMine() {
+    const rows = await listMyAccessRequests();
+    mine.textContent = "";
+    // Nothing asked for yet is not a state worth a heading. An empty box
+    // labelled "Your requests" on a first visit is noise.
+    if (!rows.length) return;
+
+    const h = document.createElement("h2");
+    h.className = "dir-mine-title";
+    h.textContent = "Your requests";
+    mine.appendChild(h);
+
+    rows.forEach((r) => {
+      const row = document.createElement("div");
+      row.className = "dir-mine-row";
+      row.setAttribute("data-status", r.status);
+      if (r.overdue) row.setAttribute("data-overdue", "");
+
+      const name = document.createElement("strong");
+      name.textContent = r.wholesalerName;
+
+      const state = document.createElement("span");
+      state.className = "dir-mine-state";
+      state.textContent = r.status === "approved" ? "Approved"
+        : r.status === "rejected" ? "Declined"
+        : r.overdue ? "Still waiting" : "Waiting";
+
+      const said = document.createElement("p");
+      said.className = "dir-mine-said";
+      said.textContent = requestStanding(r);
+
+      row.append(name, state, said);
+      mine.appendChild(row);
+    });
+  }
+  paintMine();
 
   async function onRequest(w, btn, msg) {
     btn.disabled = true;
@@ -164,12 +212,21 @@ export async function directoryView(outlet) {
     msg.className = "dir-msg " + (res.ok ? "dir-msg-ok" : "dir-msg-no");
     if (res.ok) {
       btn.remove();
+      // PB-01. "Waiting for them to approve you" is a dead end: it says nothing
+      // about whether anyone has seen it or when to expect an answer, which is
+      // the exact complaint this is built from. Say what happens next, and how
+      // long it usually takes THIS wholesaler.
       const p = document.createElement("p");
       p.className = "dir-waiting";
-      p.textContent = "Waiting for them to approve you.";
+      p.textContent = `Sent to ${w.name || w.wid}. They usually answer within `
+        + `${humanHours(w.accessSlaHours)}. You can check back here any time — `
+        + `it will show up under “Your requests” at the top of this page.`;
       msg.parentElement.appendChild(p);
       const cardEl = msg.closest(".dir-card");
       if (cardEl) cardEl.setAttribute("data-access", "pending");
+      // Re-paint the standing list so the new request appears where the
+      // sentence above just promised it would be.
+      paintMine();
     } else {
       btn.disabled = false;
       btn.textContent = "Ask for access";

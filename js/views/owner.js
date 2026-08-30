@@ -9,6 +9,7 @@ import { supabase, sbCall } from "../lib/supabase-client.js";
 import {
   crossWholesalerStats, onboardingChecklist, universalSearch,
   listSignupRequests, approveSignupRequest, rejectSignupRequest, setWholesalerActive, getAuditLog, listInvites,
+  listOverdueAccessRequests,
 } from "../data/owner.js";
 import { rowsToCsv, downloadCsv } from "../data/csv-export.js";
 // CR-0001 R1: the "Add wholesaler" screen. Kept in its own file rather
@@ -235,6 +236,27 @@ async function wholesalersView(outlet) {
 async function onboardingView(outlet) {
   const session = devAuth.getSession();
   outlet.appendChild(pageHeader("Onboarding Queue", "Pending signup requests from prospective buyers."));
+
+  // AC-11. The overdue list comes FIRST and renders even when the queue below
+  // is empty — these are requests sitting with a wholesaler, not with you, so
+  // "queue is empty" is true of your queue and false of the buyer's experience.
+  // Returning early on an empty queue would have hidden them completely.
+  const overdue = await listOverdueAccessRequests();
+  if (overdue.length) {
+    const box = document.createElement("div");
+    box.className = "card";
+    box.setAttribute("data-overdue-access", "");
+    box.style.cssText = "padding:16px;margin-bottom:16px;border-left:3px solid var(--danger,#b42318);";
+    box.innerHTML = `<div style="font-weight:650;">${overdue.length} request${overdue.length === 1 ? " has" : "s have"} been waiting longer than the wholesaler said</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin:4px 0 8px;">Each of these is past that wholesaler's own stated answer time. The shop is waiting and can see that it is late.</div>`;
+    overdue.forEach((o) => {
+      const row = document.createElement("div");
+      row.style.cssText = "padding:6px 0;border-top:1px solid var(--border-subtle);font-size:13px;";
+      row.textContent = `${o.buyerName} → ${o.wholesalerName} · waiting ${o.hoursWaiting}h, they said ${o.slaHours}h`;
+      box.appendChild(row);
+    });
+    outlet.appendChild(box);
+  }
 
   const requests = await listSignupRequests("pending");
   if (!requests.length) {
