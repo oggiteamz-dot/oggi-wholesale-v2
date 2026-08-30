@@ -151,6 +151,41 @@ ok(/humanHours\(/.test(confirm),
 ok(/check back|Your requests/i.test(confirm),
    "...and tells them where to look for the answer, which is the half that makes it not a dead end");
 
+// ======================= 7b. PB-01: THE CARD ON THE *RETURN* VISIT
+//
+// THIS SECTION EXISTS BECAUSE THE GATE ABOVE PASSED WHILE THE FEATURE WAS HALF
+// BUILT. There are TWO dead ends in this file, not one:
+//
+//   1. the confirmation, seen once in the second after pressing the button
+//      (section 7) -- which was fixed, gated, and red-proved; and
+//   2. THE CARD ITSELF, rendered whenever `access === "pending"`, which is what
+//      the same buyer sees on every visit afterwards -- which was NOT.
+//
+// The second is the worse of the two, because it is the one that persists. It
+// was found by grepping the LIVE, DEPLOYED file for the removed sentence and
+// getting two hits back, after a 27-assertion gate had reported a clean pass.
+// A gate that asks about one code path cannot speak for the other.
+//
+// The assertion therefore reads the file with comments stripped, so that
+// quoting the old sentence in a comment -- as both code paths now do, to
+// explain themselves -- cannot satisfy or break it.
+const dirNoComments = dirView
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .split("\n").map((l) => l.replace(/(^|\s)\/\/.*$/, "")).join("\n");
+
+ok(!/Waiting for them to approve you/.test(dirNoComments),
+   "⭐ the dead-end sentence appears NOWHERE in live code — not on the card, not in the confirmation");
+
+const pendAt = dirNoComments.indexOf('w.access === "pending"');
+ok(pendAt !== -1, "the card still has a branch for a request already made");
+const pendBranch = dirNoComments.slice(pendAt, dirNoComments.indexOf("} else {", pendAt));
+ok(/humanHours\(/.test(pendBranch),
+   "⭐ the card a returning buyer sees names how long THIS wholesaler usually takes, exactly as the confirmation does");
+ok(/Your requests/.test(pendBranch),
+   "...and points at where the answer will appear, so the return visit is not a dead end either");
+ok(/w\.name/.test(pendBranch),
+   "...and names the wholesaler, because a card that says only 'Asked.' is a shrug");
+
 // ============================================ 8. THE OWNER'S ESCALATION
 const ownerView = await src("../js/views/owner.js");
 const ownerData = await src("../js/data/owner.js");
