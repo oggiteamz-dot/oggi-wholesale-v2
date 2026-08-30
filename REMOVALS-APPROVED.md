@@ -689,3 +689,143 @@ earlier gate could not have caught this.
 Full write-up in `checks/GATE-EVIDENCE.md`.
 
 **ALLOW_DELETIONS=1 — approved, one line, accounted for above.**
+
+---
+
+## 30 Aug 2026 — AC-10, applying again after a decline: four lines
+
+**Approved by:** the standing instruction of 30 August — *"continue building
+everything that needs to be built on your end that doesn't need me"* — under the
+rule this file exists for: every removal names its replacement, or it was not
+approved, it was forgotten.
+
+All four are **replacements, in place, of a line by a line that does more**.
+None removes a behaviour. Each is accounted for on its own below rather than as
+a group, because "four small ones" is how a fifth gets in.
+
+### 1. `js/data/wholesaler-admin.js` — a one-line docblock
+
+```
+-/** Access requests addressed to THIS wholesaler. */
+```
+
+**Replaced by** a docblock opening with that exact sentence and then explaining
+why the pending queue is now `v2_pending_access_requests` and why every other
+status still reads the table. The sentence it removed is its own first line.
+
+### 2. `js/views/directory.js` — the import line
+
+```
+-import { listMyAccessRequests, requestStanding, humanHours }
+```
+
+**Replaced by** the same import widened with `reapplyStanding`. A widened import
+is a delete-plus-add to a line-based gate and there is no way to write it that
+is not; the gate is right to show it and this is the whole of it.
+
+### 3. `js/views/directory.js` — the loop header
+
+```
+-    rows.forEach((r) => {
+```
+
+**Replaced by** `live.forEach((r) => {`, where `live` is
+`rows.filter((r) => !r.superseded)`. **This is the one worth reading twice.** It
+is not a rename: iterating every row would render a buyer TWO live entries for
+one wholesaler once they have applied twice — each with its own sentence, one of
+them out of date, and both carrying an "Ask again" button of which only one
+works. The rows are not lost; they are rendered below, folded into an
+`<details>` the buyer can open, because "have I asked this store before?" is
+their question to answer.
+
+**Proof:** `check_access_reapply.sql` 13 and 13b assert that exactly one row per
+wholesaler carries a standing and that the older one is flagged `superseded`;
+`check_access_reapply_client.mjs` asserts the filter is present and that an
+older row produces no sentence. Red-proved by removing the `superseded` guard
+from `reapplyStanding` — one assertion fires.
+
+### 4. `js/views/wholesaler.js` — the decline confirmation
+
+```
+-        body: "They will not get access, and they are not told automatically — there is no email in the system yet. They can ask again later, and you will see it as a new request.",
+```
+
+**Replaced by** a sentence that is true in a way the old one was not. *"They can
+ask again later"* was written when "later" meant "immediately, as many times as
+they like, and you will not know they were here before". It now depends on the
+reason the wholesaler is about to pick, and the re-application arrives with this
+decision attached — so the copy says that:
+
+> They will not get access, and they are not told automatically — there is no
+> email in the system yet. They can ask again later — how soon depends on the
+> reason you pick next — and it will arrive with this decision attached to it.
+
+Nothing was removed from what the buyer or the wholesaler can DO. The sentence
+was made accurate about something that changed underneath it.
+
+**ALLOW_DELETIONS=1 — approved, four lines, each accounted for above.**
+
+---
+
+## 30 Aug 2026 — migration 107 (approval grants access): thirty lines, three groups
+
+**Approved by:** the standing instruction of 30 August — *"continue building
+everything that needs to be built on your end that doesn't need me"* — and,
+for the first group, by the defect it fixes: approving a shop was telling them
+they could buy and giving them nothing.
+
+### Group 1 — the two hand-rolled approval panels (26 lines)
+
+`js/views/wholesaler.js` and `js/views/owner.js` each carried their own copy of
+the "approved, here are the credentials" panel. **Replaced by**
+`js/components/approval-result.js`, one component, called by both.
+
+This is not tidying. Approval now has TWO outcomes — a membership for somebody
+who already signs in to OGGI, and a store-scoped login with a one-time password
+for somebody who does not — and a screen that rendered the credentials panel
+unconditionally would show a wholesaler `Username: null` and send them hunting
+for a string that was never minted.
+
+**And the two copies had ALREADY drifted, which is the argument for the
+component made for us:**
+
+| | wholesaler.js | owner.js |
+|---|---|---|
+| heading | "can now buy from you" | "approved — account created" |
+| surface token | `var(--bg-sunken)` | `var(--surface-sunken,#f7f7f5)` — **a token that has never existed** |
+| labels | "Username" | "Username:" |
+
+Both wrote the credentials row with `innerHTML`. The component uses
+`textContent` for every field, which is why it imports no escape helper: a sink
+that cannot parse markup is stronger than one you must remember to escape into.
+A generated username is derived from a shop's own name.
+
+**Proof:** `check_approval_grants_access_client.mjs`, 29 assertions, red-proved
+six ways — including rendering the box with nothing in it, hiding the password
+when there is one, treating half a response as credentials, writing the panel
+with `innerHTML`, and giving the owner console its own copy back.
+
+### Group 2 — `var(--surface-sunken,#f7f7f5)`, four lines across four files
+
+`js/views/owner.js`, `js/views/owner-wholesaler-new.js`, `js/views/salesperson.js`,
+`js/views/wholesaler.js`. **Replaced by** `var(--bg-sunken)`, which is defined in
+`css/tokens.css` and is what the rest of the app already uses for the same
+surface.
+
+`--surface-sunken` has never been defined anywhere in this repo. CSS answers an
+undefined custom property with silence, so the hardcoded `#f7f7f5` fallback had
+been rendering the whole time and nothing said a word.
+
+It was invisible because `check_token_completeness.mjs` read `css/` only, and
+this app writes a great deal of style inline from JavaScript. **That gate now
+reads `js/` as well** — and doing so found ten more undefined tokens across
+twenty files. Those are NOT swept in this change; see `docs/OUTSTANDING.md` §8.
+
+### Group 3 — two `return` lines in the data modules (2 lines)
+
+`js/data/owner.js` and `js/data/wholesaler-admin.js`. **Replaced by** the same
+return widened with `message: row.msg`, which is how the server tells the panel
+which of the two outcomes happened. The browser cannot know whether the
+applicant had an OGGI account; migration 107 does.
+
+**ALLOW_DELETIONS=1 — approved, thirty lines, each accounted for above.**
