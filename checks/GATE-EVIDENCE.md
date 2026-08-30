@@ -1138,3 +1138,80 @@ that **renders** it changed nothing. Computing a value and putting it on the
 screen are different claims. Each screen is now asserted against the thing it
 actually interpolates into the card, named separately rather than swept into one
 loop with one loose regex — and red-proved on each.
+
+---
+
+## AC-05 — `check_bulk_invite.sql` (30 August 2026)
+
+**The question:** *"a wholesaler pastes in forty existing customers. Does each
+one get exactly one working link, and does the fortieth behave like the first?"*
+
+18 assertions. Rolls itself back; a pass raises `ROLLBACK_WITH_REPORT` (§7.1).
+
+### The assertion that took two attempts to make meaningful
+
+Assertion 8 counts audit entries — one per invitation. It looked like the proof
+that bulk really delegates to `v2_issue_buyer_invite` rather than inserting for
+itself.
+
+**It is not, and a red proof showed why.** Migration 104's recorder is a trigger
+**on the table**, so a direct insert fires it too. A bulk path that reproduced
+the insert would audit correctly, scope correctly, and pass every other
+assertion in the file.
+
+The one behaviour that lives *only* inside `v2_issue_buyer_invite` is the expiry
+clamp — *"a caller-supplied 36500 would be an invite that never dies, which is
+the same as no expiry at all"*, in its own words. So **assertion 11** asks for
+9999 days and requires the answer back to be under 181. A path that inserted for
+itself would honour 9999.
+
+That is what turns *"bulk is a loop over the single-invite function"* from a
+sentence in a migration header into something a machine checks. Red-proved with
+a working, valid bulk path that inserts directly: **7 assertions fire.**
+
+### Red-proved six ways
+
+| Break | Result |
+|---|---|
+| bulk inserts for itself instead of delegating | **7 red** (incl. 11) |
+| the duplicate guard removed — a second live token per shop | **4 red** |
+| failed rows dropped instead of returned | **1 red** (6) |
+| the 200-row cap removed | **2 red** (9, 9b — 209 invitations minted) |
+| dedupe on the raw phone instead of the shared normaliser | **3 red** |
+| a revoked invitation counted as live — withdrawing becomes a ban | **3 red** |
+
+### And one assertion whose number came from memory
+
+Assertion 8 first expected **7** invitations; the fixture makes **8**. The gate
+went red and was right to: an assertion whose count is remembered rather than
+derived from the fixture is an assertion about the author's memory. The number
+is now written out with its arithmetic beside it.
+
+---
+
+## AC-05 — `check_bulk_invite_client.mjs` (30 August 2026)
+
+28 assertions. Red-proved five ways.
+
+### The two that protect real work
+
+**The parser finds the number at the END of the line**, not by splitting on the
+comma. Red-proved with a comma split, which turns
+
+```
+Rita, Beirut, 03 111 222   ->   shopName "Rita",  phone "Beirut"
+```
+
+A shop name may contain a comma; a phone number may not.
+
+**The bulk handler must NOT repaint the card.** `paintInvites()` rebuilds the
+card's `innerHTML`, which would destroy every link it just produced in order to
+refresh the list of previous invitations sitting underneath it. The links are
+the deliverable. This was a real bug in the first draft of the handler, caught
+while writing the gate, and it is now asserted **twice** — that the repaint is
+absent, and that the comment explaining why is present, so the next person does
+not helpfully add it back.
+
+Same family as the single-invite path showing its link rather than toasting it,
+and the approval panel replacing its card: **in this product, a generated
+credential is never put somewhere that can be swept away by a refresh.**

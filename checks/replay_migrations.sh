@@ -320,8 +320,21 @@ echo "   shape=$shape"
 # -- the reverse of every other migration this weekend, for the reason stated in
 # the migration's own header. Until that apply happens, production will NOT
 # match the baseline below, and that is correct rather than a fault.
-EXP_T=104 EXP_V=4 EXP_F=161 EXP_P=96
-EXP_SHAPE=7801271d40a7d164eaec52bb2a8c3ab3   # replay of 110 migrations, 30 Aug 2026, with the truncation fixed
+# Moved again 30 Aug 2026, after 109 (AC-05, inviting a list of shops). ONE new
+# function, v2_issue_buyer_invites_bulk; no tables, no policies. 161 -> 162.
+#
+# NOTE THAT THE HASH MOVED, and that this is the first baseline move all weekend
+# where that sentence means anything: the previous instrument would have moved
+# for this too, because an ADDED function changes the short leading text. What
+# it could not see was 108's three changed signatures. See the truncation note
+# above.
+#
+# ⚠️ PRODUCTION IS STILL AT 107. Migrations 108 and 109 are applied to neither,
+# deliberately -- 108 makes the phone required and the deployed sign-in screen
+# has no field for one, so both go on after the code merges. Until then the
+# replay will not match production, and that is correct rather than a fault.
+EXP_T=104 EXP_V=4 EXP_F=162 EXP_P=96
+EXP_SHAPE=54e39f7c17ca67b159e3c2cb0442ad6f   # replay of 111 migrations, 30 Aug 2026
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
