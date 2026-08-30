@@ -108,9 +108,21 @@ function card(w, onRequest) {
     a.textContent = "Open catalogue";
     foot.appendChild(a);
   } else if (w.access === "pending") {
+    // PB-01, THE RETURN VISIT. The confirmation below (in onRequest) is seen
+    // once, in the second after pressing the button. THIS is what the same
+    // buyer sees every time they come back, and until 30 Aug it was the dead
+    // end -- "Waiting for them to approve you." -- which says nothing about
+    // whether anyone has seen it or when an answer is due. It was the worse of
+    // the two, because it is the one that persists.
+    //
+    // The two sentences deliberately do not share wording: one is "I have just
+    // sent this", the other is "this is still out". They DO share the same
+    // stated time and the same pointer to where the answer will appear.
     const p = document.createElement("p");
     p.className = "dir-waiting";
-    p.textContent = "Waiting for them to approve you.";
+    p.textContent = `Asked. ${w.name || w.wid} usually answers within `
+      + `${humanHours(w.accessSlaHours)} — where it stands is under `
+      + `“Your requests” at the top of this page.`;
     foot.appendChild(p);
   } else {
     const btn = document.createElement("button");

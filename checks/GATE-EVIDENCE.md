@@ -669,3 +669,65 @@ matching price / product / stock in the returned shape.
 Confirmed still live: re-running the old price-leak break against the widened
 gate still fires. A gate that stops catching what it used to catch is a gate
 that was loosened, not extended.
+
+---
+
+## ⚠️ THE 30 AUGUST HALF-BUILD — `check_access_request_standing_client.mjs`, section 7b
+
+**A 27-assertion gate reported a clean pass on a feature that was half built,
+and the half it missed was the important half.**
+
+`js/views/directory.js` contained the dead-end sentence *twice*:
+
+1. the **confirmation**, shown for a moment after pressing "Ask for access" — 
+2. the **card**, shown whenever `access === "pending"`, which is what the same
+   buyer sees on **every visit afterwards**
+
+Only (1) was fixed. The gate asserted only about (1) — it sliced forward from
+`if (res.ok)`, which is the confirmation path and nothing else — so it passed,
+the PR merged, and the sentence deployed to production.
+
+### How it was found
+
+Not by the gate. By a `grep -c` for the removed sentence against the **live,
+deployed file**, run as the last step of the push:
+
+```
+=== the removed sentence must NOT be served:
+2
+```
+
+Two, where the expected answer was zero. The whole finding is in that number.
+
+### What was wrong with the gate, precisely
+
+It asked *"is the sentence gone from this code path?"* when the feature's
+promise is *"the sentence is gone from the product."* Those are different
+questions, and the narrower one is the one that is easy to write.
+
+### The fix
+
+Section 7b asserts the sentence appears **nowhere in live code**, on a copy of
+the file with comments stripped — because both branches now quote the old
+sentence in a comment to explain themselves, and a comment must be able neither
+to satisfy nor to break an assertion about behaviour. It then asserts the card
+branch independently: names the wholesaler, names that wholesaler's own stated
+time, points at where the answer will appear.
+
+| # | Break | Expected | Result |
+|---|-------|----------|--------|
+| A | dead-end sentence restored **on the card branch** | ≥1 fails | ✅ **4 fail** — and the old section-7 assertions all still passed, which is the proof that the old gate could not have caught this |
+
+Value-moved check, per the standing rule: `grep -c "humanHours("` on the edited
+file went 2 → 1 and back.
+
+### The lesson, stated so it survives
+
+**A gate that slices to one code path cannot speak for the feature.** When the
+promise is an absence — "this sentence is gone", "no price is returned", "this
+column is never published" — assert the absence over the whole artefact first,
+and only then narrow to a path for the positive assertions.
+
+The tell here was available and was nearly skipped: the deployed-bytes check at
+the end of the push was treated as a formality. It was the only thing in the
+night that asked the whole-file question.

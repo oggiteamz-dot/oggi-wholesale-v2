@@ -631,3 +631,61 @@ reason; the overdue list stays empty for a non-owner *while a genuinely overdue
 request exists*; and the recreated directory kept both of its grants.
 
 **ALLOW_DELETIONS=1 — approved, one line, accounted for above.**
+
+---
+
+## 30 Aug 2026 — the SECOND dead end (the one the first pass missed)
+
+### The line
+
+```
+js/views/directory.js
+-    p.textContent = "Waiting for them to approve you.";
+```
+
+Yes — again. **The same sentence, in a different place**, and this is the more
+important of the two.
+
+### Why there were two
+
+The entry above removed the sentence from the **confirmation**, shown for a
+moment after pressing "Ask for access". The sentence also lived on the **card
+itself**, rendered whenever `access === "pending"` — which is what the same
+buyer sees on **every visit afterwards**, forever, until someone answers them.
+
+The first pass removed the momentary one and left the permanent one. A
+27-assertion gate reported a clean pass, because it asked its question about one
+code path — it sliced forward from `if (res.ok)` — and the feature's promise is
+about the product, not about a code path.
+
+### How it was caught
+
+Not by the gate. By the last step of the push, a `grep -c` for the removed
+sentence against the **live, deployed file**, which answered `2` where the only
+acceptable answer was `0`.
+
+### What stands in its place
+
+The card now says the same two true things the confirmation says, in the
+register of a return visit rather than a send:
+
+> Asked. Milano Garments usually answers within about 2 days — where it stands
+> is under "Your requests" at the top of this page.
+
+The two sentences deliberately do not share wording — one means *"I have just
+sent this"*, the other *"this is still out"* — but they share the same stated
+time and the same pointer.
+
+### Proof
+
+`check_access_request_standing_client.mjs` §7b, four new assertions, which
+assert the sentence appears **nowhere in live code** (on a comment-stripped copy
+of the file, so that quoting it in an explanatory comment can neither satisfy
+nor break the check) and then assert the card branch on its own terms.
+Red-proved by restoring the sentence on the card branch: **4 assertions fire,
+and every section-7 assertion still passes** — which is the proof that the
+earlier gate could not have caught this.
+
+Full write-up in `checks/GATE-EVIDENCE.md`.
+
+**ALLOW_DELETIONS=1 — approved, one line, accounted for above.**
