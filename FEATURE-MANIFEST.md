@@ -445,13 +445,56 @@ broke · ❌ not built
 > distinguished "the gate is blind" from "nothing was actually broken". Without
 > it, all three would have read as a blind gate.
 
+| 322 | **The ranking rules are published to the wholesalers they affect** — a page describing what actually decides the order their products appear in, on all four surfaces, in plain language. Reached from the dashboard and from the visibility screen **in both of its states, including the empty one** — a wholesaler with no search data yet is exactly the person most likely to want to read the rules | `js/views/ranking-policy.js` | `check_ranking_policy.mjs` | ✅ |
+| 323 | **The published numbers are read live from the database, never typed into the page.** A policy page carrying its own copy is wrong the first time somebody changes a value, and nothing would notice — which turns a page written to build trust into a written misrepresentation. Proven by feeding the page absurd values through the RPC and asserting they render | `v2_ranking_parameters_published()`, `js/data/ranking-policy.js` | `check_ranking_policy.mjs` (red-proved by hardcoding the numbers) | ✅ |
+| 324 | **The internal notes are NOT published.** `popular_min_buyers`' own note explains that 3 "is a starting guess for a market with 3 buyers in it" — publishing it would tell every supplier our buyer count. The RPC returns exactly three columns and the assertion reads its declared OUTPUT COLUMNS, not its source text | `supabase/migrations/103_v2_ranking_parameters_published.sql` | migration 103 assertion 2, `check_ranking_policy.mjs` | ✅ |
+| 325 | **The page states the narrow true claim about paid placement, not the broad false one.** Search *does* read the promotions table — it is what returns the promoted slot. What cannot happen is paid placement moving an *ordinary* result, and that is what is claimed and what is checked | `js/views/ranking-policy.js` | `check_ranking_policy.mjs` + `check_promoted_slot.sql` | ✅ |
+| 326 | **The cap on paid placement is asserted against the constant, not against the sentence.** Raise `PROMO_CAP` and the build fails naming the page that still says three | `supabase/migrations/093_v2_promoted_slot.sql` | `check_ranking_policy.mjs` (red-proved by raising the cap to 8) | ✅ |
+| 327 | **"Popular" counting shops rather than sales is asserted from the policy's side too.** The page makes that its central claim to suppliers, so the gate that guards the page checks the ORDER BY as well — a later simplification cannot break the behaviour while leaving the promise standing | `supabase/migrations/099_v2_popular_now.sql` | `check_ranking_policy.mjs` (red-proved by switching to order count) | ✅ |
+| 328 | **The indirect question is answered: nothing can be traded for position.** No exclusivity, volume commitment or subscription tier moves an ordinary result. Stated because being told what can be *bought* tells a supplier nothing if position can also be *traded* | `js/views/ranking-policy.js` | `check_ranking_policy.mjs` | ✅ |
+| 329 | **Failure to load the numbers says so rather than showing blanks.** "Could not load" and "there are none" are different answers and must not render alike on a page whose whole value is being trustworthy | `js/data/ranking-policy.js` returns `null`, never `{}` | `check_ranking_policy.mjs` (red-proved) | ✅ |
 
-## Reconciliation — 30 August 2026 (SR-07) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+> **Rows 322–329 are SR-05 — publishing how ranking works.** One migration
+> (`103`), one new gate (`check_ranking_policy.mjs`, 27 assertions, red-proved
+> eight ways), one page in the wholesaler's own navigation.
+>
+> **The design decision that carries it:** the page holds the prose and the
+> database holds the numbers, read live on every render. A ranking policy that
+> has drifted from the code is not a stale document — it is a false statement
+> made in writing to a supplier about how their livelihood is ordered, which is
+> precisely the exposure the 28 August research identified as the one that
+> actually reaches a company this size. Self-inflicted, and avoidable in about
+> forty lines.
+>
+> **It did NOT get a navigation entry, and that is the point.** The first draft
+> added one; `check_inventory_module.mjs` and `check_wholesaler_onboarding.mjs`
+> both went red within seconds — *"the wholesaler sidebar has nine entries (got
+> 10)"*. Nine is Hadi's decision from Batch 8B and two gates exist to hold it.
+> Bumping them at four in the morning would have been overriding a requirement
+> rather than meeting one, so the policy is linked from the dashboard and from
+> the visibility screen instead, exactly as SR-06 already does, and the gate now
+> asserts the harder property — that the link is there in the EMPTY state too.
+>
+> **The gate found a real imprecision in its own subject.** Its first draft
+> asserted that no ranking function mentions the promotions table. Three do not;
+> `v2_search_products` does, because it is the function that returns the
+> promoted slot. The true claim is narrower — paid placement cannot move an
+> *ordinary* result — and that is now what both the page and the gate say.
+> Grepping a whole migration file to ask a question about a function is the same
+> mistake as searching for a name to ask a question about a shape.
+>
+> **And a second red proof produced zero failures.** The break — leaking an
+> internal note onto the page — was written as a fallback that the test data
+> never triggered. Re-run unconditionally, the gate caught it immediately. That
+> is now three times in one night; the pattern is always the same and the
+> sentinel, or a value the break must move, is always what settles it.
+
+## Reconciliation — 30 August 2026 (SR-07, SR-05) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **321** |
-| Enforced and proven (✅) | **304** |
+| Features listed | **329** |
+| Enforced and proven (✅) | **312** |
 | Present but unproven (⚠️) | **17** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
