@@ -176,8 +176,21 @@ echo "   shape=$shape"
 #   session_logout, set_marketplace_password). Policies are unchanged at 96 on
 #   purpose: both new tables have RLS ON and NO policy, so a direct read by the
 #   browser roles returns nothing rather than everything.
-EXP_T=100 EXP_V=4 EXP_F=136 EXP_P=96
-EXP_SHAPE=b246f3997539bbd2b730c53b0e5af2e4   # replay of 102 migrations AND production, 30 Aug 2026 -- measured on both sides, with the SAME query, before this line moved
+# Moved again 30 Aug 2026, after 101 and 102 (SR-07, the ranking record). Same
+# order as every legitimate move before it: the 104-migration replay was run
+# into an empty Postgres FIRST and produced the hash below; production was then
+# measured with the SAME query and produced the same hash.
+#   101 adds 1 table (v2_ranking_config_history) and 7 functions.
+#   102 adds 2 tables (v2_ranking_model, v2_ranking_model_snapshot) and
+#   8 functions. Policies are unchanged at 96 ON PURPOSE: all three new tables
+#   have RLS ON and NO policy at all, so a direct read by a browser role returns
+#   nothing rather than everything -- and the grants are revoked as well,
+#   because the schema's standing default privileges would otherwise hand every
+#   new table to `authenticated` on the day it is created. That is the defect
+#   migration 098 had to correct, and the shape hash below would not have moved
+#   for it either.
+EXP_T=103 EXP_V=4 EXP_F=151 EXP_P=96
+EXP_SHAPE=5e7c28b3b3353b4959a094a5e705649b   # replay of 104 migrations AND production, 30 Aug 2026 -- measured on both sides, same query, replay first
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
