@@ -613,3 +613,59 @@ unconditionally, the gate caught it on the first run.
 Third time in one night. The tell each time was the same: before believing a
 gate is blind, find a value the break must have moved and check that it moved.
 Here it was one `grep -c` on the edited file.
+
+---
+
+## AC-07 / AC-11 / PB-01 — `check_access_request_standing.sql` (30 August 2026)
+
+Thirteen assertions, all of which hold on an **empty** database as well as a
+full one. **Three deliberate breaks**, and the second one had to be re-aimed.
+
+| # | Break | Expected | Result |
+|---|-------|----------|--------|
+| A | `v2_my_access_requests` given a `p_person_id` argument | ≥1 fails | ✅ **5 fail** — the signature assertion, plus every assertion that then read another person's rows |
+| B | one global `48` hardcoded in place of the wholesaler's own number | 2 fail | ✅ assertions 5 and 7 — **on the second attempt, see below** |
+| C | the owner check removed from `v2_overdue_access_requests` | 1 fails | ✅ assertion 8 |
+
+### ⚠️ BREAK B PRODUCED ZERO FAILURES THE FIRST TIME
+
+The first version of the break replaced the global default `48` — the column
+default — rather than the value the function reads. The gate's own fixture sets
+an explicit per-wholesaler time on every row it creates, so **not one row in the
+test ever fell back to the default.** The break did not happen.
+
+Re-aimed at the expression the function actually evaluates, it fired twice on
+the first run.
+
+Same tell as every previous time: before believing a gate is blind, find a value
+the break must have moved and prove it moved. Here it was `grep -c '48'` on the
+extracted function body — unchanged, which was the whole answer.
+
+---
+
+## AC-07 / AC-11 / PB-01 — `check_access_request_standing_client.mjs` (30 August 2026)
+
+Twenty-seven assertions. **One deliberate break**, aimed at the exact thing the
+feature exists to remove.
+
+| # | Break | Expected | Result |
+|---|-------|----------|--------|
+| A | the dead-end sentence `"Waiting for them to approve you."` restored | 1 fails | ✅ names the line and the file |
+
+That is the whole feature stated as a gate: if those six words ever come back,
+the build fails. It is also the only line this change removed, and it is
+accounted for in `REMOVALS-APPROVED.md`.
+
+---
+
+## DR-05 restated — `check_wholesaler_directory.mjs` (30 August 2026)
+
+Extended from 33 assertions to 34 when the directory gained a seventh column.
+**Adding a column to the directory is precisely the moment a price or a product
+count gets added by accident**, so the exact-set assertion was widened to seven
+fields rather than relaxed, and a new assertion was added that fails on anything
+matching price / product / stock in the returned shape.
+
+Confirmed still live: re-running the old price-leak break against the widened
+gate still fires. A gate that stops catching what it used to catch is a gate
+that was loosened, not extended.

@@ -199,8 +199,25 @@ echo "   shape=$shape"
 # move: the 106-migration replay ran into an empty Postgres FIRST and produced
 # the hash below, production was then measured with the SAME query and produced
 # the same hash, and all four new function bodies hash identically on both sides.
-EXP_T=103 EXP_V=4 EXP_F=156 EXP_P=96
-EXP_SHAPE=176627739affebee4b3d75424376ea16   # replay of 106 migrations AND production, 30 Aug 2026 -- measured on both sides, same query, replay first
+# Moved again 30 Aug 2026, after 105 (AC-07/AC-11/PB-01, the requester's side).
+# 156 -> 158 functions: v2_my_access_requests and v2_overdue_access_requests are
+# new, and v2_directory_list was DROPPED and recreated with a seventh output
+# column, which is a replace and not an addition. No new tables -- the stated
+# answer time is a column on an existing one -- and no new policies.
+# THE DROP IS THE REASON THIS MOVE IS WORTH READING TWICE: a dropped function
+# loses its grants, and a directory nobody may execute is a blank screen rather
+# than an error. The migration asserts the grants came back, and the shape hash
+# would NOT have caught it, because the hash covers relations and signatures and
+# not ACLs. That is S7's job (check_anon_grants.sql), and it was run.
+# Same order as every legitimate move: the 107-migration replay ran into an
+# empty Postgres FIRST and produced the hash below, production was then measured
+# with the SAME query and produced the same hash, and all three touched function
+# bodies hash identically on both sides:
+#   v2_directory_list(...)          28445788ba789fb34d1af691ea8dec99
+#   v2_my_access_requests(text)     d915706674ac84b7498b777612821741
+#   v2_overdue_access_requests()    5fa0a73163b7b0148b5fd7e33ca93623
+EXP_T=103 EXP_V=4 EXP_F=158 EXP_P=96
+EXP_SHAPE=d39bec768eef9e114ba8d9b646d88e46   # replay of 107 migrations AND production, 30 Aug 2026 -- measured on both sides, same query, replay first
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the

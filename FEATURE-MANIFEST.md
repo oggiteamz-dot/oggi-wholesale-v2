@@ -529,13 +529,51 @@ broke · ❌ not built
 >
 > **33 lines were removed** from five files, every one a replacement with a
 > named successor. Accounted for line by line in `REMOVALS-APPROVED.md`.
+| 346 | **A buyer can see where every access request they have made stands** — waiting, waiting too long, approved, or declined with the reason. Until now the answer to "did they even get it?" was nothing at all, in either direction | `v2_my_access_requests()`, `js/views/directory.js` | `check_access_request_standing.sql`, `check_access_request_standing_client.mjs` | ✅ |
+| 347 | **⭐ One buyer cannot see another buyer's requests**, at the same wholesaler or anywhere else. The function takes NO person and NO wid — scope is derived inside it — because a rejection is the most private thing in this flow, and a `person_id` argument would let anyone read anyone's | `v2_my_access_requests()` | `check_access_request_standing.sql` (assertions 2, 3, red-proved by adding a `p_person_id` argument) | ✅ |
+| 348 | **⭐ Each wholesaler states their own answer time, and it is theirs.** A single platform-wide number would be OGGI promising something a wholesaler never agreed to, and the first slow wholesaler would make OGGI look dishonest | `v2_wholesalers.access_sla_hours` | `check_access_request_standing.sql` (assertion 7, red-proved by hardcoding one global number) | ✅ |
+| 349 | **It is shown as an expectation, never a guarantee** — "they usually answer within 2 days", and 48 hours reads as "2 days" rather than "48 hours" | `humanHours()`, `requestStanding()` | `check_access_request_standing_client.mjs` | ✅ |
+| 350 | **⭐ None of the four states is a dead end.** Waiting, late, approved and declined each produce a real sentence saying what is happening and what to do. A blank row here is the exact complaint the feature was built from | `requestStanding()` | `check_access_request_standing_client.mjs` (all four asserted, plus no `undefined`/`null` leaking in) | ✅ |
+| 351 | **A late request tells the buyer it is late** and that it is worth chasing, rather than leaving them to assume they were ignored | `requestStanding()`, `v2_my_access_requests()` | `check_access_request_standing.sql` (5), `check_access_request_standing_client.mjs` | ✅ |
+| 352 | **The buyer never sees the internal reason code** — the wording comes from the one shared list, and a code this build has never heard of still produces a sentence rather than a blank | `js/data/access-requests.js` | `check_access_request_standing_client.mjs` | ✅ |
+| 353 | **PB-01: asking for access no longer ends in a dead end.** "Waiting for them to approve you" is replaced by what happens next, how long that wholesaler usually takes, and where to look for the answer | `js/views/directory.js` | `check_access_request_standing_client.mjs` (red-proved by restoring the old sentence) | ✅ |
+| 354 | **The standing list renders ABOVE the directory grid.** A buyer who already asked came back for the answer, not to scroll past their own question | `js/views/directory.js` | `check_access_request_standing_client.mjs` | ✅ |
+| 355 | **…and renders nothing at all on a first visit**, rather than an empty box labelled "Your requests" | `js/views/directory.js` | `check_access_request_standing_client.mjs` | ✅ |
+| 356 | **AC-11's escalation: the owner can list every request that has aged past its own wholesaler's stated time.** There is no transactional email in this build, so "escalation" is this list and nothing more — claiming a notification would be the overclaim this project keeps a file about | `v2_overdue_access_requests()` | `check_access_request_standing.sql` (8), `check_access_request_standing_client.mjs` | ✅ |
+| 357 | **⭐ The overdue list renders BEFORE the onboarding queue's early return.** These requests sit with a wholesaler, not with the owner, so "queue is empty" is true of the owner's queue and false of the buyer's experience — returning early would have hidden every shop being kept waiting | `js/views/owner.js` | `check_access_request_standing_client.mjs` | ✅ |
+| 358 | **The overdue list is owner-only.** It is a list of who is keeping shops waiting, and that is not the other wholesalers' business | `v2_overdue_access_requests()` | `check_access_request_standing.sql` (8, red-proved by removing the owner check) | ✅ |
+| 359 | **The directory carries each wholesaler's stated time**, so the confirmation can name a real number without one round trip per card — and DR-05 still holds: no price, no product, no count in that projection | `v2_directory_list()` | migration 105 assertion 6, `check_wholesaler_directory.sql`, `check_wholesaler_directory.mjs` | ✅ |
+| 360 | **The directory mapper is still an EXACT field set** — seven now, not six. Adding the answer time could not be used as cover for a price slipping in beside it | `js/data/directory.js` | `check_wholesaler_directory.mjs` (red-proved by adding `price_from`) | ✅ |
 
-## Reconciliation — 30 August 2026 (SR-07, SR-05, AC-08/09/17) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+> **Rows 346–360 are AC-07, AC-11 and PB-01** — the requester's side. One
+> migration (`105`), two new gates (`check_access_request_standing.sql`, 13
+> assertions; `check_access_request_standing_client.mjs`, 27), red-proved four
+> ways.
+>
+> **On the registry code.** These are AC-07 and AC-11, and row 353 is also
+> **PB-01**. The overnight prompt of 30 August called PB-01/02/03 "the paid
+> feed" and deferred them; the 28 August matrix, which is where those codes come
+> from, defines PB as *pending buyer*. The paid feed is genuinely deferred by
+> Hadi ("scrap the ads thing until we fully launch this") and is untouched.
+> PB-01 is the same feature as AC-07 and is built here. **PB-02 and PB-03 are
+> not built — they need Hadi**, and that is written into the inventory he was
+> given rather than decided quietly.
+>
+> **The gate needed correcting twice, and the code neither time.** Once because
+> an assertion sliced a source file from `indexOf("} else {")` with no start
+> offset — finding a match two thousand characters *before* the block it meant
+> to read, and failing two assertions about code that was correct. And once
+> because a red proof that set every wholesaler's answer time to one value was
+> undone by the gate's own fixture, which sets them explicitly; re-aimed at the
+> function, it fired immediately. **Fourth and fifth time this weekend that the
+> answer to "no failures" was "the break did not happen".**
+
+## Reconciliation — 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **345** |
-| Enforced and proven (✅) | **327** |
+| Features listed | **360** |
+| Enforced and proven (✅) | **342** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
