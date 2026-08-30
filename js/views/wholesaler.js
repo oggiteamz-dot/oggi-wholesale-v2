@@ -17,6 +17,9 @@ import { getWholesalerSettings, updateWholesalerSettings } from "../data/wholesa
 // AC-01, 28 Aug 2026 — the wholesaler's own access-request queue.
 import { listMySignupRequests, countMyPendingRequests, approveMySignupRequest, rejectMySignupRequest } from "../data/wholesaler-admin.js";
 import { getVisibilityMirror, getVisibilityQueries } from "../data/visibility.js";
+// SR-05: the published ranking policy, linked from the visibility mirror below
+// as well as carrying its own navigation entry.
+import { registerRankingPolicyRoute } from "./ranking-policy.js";
 // Batch N step 4, 28 Aug 2026 — handing one order to someone outside the app.
 import { orderLink, whatsappHref, rotateOrderToken } from "../data/order-handoff.js";
 // AC-03, 29 Aug 2026 — Door A: inviting a shop into this store.
@@ -129,6 +132,26 @@ async function dashboard(outlet) {
     note.textContent = " How often your products appeared in buyers' searches, and how often a paid placement appeared alongside them.";
     vis.appendChild(note);
     outlet.appendChild(vis);
+  }
+
+  // SR-05. Same reasoning as SR-06 directly above, and the same cap: the
+  // wholesaler navigation is at nine entries, that number is Hadi's decision
+  // from Batch 8B, and two gates assert it. A published ranking policy does not
+  // get to spend that budget — but it does have to be findable, so it is linked
+  // here AND from the visibility screen in both of that screen's states,
+  // including the empty one. A wholesaler with no search data yet is exactly
+  // the person most likely to want to read how the ranking works.
+  {
+    const pol = document.createElement("p");
+    pol.className = "wv-link";
+    const a = document.createElement("a");
+    a.href = "#/wholesaler/ranking-policy";
+    a.textContent = "How ranking works \u2192";
+    pol.appendChild(a);
+    const note = document.createElement("span");
+    note.textContent = " What decides where your products appear, what can be paid for, and what cannot.";
+    pol.appendChild(note);
+    outlet.appendChild(pol);
   }
 
   // --- the time frame drives everything commercial on the page ---
@@ -4858,6 +4881,24 @@ async function visibilityView(outlet) {
     getVisibilityMirror(30), getVisibilityQueries(30, 20),
   ]);
 
+  // SR-05, in BOTH branches below. The empty state is the one that matters:
+  // a wholesaler with no search data yet has nothing to check us against, which
+  // makes reading the rules the only thing available to them. A link that
+  // appears only once there is data is a link that is missing exactly when it
+  // is most wanted.
+  const policyLink = () => {
+    const p = document.createElement("p");
+    p.className = "wv-link";
+    const a = document.createElement("a");
+    a.href = "#/wholesaler/ranking-policy";
+    a.textContent = "How ranking works \u2192";
+    p.appendChild(a);
+    const n = document.createElement("span");
+    n.textContent = " The rules these numbers are measuring us against.";
+    p.appendChild(n);
+    return p;
+  };
+
   if (!mirror || mirror.impressions === 0) {
     outlet.appendChild(emptyState({
       icon: "\u{1F441}",
@@ -4866,8 +4907,10 @@ async function visibilityView(outlet) {
           + "often, in what position, and how often a paid placement appeared "
           + "alongside them.",
     }));
+    outlet.appendChild(policyLink());
     return;
   }
+  outlet.appendChild(policyLink());
 
   const stats = document.createElement("div");
   stats.className = "vis-stats";
@@ -5030,6 +5073,9 @@ export function registerWholesalerRoutes(router) {
   // from the dashboard, the same way access requests are reached from
   // Clients.
   router.register("/wholesaler/visibility", (outlet) => visibilityView(outlet));
+  // SR-05 — the published ranking policy. Its own file: it is a document, and
+  // this view is already the last monolith in the repo.
+  registerRankingPolicyRoute(router);
   // Batch 6: Products folded into Inventory. This route is KEPT and lands on
   // the Products pane, because an installed PWA can hold the old navigation in
   // its cache and a bookmark can outlive any refactor -- a link that used to
