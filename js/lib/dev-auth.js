@@ -274,9 +274,13 @@ export const devAuth = {
   /** Anyone, no session required -- the public "request buyer access"
    * form. Always lands as status='pending'; a wholesaler/owner approves
    * it later via js/data/owner.js's approveSignupRequest. */
-  async requestBuyerAccess(wid, buyerName, location, volume, sells) {
+  async requestBuyerAccess(wid, buyerName, location, volume, sells, phone) {
     const { data, error } = await supabase.rpc("v2_submit_signup_request", {
       p_wid: wid, p_buyer_name: buyerName, p_location: location, p_volume: volume, p_sells: sells,
+      // Migration 108: REQUIRED, and validated server-side through the same
+      // normaliser the rest of the schema uses. A request with no way to answer
+      // it is not a request.
+      p_phone: phone || null,
     });
     if (error) return { ok: false, error: error.message };
     const row = data?.[0];
