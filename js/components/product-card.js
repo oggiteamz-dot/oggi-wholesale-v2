@@ -331,6 +331,33 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
       info.style.cssText = "flex:1;min-width:0;";
       row.appendChild(info);
 
+      // ---- THE PACK ROW HAS TO WRAP.                        1 Sep 2026 ----
+      // Measured on the live Loom & Ash catalogue, card 308px wide:
+      //
+      //     row      274px, nowrap
+      //     − 0 +    123px  +  "Add pack" 84px  +  4 gaps 32px  =  239px
+      //     info      35px          <-- what is left
+      //
+      // At 35px the pack's name and size run wrap to ONE WORD PER LINE, and a
+      // row that should be 32px tall renders at 276px. A product with three
+      // packs became a column of vertical text taller than the photo above it.
+      //
+      // `flex:1;min-width:0` above is what ALLOWS this: it lets the label
+      // shrink below its content rather than push the buttons out of the card.
+      // That is right — the buttons must never be pushed off — but it needs a
+      // partner rule saying where the label goes instead, and there wasn't one.
+      //
+      // So the row wraps and the label claims a whole line of its own. The
+      // controls keep their intrinsic widths and sit underneath. Nothing is
+      // hidden, nothing truncates, and the row is the height of two lines
+      // rather than of nine words stacked vertically.
+      //
+      // Set as properties rather than by editing the cssText above, so this
+      // adds lines and deletes none (checks/check_no_feature_loss.sh).
+      row.style.flexWrap = "wrap";
+      row.style.rowGap = "6px";
+      info.style.flexBasis = "100%";
+
       /**
        * What this many of this pack actually costs.
        *
