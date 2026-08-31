@@ -1,6 +1,6 @@
 # Feature Manifest — OGGI Wholesale v2
 
-**Last reconciled: 30 August 2026** (previous: 15 August — six days and seven
+**Last reconciled: 1 September 2026** (previous: 15 August — six days and seven
 batches out of date, which is the problem this rewrite exists to stop repeating.)
 
 One row per shipped feature, naming **the file it lives in** and **the assertion
@@ -725,12 +725,43 @@ broke · ❌ not built
 > which turns "bulk is a loop over the single-invite function" from a comment in
 > a header into something a machine checks.
 
-## Reconciliation — 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+| 430 | **⭐ ONE marketplace, not a store picker.** The buyer's first screen shows products from every published catalogue at once; the wholesaler is a LABEL on the card, not a gate in front of it. Hadi, 1 Sep: *"imagine Amazon, with different stores inside that marketplace"* | `js/views/marketplace.js`, `js/data/marketplace-feed.js`, `migrations/112,113,114` | `check_marketplace_feed.mjs` (14) | ✅ |
+| 431 | **⭐ What is browsable is decided INSIDE the function, never by the client.** `v2_marketplace_feed` takes no wid and no catalogue id; one rule — the catalogue's own `is_public` — decides. A client that could name a store to browse could name a private one | `migrations/112` | `check_marketplace_feed.mjs` — the feed is asked for a private catalogue's product and does not return it | ✅ |
+| 432 | **Named rails, and an empty rail is hidden rather than shown empty.** From the MyStories Moow reference: a rail has a name, and a name is somewhere honest to put a rule. "Best sellers" is RC-02 popular, "New arrivals" is `created_at` | `js/data/marketplace-feed.js` (`RAILS`, `loadRails`) | `check_marketplace_feed.mjs` | ✅ |
+| 433 | **The card says what you can DO about it.** `member` gets Open and walks into that store's product page; `none` gets Request access, which is the real request flow. Prices show in both states, because a public catalogue already shows its prices on a share link that needs no login at all | `js/views/marketplace.js` | `check_marketplace_feed.mjs`; `check_access_request_standing_client.mjs` for the request itself | ✅ |
+| 434 | **A paid placement is labelled, always** — `Sponsored` on the tile — while `commission_pct` never leaves the server. THAT OGGI earns something here is the buyer's business; what it earns is not | `js/views/marketplace.js`, `migrations/112` | `check_marketplace_feed.mjs` — asserts the returned row shape carries no commission column | ✅ |
+| 435 | **⭐ ONE size table and ONE comparator for the whole app.** Sizes arrived in Postgres row order (`XL S L XXL M`) and filter chips sorted alphabetically. Four vocabularies — alpha, numeric, childrenswear ages, one-size — banded so they never interleave | `js/lib/size-order.js` | `check_size_order.mjs` (16), red-proved 3 ways. Totality asserted: the sort is a permutation, not a filter | ✅ |
+| 436 | **Each role has its own front door** — `#/login/owner`, `#/login/wholesaler`, `#/login/buyer` — so a link handed to a shop cannot land them on the control console's sign-in. An unknown door falls back to the general one rather than 404ing | `js/lib/login-doors.js` | `check_login_doors.mjs` (47), red-proved 3 ways — including the `constructor` hole that a bare `in` check leaves open | ✅ |
+| 437 | **⭐ The product reference is split out of the name and printed as its own field** (`L-137`, `SG3286B`) — wholesale buyers quote references, not names. A BARE LEADING NUMBER IS NOT A REFERENCE: the first version rendered "24 Hour Tee" as a bold `24` above a product called "Hour Tee" | `js/lib/product-reference.js` | `check_product_reference.mjs` (42), red-proved twice. Totality asserted: `ref + " " + rest` reconstructs the input on every case | ✅ |
+| 438 | **The pack row wraps.** At 308px the label was squeezed to 35px and wrapped to one word per line — a 32px row rendered 276px tall, taller than the photo above it. The label now claims a whole line and the controls sit under it; nothing truncates | `js/components/product-card.js` | Measured in the headless render harness before shipping | ✅ |
+| 439 | **⭐ The pack breakdown is aggregated BY SIZE, not one entry per component row.** A ratio pack has one component per size and read correctly. A SERIES pack has one per colour × size — C-117 has 24 over 6 sizes — so `Packing content` printed `1×39/1×40/1×39/1×38/…` and looked like a catalogue that had entered every size four times. Casa Sole and Vantage both ship series packs | `js/lib/pack-breakdown.js`; called from `js/components/product-card.js` and `js/views/buyer.js` | `check_pack_breakdown.mjs` (44), red-proved 3 ways | ✅ |
+| 440 | **⭐ …and the piece count survives the aggregation exactly.** This is the assertion that matters: a duplicated line looks wrong and gets questioned, a SHORT line looks right and gets ordered. A component with no size and no sku is labelled `—` rather than dropped, and a non-numeric quantity cannot poison the total | `js/lib/pack-breakdown.js` | `check_pack_breakdown.mjs` — the sum is asserted preserved on all 8 corpus packs, and red-proved with a dedupe that keeps the first row | ✅ |
+| 441 | **`Packing content` is a labelled field**, printed once, per the reference app — the line that lets a ratio/prepack card stop being a colour × size matrix, because once the size run is stated size is no longer something the buyer picks | `js/components/product-card.js` | `check_pack_breakdown.mjs` builds the string; the label is rendered beside it | ✅ |
+
+> **Rows 430–441 are MK-01 to MK-03 and the 1 September login/size fixes.**
+> Three migrations (`112`, `113`, `114`), five new gates —
+> `check_marketplace_feed.mjs` (14), `check_size_order.mjs` (16),
+> `check_login_doors.mjs` (47), `check_product_reference.mjs` (42),
+> `check_pack_breakdown.mjs` (44) — red-proved eleven ways between them.
+>
+> **Row 439 is the one found by looking rather than by being told.** Nobody
+> reported it. It surfaced in a data sweep counting components per pack against
+> distinct sizes per pack, which is the shape of query that finds display bugs
+> a screenshot walks straight past — the numbers on screen were all correct,
+> there were just four times too many of them.
+>
+> **Migration 114 is a lesson, not a feature.** Adding `p_sort` with a default
+> to `v2_marketplace_feed` created a SECOND overload rather than replacing the
+> first, and PostgREST refused both with PGRST203 — the live feed broke until
+> the 4-argument signature was dropped. A defaulted argument is a new function.
+
+
+## Reconciliation — 1 September 2026 (MK-01/02/03, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **429** |
-| Enforced and proven (✅) | **411** |
+| Features listed | **441** |
+| Enforced and proven (✅) | **423** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
