@@ -13,6 +13,7 @@ import { openHologramModal } from "../lib/animations/product-hologram.js";
 import { priceLine, priceCart, aggregateQtyByProduct } from "../data/line-pricing.js";
 
 import { esc, money } from "../lib/utils.js";
+import { sortSizes } from "../lib/size-order.js";
 /** Sum of this product's qty already in the cart, across every colour/
  * size -- the "aggregated across colorways" basis for both tiered pricing
  * and product-level MOQ (Batch 6).
@@ -576,7 +577,11 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   /** Every size this product has, in the order the catalogue gave them --
    *  NOT per colour. A column has to mean the same thing on every row or the
    *  grid stops being a grid. */
-  const allSizes = [...new Set(product.variants.map((v) => v.size).filter(Boolean))];
+  // 31 Aug 2026: sorted, where it used to be "in the order the catalogue gave
+  // them". The catalogue gives them in Postgres row order, which is not an
+  // order -- on production this printed the columns XL S L XXL M. See
+  // js/lib/size-order.js for why the sort has to know four size vocabularies.
+  const allSizes = sortSizes([...new Set(product.variants.map((v) => v.size).filter(Boolean))]);
 
   // -------------------------------------------------------------- GAP-1 ----
   // A PRODUCT THAT HAS NO COLOURS AT ALL.                        28 Aug 2026

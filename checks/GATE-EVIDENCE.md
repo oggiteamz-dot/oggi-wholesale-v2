@@ -1215,3 +1215,42 @@ not helpfully add it back.
 Same family as the single-invite path showing its link rather than toasting it,
 and the approval panel replacing its card: **in this product, a generated
 credential is never put somewhere that can be swept away by a refresh.**
+
+---
+
+## GATE — `check_size_order.mjs`
+
+**31 August 2026.** Added after a live demo catalogue rendered a trucker
+jacket's order-sheet columns as **`XL  S  L  XXL  M`**, and the filter chips as
+**`L  M  S  XL  XXL`**.
+
+Both lists held exactly the right contents. Every existing check passed. That is
+the point: this directory asserts *what is in* a list and had nothing that
+asserted *what order it is in* — the same blindness that let the 2.0 rewrite
+drop the size axis with the shape still looking right.
+
+16 assertions over four size vocabularies: alpha (`XS…3XL`, both spellings of
+the doubled sizes), numeric (denim waists, EU shoe sizes), childrenswear ages
+(`0-3M … 9-10Y`), and one-size labels.
+
+### Red-proved three ways, each in a different place
+
+| # | Deliberate break | Expected | Result |
+|---|---|---|---|
+| 1 | `sortSizes` replaced with the old `localeCompare(…, {numeric:true})` | FAIL on the ladders | ✅ FAIL, **6 of 16**, `got: L M S XL XXL` |
+| 2 | The `ageInMonths` branch deleted from `size-order.js` | FAIL on ages only | ✅ FAIL, **2 of 16**, `got: 3-4Y 0-3M 18-24M …` |
+| 3 | `sortSizes` filters out labels it cannot classify | FAIL on totality | ✅ FAIL, **3 of 16**, `in 10, out 7` |
+| 4 | Restored | PASS | ✅ PASS, 16 assertions |
+
+### Why break 3 is the assertion that matters
+
+Breaks 1 and 2 fail loudly on ordering, which is what the gate is obviously
+for. Break 3 — silently dropping an unrecognised size — leaves **every ordering
+assertion green** and loses a whole column of the buyer's grid. A wholesaler
+who writes `TAILLE UNIQUE` or `36/38` would find that size simply gone from the
+order sheet, with nothing anywhere reporting a problem.
+
+So the gate asserts **totality** as well as order: the output is a permutation
+of the input — same length, same multiset of labels — and an unrecognised label
+survives at the end in its original relative order. A sort in this product is
+never allowed to be a filter.

@@ -1,0 +1,119 @@
+// =============================================================================
+// OGGI Wholesale v2 — GATE: SIZES COME OUT IN SIZE ORDER            31 Aug 2026
+// =============================================================================
+//
+// WHY THIS EXISTS
+// ---------------
+// On 31 Aug a demo catalogue rendered the order sheet for a trucker jacket
+// with its columns in this order:
+//
+//     XL   S   L   XXL   M
+//
+// Every cell held the right number. The grid was CORRECT and unusable, and
+// no check in this directory noticed, because every one of them asserts the
+// CONTENTS of a list and none of them asserts its ORDER. That is the same
+// class of blindness that let the 2.0 rewrite drop the size axis: the shape
+// was right, so nothing looked.
+//
+// The filter bar had the neighbouring bug — it sorted with localeCompare,
+// which is alphabetical, so its chips read L, M, S, XL, XXL.
+//
+// WHAT THIS ASSERTS
+//   1. The alpha ladder, in trade order, from either spelling of the
+//      doubled sizes (XXL and 2XL must land in the same place).
+//   2. Numeric sizes numerically — 24 before 28 before 40 — because a string
+//      sort puts "40" before "9".
+//   3. Childrenswear ages in real age order, which is the case a string sort
+//      gets most wrong: it puts 18-24M after 3-4Y, i.e. a toddler range
+//      before a newborn one.
+//   4. One-size labels do not scatter through the middle of a real ladder.
+//   5. TOTALITY — the one that matters. The output is a permutation of the
+//      input: same length, same multiset of labels. A sort that silently
+//      drops the size it cannot classify would pass every ordering assertion
+//      above and lose a column of the grid, which is a feature loss.
+//   6. An unrecognised label survives, at the end, in its original relative
+//      order — never reordered into a place it does not belong.
+//   7. Purity: the caller's array is not mutated. Two of the three call
+//      sites pass an array other code still holds.
+//
+// RUN:  node checks/check_size_order.mjs
+//
+// PROVEN TO GO RED — 31 Aug 2026. Reverting js/data/catalog-filter.js to its
+// previous `localeCompare(..., { numeric: true })` and pointing case 1 at it
+// fails assertion 1 (L M S XL XXL). Deleting the `age` branch from
+// js/lib/size-order.js fails assertion 3. Making sortSizes drop unknown
+// labels fails assertions 5 and 6 while leaving 1-4 green — which is exactly
+// why 5 and 6 are here.
+// =============================================================================
+
+import { sortSizes, compareSizes } from "../js/lib/size-order.js";
+
+let assertions = 0;
+const failures = [];
+
+function eq(label, got, want) {
+  assertions++;
+  const g = got.join(" ");
+  const w = want.join(" ");
+  if (g !== w) failures.push(`${label}\n       got:  ${g}\n       want: ${w}`);
+}
+
+function ok(label, cond, detail = "") {
+  assertions++;
+  if (!cond) failures.push(`${label}${detail ? `\n       ${detail}` : ""}`);
+}
+
+// -- 1. the alpha ladder ------------------------------------------------------
+eq("alpha, shuffled", sortSizes(["XL", "S", "L", "XXL", "M"]), ["S", "M", "L", "XL", "XXL"]);
+eq("alpha, full range", sortSizes(["3XL", "L", "M", "S", "XL", "XS", "XXL"]),
+   ["XS", "S", "M", "L", "XL", "XXL", "3XL"]);
+eq("alpha, both spellings of the doubles",
+   sortSizes(["2XL", "M", "3XL", "S"]), ["S", "M", "2XL", "3XL"]);
+
+// -- 2. numbers, numerically --------------------------------------------------
+eq("denim waists", sortSizes(["34", "28", "40", "24", "32"]), ["24", "28", "32", "34", "40"]);
+eq("EU shoe sizes", sortSizes(["45", "37", "42", "39"]), ["37", "39", "42", "45"]);
+eq("a number a string sort gets wrong", sortSizes(["40", "9", "28"]), ["9", "28", "40"]);
+
+// -- 3. childrenswear ages ----------------------------------------------------
+eq("ages, months before years",
+   sortSizes(["3-4Y", "0-3M", "18-24M", "6-12M", "9-10Y", "3-6M", "12-18M", "5-6Y", "7-8Y"]),
+   ["0-3M", "3-6M", "6-12M", "12-18M", "18-24M", "3-4Y", "5-6Y", "7-8Y", "9-10Y"]);
+
+// -- 4. one size --------------------------------------------------------------
+eq("OS does not scatter", sortSizes(["L", "OS", "M", "S", "XL", "XXL"]),
+   ["OS", "S", "M", "L", "XL", "XXL"]);
+
+// -- 5. TOTALITY: a permutation, never a filter -------------------------------
+const messy = ["XL", "wibble", "OS", "28", "3-4Y", "S", "", "42", "M", "wibble"];
+const out = sortSizes(messy);
+ok("totality: same length", out.length === messy.length,
+   `in ${messy.length}, out ${out.length}`);
+const bag = (a) => a.slice().sort().join(" ");
+ok("totality: same labels", bag(out) === bag(messy),
+   `in  ${JSON.stringify(messy.slice().sort())}\n       out ${JSON.stringify(out.slice().sort())}`);
+
+// -- 6. unknowns survive, at the end, in order --------------------------------
+const unknowns = sortSizes(["zeta", "S", "alpha", "M"]);
+eq("unknowns keep their own order, at the end", unknowns, ["S", "M", "zeta", "alpha"]);
+
+// -- 7. purity ----------------------------------------------------------------
+const original = ["XL", "S", "M"];
+const copy = original.slice();
+sortSizes(original);
+eq("input is not mutated", original, copy);
+ok("returns a new array", sortSizes(original) !== original);
+
+// -- the comparator, used directly --------------------------------------------
+ok("comparator: S before XL", compareSizes("S", "XL") < 0);
+ok("comparator: 12-18M before 3-4Y", compareSizes("12-18M", "3-4Y") < 0);
+ok("comparator: 28 before 34", compareSizes("28", "34") < 0);
+
+console.log("------------------------------------------------------------");
+if (failures.length === 0) {
+  console.log(` ✓ PASS — ${assertions} assertions.`);
+  process.exit(0);
+}
+console.log(` ✗ FAIL — ${failures.length} of ${assertions} assertions failed:\n`);
+failures.forEach((f) => console.log(`   • ${f}`));
+process.exit(1);
