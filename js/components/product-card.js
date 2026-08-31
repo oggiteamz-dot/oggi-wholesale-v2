@@ -14,6 +14,7 @@ import { priceLine, priceCart, aggregateQtyByProduct } from "../data/line-pricin
 
 import { esc, money } from "../lib/utils.js";
 import { sortSizes } from "../lib/size-order.js";
+import { packBreakdown } from "../lib/pack-breakdown.js";
 /** Sum of this product's qty already in the cart, across every colour/
  * size -- the "aggregated across colorways" basis for both tiered pricing
  * and product-level MOQ (Batch 6).
@@ -326,7 +327,15 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
     packs.forEach((pack) => {
       const row = document.createElement("div");
       row.style.cssText = "display:flex;align-items:center;gap:8px;font-size:12px;";
-      const breakdown = pack.components.map((c) => `${c.qtyPerPack}×${c.size || c.sku}`).join("/");
+      // AGGREGATED BY SIZE, not one entry per component row.        1 Sep 2026
+      // A ratio pack has one component per size and read correctly either way.
+      // A SERIES pack has one component per colour x size -- C-117 has 24 over
+      // 6 sizes -- and the colour is not in the label, so the old row-order
+      // map printed "1x39/1x40/1x39/1x38/..." and looked like a catalogue that
+      // had entered every size four times. See js/lib/pack-breakdown.js and
+      // checks/check_pack_breakdown.mjs (44 assertions, the sum is asserted
+      // preserved on every one).
+      const breakdown = packBreakdown(pack.components).text;
       const info = document.createElement("div");
       info.style.cssText = "flex:1;min-width:0;";
       row.appendChild(info);
@@ -398,7 +407,7 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
         const perPiece = `${money(one.unitPrice, currency)}${one.isBlended ? " avg" : ""} per piece`;
         info.innerHTML = `
           <div style="font-weight:600;">${esc(pack.name)}${pack.color ? ` — ${esc(pack.color)}` : ""}</div>
-          <div style="color:var(--text-tertiary);">${esc(breakdown)}</div>
+          <div style="color:var(--text-tertiary);"><span style="opacity:.72;">Packing content</span> ${esc(breakdown)}</div>
           <div style="margin-top:2px;">
             <strong>${perPiece}</strong>
             <span class="badge badge-neutral pc-multiplier" title="One pack is ${pack.unitCount} pieces.">×${pack.unitCount}</span>
