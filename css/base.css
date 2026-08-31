@@ -58,3 +58,33 @@ button { font-family: inherit; }
 @media (max-width: 880px) {
   #view-outlet { padding: var(--space-5); }
 }
+
+/* ---------------------------------------------------------------------------
+   THE PUBLIC OUTLET                                             31 Aug 2026
+   ---------------------------------------------------------------------------
+   js/app.js renders a public path (#/c/:token share links, public order
+   links) into a BARE <div id="public-outlet"> -- deliberately, so that a
+   person who is not a user of this product is not handed its furniture: no
+   topbar, no sidebar, no bottom navigation.
+
+   "No furniture" was read as "no layout", and it had never been styled at
+   all. On a 1920px monitor the consequence was a catalogue title flush
+   against the left edge of the glass and a 16:9 billboard 1080px tall --
+   one full screen of poster before the first product. The share link is the
+   entire delivery mechanism for a catalogue; it is the page most likely to
+   be seen by someone who has never seen this product before.
+
+   Additive by construction: a new selector, no existing line touched. The
+   values are #view-outlet's, so a share link and the signed-in catalogue
+   read at the same measure rather than drifting apart.
+   --------------------------------------------------------------------------- */
+#public-outlet {
+  padding: var(--space-8) var(--space-10);
+  max-width: var(--content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+@media (max-width: 880px) {
+  #public-outlet { padding: var(--space-5); }
+}
