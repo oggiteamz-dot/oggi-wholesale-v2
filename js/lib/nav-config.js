@@ -83,6 +83,17 @@ export const NAV_BY_ROLE = {
     { icon: "📍", label: "Visit Log", path: "/sales/visits" },
   ],
   buyer: [
+    // MK-01, 1 Sep 2026 — the marketplace home, and the buyer's first screen.
+    // Hadi: "I wanted one marketplace, full-scale marketplace, imagine Amazon,
+    // with different stores inside that marketplace." Products from every
+    // catalogue their owners made public, all at once, with the store as a
+    // label on the card rather than a gate in front of it.
+    //
+    // "Catalog" below is NOT replaced and must not be: it is the store you are
+    // INSIDE, which is where the order sheet, the packs and that shop's own
+    // tiers live. Marketplace is how you find a product; Catalog is where you
+    // buy it. Two screens, two jobs.
+    { icon: "🏪", label: "Marketplace", path: "/buyer/market" },
     { icon: "◆", label: "Catalog", path: "/buyer" },
     { icon: "🧺", label: "Cart", path: "/buyer/cart" },
     { icon: "📦", label: "My Orders", path: "/buyer/orders" },
@@ -170,6 +181,8 @@ export const SHORT_LABEL = {
   "/buyer/favourites": "Saved",
   // "Wholesalers" is 11 characters and ellipsises in a 5-slot bar at 375px.
   "/buyer/wholesalers": "Stores",
+  // 11 characters, and it ellipsises in a 5-slot bar at 375px like the others.
+  "/buyer/market": "Market",
   "/buyer/search": "Search",
   "/buyer": "Catalog",
   // "Dashboard" ellipsises in a 5-slot bar at 375px once the active tab
