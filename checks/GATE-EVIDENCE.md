@@ -1348,3 +1348,51 @@ the config is read. The break that mattered was in the function, not the
 config, and it took changing one line (`v_org_now := p_limit - v_ad_slots`) to
 see the assertion fail. Worth remembering: turning a knob is not the same as
 breaking the mechanism the knob feeds.
+
+---
+
+## GATE — `check_product_reference.mjs`
+
+**1 September 2026.** Added with the marketplace tile, which prints the product
+reference above the name — "send me 12 of SG3286B" is how a wholesale order
+actually gets placed, and the reference app Hadi sent gives it its own labelled
+field on the product page and under every card.
+
+42 assertions.
+
+### The bug this was written after, not before
+
+The first version accepted a bare leading NUMBER as a reference, so
+**"24 Hour Tee" rendered as a small bold `24` above a product called
+"Hour Tee"**. Not a crash and not a blank — a product that simply looks
+mis-catalogued, on the most public screen in the product. Caught by trying the
+function on adversarial names before wiring it to anything.
+
+### Red-proved twice
+
+| # | Deliberate break | Expected | Result |
+|---|---|---|---|
+| 1 | Remove the "must contain a letter" rule — i.e. restore the original bug | FAIL on bare numbers | ✅ FAIL, **6 of 42**, `"24 Hour Tee" … got ref "24"` |
+| 2 | Make the splitter drop a word from the remainder | FAIL on totality | ✅ FAIL, **19 of 42**, `got {"ref":"L-137","rest":"Pima Tee"}` |
+| 3 | Restored | PASS | ✅ PASS, 42 assertions |
+
+### Totality again, and why it keeps earning its place
+
+Break 2 is the same shape as the size-order gate's third break: a function that
+silently *loses* part of its input while every other assertion stays green. Here
+it costs a word out of the product's name on every card in the marketplace, and
+nothing anywhere reports a problem. So the gate reconstructs the input from the
+output for a whole corpus of names and requires it back exactly:
+`ref ? ref + " " + rest : rest`.
+
+Two gates now, written weeks apart in different parts of this codebase, have
+both been saved by asserting that a transform is a permutation rather than a
+filter. It is worth reaching for by default.
+
+### Why the module has no imports
+
+`js/data/marketplace-feed.js` imports `supabase-client`, which touches `window`
+at module load, so a Node gate cannot import anything defined in there — the
+same wall `login-doors.js` hit. Pure string logic that a gate should exercise
+lives in its own import-free module. That is now the second time this pattern
+has been needed; treat it as the default for anything testable.
