@@ -1396,3 +1396,60 @@ at module load, so a Node gate cannot import anything defined in there — the
 same wall `login-doors.js` hit. Pure string logic that a gate should exercise
 lives in its own import-free module. That is now the second time this pattern
 has been needed; treat it as the default for anything testable.
+
+---
+
+## `check_pack_breakdown.mjs` — 44 assertions, red-proved 3 ways
+### 1 September 2026, MK-03
+
+**What was wrong.** `Packing content` — the line that tells a buyer what is in
+the carton — was built by walking `pack.components` in Postgres row order:
+
+    pack.components.map(c => `${c.qtyPerPack}×${c.size || c.sku}`).join("/")
+
+A **ratio** pack has one component per size, so that read correctly and had
+read correctly for weeks. A **series** pack has one component per **colour ×
+size**, and the colour is not in the label. C-117 Byblos Ballet Flat has 24
+components over 6 sizes and printed:
+
+    1x39/1x40/1x39/1x38/1x41/1x40/1x37/1x41/1x36/…
+
+Six sizes, each four times, in no order. Casa Sole (C-101/103/105, 21
+components / 7 sizes) and Vantage (V-149, same) are identical in shape. All
+four are on screen for the demo.
+
+**Nobody reported this.** It came out of a sweep counting components per pack
+against distinct sizes per pack — the kind of query that finds display bugs a
+screenshot walks past, because every number on the screen was correct. There
+were just four times too many of them.
+
+| # | Break | Expected | Result |
+|---|---|---|---|
+| 1 | Restore the row-order map — i.e. the original bug | FAIL on aggregation | ✅ FAIL, **11 of 44**, `got 1×39/1×40/1×38/1×41/…` (24 entries) |
+| 2 | Aggregate, but keep the FIRST quantity per label instead of summing | FAIL on totality | ✅ FAIL, **4 of 44**, `C-117 … got 1×36/1×37/…`, `corpus[0] printed total preserved` |
+| 3 | Drop the size sort, leave first-seen order | FAIL on order | ✅ FAIL, **4 of 44**, `got 4×39/4×40/4×38/4×41/4×37/4×36` |
+| 4 | Restored | PASS | ✅ PASS, 44 assertions |
+
+### Break 2 is the one that mattered
+
+Break 1 is the bug that was already shipping, and it is loud: the line looks
+wrong, so somebody questions it. Break 2 is quiet. It produces
+`1×36/1×37/1×38/1×39/1×40/1×41` — a plausible, tidy, correctly ordered size run
+that is **six pieces where the carton holds twenty-four**. It looks right and
+gets ordered short, and the first anyone hears about it is a delivery dispute.
+
+Only two assertions catch it: `units` against the plain sum, and the sum of the
+printed quantities against the same. Both are totality assertions, and this is
+the **third** gate in this codebase saved by asserting that a transform is a
+permutation rather than a filter (after `check_size_order` and
+`check_product_reference`). It is no longer a pattern worth noticing — it is the
+default, and a gate over any aggregation that does not assert its total is
+incomplete.
+
+### Junk that had to be decided rather than guarded
+
+A component with a quantity but **no size and no sku** is labelled `—` and
+kept, not skipped. Skipping it is a silent short count, which is break 2 by
+another route. A non-numeric `qtyPerPack` contributes 0 rather than `NaN`,
+because one `NaN` turns the whole total into `NaN` and prints a carton
+containing "NaN pieces".
