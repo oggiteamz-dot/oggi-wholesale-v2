@@ -1453,3 +1453,56 @@ kept, not skipped. Skipping it is a silent short count, which is break 2 by
 another route. A non-numeric `qtyPerPack` contributes 0 rather than `NaN`,
 because one `NaN` turns the whole total into `NaN` and prints a carton
 containing "NaN pieces".
+
+---
+
+## `check_marketplace_search.mjs` — 41 assertions, red-proved 3 ways
+### 1 September 2026, MK-04
+
+**What this is for.** One search bar at the top of the marketplace, per Hadi's
+spec: *"a normal search bar that ... gives them the ability to decide, I want a
+product or I want a wholesaler or a brand."* The wholesaler half already
+existed (`v2_directory_list` has taken a `p_search` since DR-01); migration 115
+is the product half.
+
+**Why the assertion that matters is the SCOPE.** A search box is the easiest
+place in a marketplace to leak a private catalogue, because a search gets
+written as *"find anything matching"* and a feed gets written as *"show what is
+published"* — and the first sentence is one word away from the second. So this
+gate does not check that search finds things. It fetches the feed's entire
+universe and asserts **containment**: the set search can reach is exactly the
+set the feed can show, for an anonymous caller and for a buyer who is a member
+of all six shops.
+
+| # | Break | Expected | Result |
+|---|---|---|---|
+| 1 | `v_like := v_q` — LIKE escaping removed | FAIL on wildcards | ✅ FAIL, **4 of 41**, `"%" is a literal … got 97` |
+| 2 | `c.is_public` dropped from `eligible` | FAIL on containment | ✅ FAIL, **17 of 41**, `"gown" … A-102 Beaded Column Gown (Made to Order), A-109 …` |
+| 3 | the empty-query guard removed | FAIL on empty | ✅ FAIL, **3 of 41**, `empty query "" returns nothing … got 97` |
+| 4 | Restored | PASS | ✅ PASS, 41 assertions |
+
+### Break 2 is the one this gate exists for
+
+Seventeen assertions fell, and the three that name Atelier's made-to-order gowns
+are the point: `A-102`, `A-109` and `A-110` live only in a private catalogue,
+and one deleted `and c.is_public` made all three findable by name — including
+by a buyer who *is* a member of Atelier, which is the case a careless widening
+gets right by accident and a deliberate one gets wrong. Nothing on screen would
+have looked broken. A private line would simply have been in the results.
+
+### A defaulted argument is a new function — obeyed, not just recorded
+
+`v2_marketplace_search` is a separate function rather than a `p_query` on
+`v2_marketplace_feed`. Migration 113 added a defaulted `p_sort` to the feed,
+which created a **second overload** instead of replacing the first; PostgREST
+refused both with PGRST203 and the live feed broke until 114 dropped the
+4-argument signature. That lesson is in `CLAUDE.md`, and this is the first
+change made after it.
+
+### Repo and database agree, and it was checked rather than assumed
+
+The normalised body of `supabase/migrations/115_v2_marketplace_search.sql`
+(comments stripped, whitespace collapsed) hashes to
+`642223c6cbeb78a959fc33d3704ea927`, and so does `pg_proc.prosrc` for the live
+function. The file the repo would replay is the function the database is
+running — not a file that looks like it.
