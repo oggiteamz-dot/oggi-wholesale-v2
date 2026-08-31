@@ -1,0 +1,23 @@
+-- =============================================================================
+-- 114 — drop the 4-argument v2_marketplace_feed
+-- =============================================================================
+-- 113 added p_sort. Because it has a DEFAULT, `create or replace` did not
+-- replace anything — it created a SECOND function beside the first, and
+-- Postgres was then holding two candidates that both match a 4-argument call.
+-- PostgREST refuses to guess:
+--
+--     PGRST203: Could not choose the best candidate function
+--
+-- Every existing caller broke instantly — the gate, and the app's feed with it.
+-- Not a subtle failure, but a very easy one to ship: the NEW signature is the
+-- one you just tested and it works perfectly. The breakage is in the OLD path,
+-- which nobody re-runs after adding an argument they think is optional.
+--
+-- Caught by checks/check_marketplace_feed.mjs, which calls the feed the way the
+-- APP calls it — without p_sort — rather than the way the new feature does.
+-- A gate written against the new signature would have been green.
+--
+-- THE RULE THIS EARNS, and it belongs in CLAUDE.md: adding a defaulted argument
+-- to a PostgREST-exposed function is NOT an additive change. It is a new
+-- overload, and the old one has to be dropped in the same migration.
+drop function if exists wholesale_v2.v2_marketplace_feed(uuid, integer, integer, text);
