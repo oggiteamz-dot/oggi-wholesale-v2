@@ -78,7 +78,20 @@ export async function feedPage({ sort = "woven", limit = 40, offset = 0, categor
     })
   );
   if (error) return [];
-  return (data || []).map((r) => ({
+  return (data || []).map(mapRow);
+}
+
+/** The one row -> tile shape. Both the feed and the search return the SAME
+ *  twelve columns, deliberately, so one mapper and one tile serve both and a
+ *  product cannot look like two different things depending which of the two
+ *  found it.
+ *
+ *  Anything the server starts returning by accident stops here rather than
+ *  reaching the page — the DR-05 lesson, and the reason `commission_pct`
+ *  cannot leak into a buyer's browser even if someone adds it to a return
+ *  type by mistake. */
+function mapRow(r) {
+  return {
     productId: r.product_id,
     name: r.product_name,
     category: r.category,
@@ -95,7 +108,48 @@ export async function feedPage({ sort = "woven", limit = 40, offset = 0, categor
     access: r.access === "member" ? "member" : "none",
     isPromoted: r.is_promoted === true,
     slot: r.slot === "promoted" ? "promoted" : "organic",
-  }));
+  };
+}
+
+/** MK-04. One search box, two questions.
+ *
+ *  Hadi, 1 Sep: "At the top, there's just going to be a search bar, a normal
+ *  search bar that ... gives them the ability to decide, I want a product or I
+ *  want a wholesaler or a brand or whatever."
+ *
+ *  This is the PRODUCT half. The wholesaler half is listDirectory() in
+ *  js/data/directory.js, which has taken a search term since DR-01 — the
+ *  screen asks both and shows both answers, rather than making the buyer
+ *  choose a mode before they have typed anything.
+ *
+ *  v2_marketplace_search is a SEPARATE function from v2_marketplace_feed, not
+ *  a new argument on it: migration 113 added a defaulted p_sort to the feed,
+ *  which created a second overload rather than replacing the first, and
+ *  PostgREST refused both with PGRST203 until 114 dropped the old signature.
+ *
+ *  Its scope is the feed's scope word for word — public catalogues of active
+ *  wholesalers — and NOT js/data/search.js's "stores you belong to". `access`
+ *  says whether you may buy; it does not decide what you may find.
+ *
+ *  An empty query returns [] without a round trip. The feed is what answers
+ *  "show me everything".
+ *
+ *  @returns {Promise<Array>} [] on any failure.
+ */
+export async function searchProducts({ query = "", limit = 40, offset = 0 } = {}) {
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const accountId = devAuth.getSession()?.accountId || null;
+  const { data, error } = await sbCall(
+    supabase.rpc("v2_marketplace_search", {
+      p_account_id: accountId,
+      p_query: q,
+      p_limit: limit,
+      p_offset: offset,
+    })
+  );
+  if (error) return [];
+  return (data || []).map(mapRow);
 }
 
 /** Every rail that actually has something in it, fetched together.
