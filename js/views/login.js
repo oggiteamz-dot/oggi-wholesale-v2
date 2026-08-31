@@ -12,6 +12,9 @@ import { devAuth } from "../lib/dev-auth.js";
 // ID-03, 30 Aug 2026 — the OGGI door. See renderBuyerPanel below for why it is
 // offered FIRST and why the per-store door is kept rather than replaced.
 import { marketplaceLogin, enterStore } from "../data/marketplace.js";
+// 31 Aug 2026 — which front door was linked. Kept in its own import-free
+// module so a Node gate can exercise it; see js/lib/login-doors.js.
+import { doorFromHash } from "../lib/login-doors.js";
 
 const TABS = [
   { key: "admin", label: "Owner / Wholesaler" },
@@ -21,6 +24,12 @@ const TABS = [
 
 export function renderLogin(outlet, onLoggedIn) {
   let activeTab = "admin";
+  // The door this person was linked to, if any. A bare "#/login" gives null
+  // and leaves everything below exactly as it was. The initialiser above is
+  // deliberately left in place rather than replaced -- overriding it keeps
+  // this change additive, and keeps "admin" as the fallback in one place.
+  const door = doorFromHash(typeof location !== "undefined" ? location.hash : "");
+  if (door) activeTab = door.tab;
   // If bootstrap() already found a signed-in Supabase Auth user with no
   // profile yet (mid invite-redemption), jump straight to that step.
   const pending = devAuth.getSession();
@@ -58,6 +67,16 @@ export function renderLogin(outlet, onLoggedIn) {
       <p style="color:var(--text-secondary);font-size:13px;margin-bottom:18px;">Sign in to continue. v1 stays live and untouched — this is a separate build.</p>
     `;
     card.appendChild(header);
+
+    // Name the door, when one was linked. Someone sent the buyer link should
+    // read the word "Buyer" before they read three tab labels.
+    if (door && door.label) {
+      const who = document.createElement("p");
+      who.className = "login-door";
+      who.textContent = door.label;
+      who.style.cssText = "margin:-10px 0 16px;font-size:13px;font-weight:700;color:var(--text-primary);";
+      card.appendChild(who);
+    }
 
     const tabRow = document.createElement("div");
     tabRow.style.cssText = "display:flex;gap:6px;margin-bottom:18px;";

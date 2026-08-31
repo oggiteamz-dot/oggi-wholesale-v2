@@ -1254,3 +1254,145 @@ So the gate asserts **totality** as well as order: the output is a permutation
 of the input — same length, same multiset of labels — and an unrecognised label
 survives at the end in its original relative order. A sort in this product is
 never allowed to be a filter.
+
+---
+
+## GATE — `check_login_doors.mjs`
+
+**31 August 2026.** Added with the separate sign-in links for the wholesalers,
+the clients and the control centre (`#/login/wholesaler`, `#/login/client`,
+`#/login/control`).
+
+These are links a person pastes into WhatsApp, retypes by hand and bookmarks,
+so two things have to hold — and only the first is obvious:
+
+1. the right link opens the right tab;
+2. **every other string still opens the ordinary login page.**
+
+47 assertions. The interesting ones are all in (2).
+
+### Red-proved three ways
+
+| # | Deliberate break | Expected | Result |
+|---|---|---|---|
+| 1 | `DOORS[key] \|\| null`, i.e. drop the `hasOwnProperty` guard | FAIL on inherited keys | ✅ FAIL, **1 of 47**, `"constructor" is not a door — got undefined` |
+| 2 | `client` pointed back at the `admin` tab | FAIL on separation | ✅ FAIL, **3 of 47**, `both are "admin"` |
+| 3 | a door pointing at a tab that does not exist | FAIL on the tab check | ✅ FAIL, **1 of 47**, `got tab "salesteam"` |
+| 4 | Restored | PASS | ✅ PASS, 47 assertions |
+
+### What break 1 actually proved, which is not what I expected
+
+I added the prototype-key assertions expecting `toString`, `valueOf`,
+`hasOwnProperty` and `__proto__` to be live holes. They are not: the suffix
+pattern is `[a-z-]+`, which excludes the underscores in `__proto__`, and the
+key is lower-cased before lookup, so `toString` becomes `tostring` and misses.
+
+**Exactly one inherited key is all lower case and all letters: `constructor`.**
+So `#/login/constructor` was the single real hole — `DOORS["constructor"]`
+returns the Object constructor, which is truthy, `activeTab` becomes
+`undefined`, and the screen renders a card with no tab selected and no panel.
+A blank login page, from a link that was only ever a typo.
+
+The gate goes red on that one and stays green on the other four, which is the
+useful shape: it is measuring the actual hole rather than agreeing with the
+guess that produced it.
+
+### Break 2 is the one that guards the request
+
+A careless edit to `DOORS` that sends the client link back to the admin tab
+leaves the links working, the labels correct and every other assertion green —
+and quietly undoes the entire reason the doors were built. Assertion group 5
+compares the tabs against each other rather than against a constant, so the
+separation itself is what is asserted.
+
+---
+
+## GATE — `check_marketplace_feed.mjs`
+
+**1 September 2026.** Added with `v2_marketplace_feed`, the first piece of the
+marketplace: products from every catalogue a wholesaler chose to make public,
+woven together so the page reads as one shop front rather than six catalogues
+stacked end to end.
+
+14 assertions. The one that matters is not "the feed returns products" — it is
+that **a private catalogue never appears in it, for anybody, member or not.**
+
+### Red-proved twice
+
+| # | Deliberate break | Expected | Result |
+|---|---|---|---|
+| 1 | Drop the `c.is_public` condition — the exact mistake a careless widening of scope makes | FAIL on privacy | ✅ FAIL, **2 of 14**, naming all three Atelier gowns for the anonymous caller *and* the member |
+| 2 | Reserve organic space against the ad PERCENTAGE instead of actual ad SUPPLY | FAIL on page length | ✅ FAIL, **2 of 14**, `page 0 had 15, page 1 had 15, …` |
+| 3 | Restored | PASS | ✅ PASS, 14 assertions |
+
+### Why the privacy check names products instead of deriving them
+
+The obvious implementation reads `v2_catalogs`, splits public from private and
+compares. **It cannot:** `anon` has no `SELECT` on that table — correctly, the
+catalogue list is not public — so the gate has to *name* what it protects.
+
+It pins `A-102`, `A-109` and `A-110`: Atelier Ronde's made-to-order archive
+gowns, which live only in `Occasion Private Edit` (tier 4) and
+`Archive & Made to Order` (tier 5). Confirmed against the database that day as
+the complete population of private-only products in the demo data.
+
+A pinned list can rot, so the gate also asserts the converse: **Atelier's
+public products must be present.** Without it, a feed that returned nothing at
+all would pass the leak test perfectly.
+
+### The green proof that isn't one
+
+Raising `feed_pct_ads` from 20 to 25 with zero ads available leaves every page
+full — which *looks* like proof the backfill works, and is not. It only shows
+the config is read. The break that mattered was in the function, not the
+config, and it took changing one line (`v_org_now := p_limit - v_ad_slots`) to
+see the assertion fail. Worth remembering: turning a knob is not the same as
+breaking the mechanism the knob feeds.
+
+---
+
+## GATE — `check_product_reference.mjs`
+
+**1 September 2026.** Added with the marketplace tile, which prints the product
+reference above the name — "send me 12 of SG3286B" is how a wholesale order
+actually gets placed, and the reference app Hadi sent gives it its own labelled
+field on the product page and under every card.
+
+42 assertions.
+
+### The bug this was written after, not before
+
+The first version accepted a bare leading NUMBER as a reference, so
+**"24 Hour Tee" rendered as a small bold `24` above a product called
+"Hour Tee"**. Not a crash and not a blank — a product that simply looks
+mis-catalogued, on the most public screen in the product. Caught by trying the
+function on adversarial names before wiring it to anything.
+
+### Red-proved twice
+
+| # | Deliberate break | Expected | Result |
+|---|---|---|---|
+| 1 | Remove the "must contain a letter" rule — i.e. restore the original bug | FAIL on bare numbers | ✅ FAIL, **6 of 42**, `"24 Hour Tee" … got ref "24"` |
+| 2 | Make the splitter drop a word from the remainder | FAIL on totality | ✅ FAIL, **19 of 42**, `got {"ref":"L-137","rest":"Pima Tee"}` |
+| 3 | Restored | PASS | ✅ PASS, 42 assertions |
+
+### Totality again, and why it keeps earning its place
+
+Break 2 is the same shape as the size-order gate's third break: a function that
+silently *loses* part of its input while every other assertion stays green. Here
+it costs a word out of the product's name on every card in the marketplace, and
+nothing anywhere reports a problem. So the gate reconstructs the input from the
+output for a whole corpus of names and requires it back exactly:
+`ref ? ref + " " + rest : rest`.
+
+Two gates now, written weeks apart in different parts of this codebase, have
+both been saved by asserting that a transform is a permutation rather than a
+filter. It is worth reaching for by default.
+
+### Why the module has no imports
+
+`js/data/marketplace-feed.js` imports `supabase-client`, which touches `window`
+at module load, so a Node gate cannot import anything defined in there — the
+same wall `login-doors.js` hit. Pure string logic that a gate should exercise
+lives in its own import-free module. That is now the second time this pattern
+has been needed; treat it as the default for anything testable.
