@@ -755,13 +755,35 @@ broke · ❌ not built
 > first, and PostgREST refused both with PGRST203 — the live feed broke until
 > the 4-argument signature was dropped. A defaulted argument is a new function.
 
+| 442 | **⭐ ONE search bar at the top of the marketplace, and it answers BOTH questions.** Hadi: *"a normal search bar that … gives them the ability to decide, I want a product or I want a wholesaler or a brand."* One box; matching shops and matching products both come back, shops first when they match, because a buyer who types a shop's name wants the shop | `js/views/marketplace.js`, `js/data/marketplace-feed.js` (`searchProducts`), `migrations/115` | `check_marketplace_search.mjs` (41), red-proved 3 ways | ✅ |
+| 443 | **⭐ …and its scope is the FEED's scope, word for word.** Published catalogues of active wholesalers — never `js/data/search.js`'s "stores you belong to". `access` says whether you may BUY; it does not decide what you may FIND | `migrations/115` | `check_marketplace_search.mjs` — CONTAINMENT: the feed's entire universe is fetched and every search result asserted to be in it, for an anonymous caller AND for a member of all six shops | ✅ |
+| 444 | **⭐ A private catalogue is unfindable, including by a member of that very wholesaler.** Atelier's three made-to-order gowns live only in a private catalogue; typing their exact names returns nothing | `migrations/115` | `check_marketplace_search.mjs` — red-proved by deleting one `and c.is_public`, which made all three findable and failed 17 of 41 | ✅ |
+| 445 | **A reference is a search term, and an exact one wins.** "send me 12 of C-117" is how a wholesale order is actually placed, so `source_ref` is matched and ranked first — exact ref, then name-prefix, then name-contains, then category | `migrations/115` | `check_marketplace_search.mjs` — C-117 is asserted to be the first row, case-insensitively | ✅ |
+| 446 | **LIKE metacharacters are escaped.** A bare `%` returned the entire marketplace and `_` matched every one-character difference. No privacy boundary is crossed either way — the scope is the public feed's — but a search whose results do not correspond to what was typed is one nobody trusts twice | `migrations/115` | `check_marketplace_search.mjs` — red-proved by removing the escaping | ✅ |
+| 447 | **Advertising does not jump the queue in a search.** The feed reserves a share of every page for paid placement because a feed is a shelf OGGI arranges; a search is a question the buyer asked. `is_promoted` still rides along so a match can be labelled Sponsored, and it changes no ordering | `migrations/115` | `check_marketplace_search.mjs` — the ordering is asserted to be the relevance bands alone | ✅ |
+| 448 | **An empty query is not a browse.** Clearing the box returns to the rails rather than running a search that quietly means "everything" — otherwise the two screens are indistinguishable | `migrations/115`, `js/views/marketplace.js` | `check_marketplace_search.mjs` — red-proved by removing the guard (97 rows for an empty string) | ✅ |
+| 449 | **A standing access request is a state, not a button.** A shop already asked shows "Requested" and how long that wholesaler takes to answer, rather than a second Request access that sends a duplicate for them to dismiss | `js/views/marketplace.js` (`storeRow`) | `check_access_request_standing_client.mjs` for the underlying rule | ✅ |
 
-## Reconciliation — 1 September 2026 (MK-01/02/03, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+> **Rows 442–449 are MK-04**, one migration (`115`) and one gate
+> (`check_marketplace_search.mjs`, 41 assertions, red-proved 3 ways).
+>
+> **115 is the first change made after the 114 lesson, and it obeys it.**
+> Search is a NEW FUNCTION rather than a `p_query` argument on
+> `v2_marketplace_feed`, because a defaulted argument is a new overload and
+> PostgREST refuses a pair of them outright.
+>
+> **Repo and database were compared, not assumed.** The normalised body of
+> `115_v2_marketplace_search.sql` and the live `pg_proc.prosrc` both hash to
+> `642223c6cbeb78a959fc33d3704ea927`.
+
+
+
+## Reconciliation — 1 September 2026 (MK-01/02/03/04, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **441** |
-| Enforced and proven (✅) | **423** |
+| Features listed | **449** |
+| Enforced and proven (✅) | **431** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
