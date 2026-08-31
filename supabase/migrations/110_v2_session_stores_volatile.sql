@@ -1,0 +1,31 @@
+-- =============================================================================
+-- 110 — v2_session_stores was STABLE, and could therefore never run
+-- =============================================================================
+-- Found 31 Aug 2026 by signing in through the OGGI marketplace door as the demo
+-- buyer, rather than by reading the code.
+--
+-- v2_session_stores proves the session by calling v2_session_person, which
+-- UPDATEs v2_buyer_sessions.last_seen_at. PostgREST executes a STABLE function
+-- inside a READ-ONLY transaction, so every call over the API died with:
+--
+--     25006: cannot execute UPDATE in a read-only transaction
+--
+-- That is the SECOND screen of the marketplace door (ID-03, 30 Aug): sign in
+-- succeeds, and then "which of your stores would you like to open" fails. The
+-- whole one-login-many-stores flow — the thing that makes OGGI a marketplace
+-- rather than six separate portals — was unreachable in production.
+--
+-- Nothing caught it, and nothing here could have. Every check in checks/ calls
+-- the database directly over a normal read-write connection, where a STABLE
+-- marker costs nothing and the function behaves perfectly. The failure only
+-- exists on the path the browser actually takes. A volatility marker is not
+-- something a behaviour test looks at.
+--
+-- VOLATILE is simply the truthful marker for a function that writes, even when
+-- the write is a timestamp touch inside a helper. Nothing else changes: same
+-- signature, same body, same SECURITY DEFINER, same return type.
+--
+-- Verified after applying, over the REST API as the demo buyer: six stores
+-- returned (Atelier Ronde, Casa Sole, Loom & Ash, Meridian Denim Co.,
+-- Petit Nord, Vantage Athletic).
+alter function wholesale_v2.v2_session_stores(uuid, text) volatile;
