@@ -49,7 +49,7 @@ function tile(item, { wide = false } = {}) {
   el.className = "mk-tile card";
   el.style.cssText = [
     "display:flex;flex-direction:column;overflow:hidden;",
-    "border-radius:var(--radius-lg);background:var(--surface-1,#fff);",
+    "border-radius:var(--radius-lg);background:var(--bg-surface);",
     "border:1px solid var(--border-subtle);",
     wide ? "" : "flex:0 0 168px;width:168px;",
   ].join("");

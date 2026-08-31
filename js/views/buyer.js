@@ -33,6 +33,7 @@ import { listPopularNow, popularTitle, popularSubtitle } from "../data/popular.j
 import { listSimilarProducts, similarSubtitle } from "../data/similar.js";
 import { enterStore, marketplaceSession } from "../data/marketplace.js";
 import { registerMarketplaceRoutes } from "./marketplace.js";
+import { packBreakdown } from "../lib/pack-breakdown.js";
 async function defaultLocation(wid) {
   // 18 Aug 2026 (migration 047): reads the RPC, not the table.
   //
@@ -556,7 +557,9 @@ async function cartView(outlet) {
         // Batch 7: a pack is ALWAYS one line here, no matter how many
         // real SKUs it decomposes into underneath ("2x Boutique Pack –
         // Style ABC, Blue"), per the research doc's explicit requirement.
-        const breakdown = line.components.map((c) => `${c.qtyPerPack}×${c.size || c.sku}`).join("/");
+        // Aggregated by size -- same reason as the product card. A cart line
+        // for a series pack listed every colour x size component separately.
+        const breakdown = packBreakdown(line.components).text;
         row.innerHTML = `
           <span class="badge badge-info" style="flex:none;">Pack</span>
           <div style="flex:1;min-width:0;">
