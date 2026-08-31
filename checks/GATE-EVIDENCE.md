@@ -1254,3 +1254,53 @@ So the gate asserts **totality** as well as order: the output is a permutation
 of the input — same length, same multiset of labels — and an unrecognised label
 survives at the end in its original relative order. A sort in this product is
 never allowed to be a filter.
+
+---
+
+## GATE — `check_login_doors.mjs`
+
+**31 August 2026.** Added with the separate sign-in links for the wholesalers,
+the clients and the control centre (`#/login/wholesaler`, `#/login/client`,
+`#/login/control`).
+
+These are links a person pastes into WhatsApp, retypes by hand and bookmarks,
+so two things have to hold — and only the first is obvious:
+
+1. the right link opens the right tab;
+2. **every other string still opens the ordinary login page.**
+
+47 assertions. The interesting ones are all in (2).
+
+### Red-proved three ways
+
+| # | Deliberate break | Expected | Result |
+|---|---|---|---|
+| 1 | `DOORS[key] \|\| null`, i.e. drop the `hasOwnProperty` guard | FAIL on inherited keys | ✅ FAIL, **1 of 47**, `"constructor" is not a door — got undefined` |
+| 2 | `client` pointed back at the `admin` tab | FAIL on separation | ✅ FAIL, **3 of 47**, `both are "admin"` |
+| 3 | a door pointing at a tab that does not exist | FAIL on the tab check | ✅ FAIL, **1 of 47**, `got tab "salesteam"` |
+| 4 | Restored | PASS | ✅ PASS, 47 assertions |
+
+### What break 1 actually proved, which is not what I expected
+
+I added the prototype-key assertions expecting `toString`, `valueOf`,
+`hasOwnProperty` and `__proto__` to be live holes. They are not: the suffix
+pattern is `[a-z-]+`, which excludes the underscores in `__proto__`, and the
+key is lower-cased before lookup, so `toString` becomes `tostring` and misses.
+
+**Exactly one inherited key is all lower case and all letters: `constructor`.**
+So `#/login/constructor` was the single real hole — `DOORS["constructor"]`
+returns the Object constructor, which is truthy, `activeTab` becomes
+`undefined`, and the screen renders a card with no tab selected and no panel.
+A blank login page, from a link that was only ever a typo.
+
+The gate goes red on that one and stays green on the other four, which is the
+useful shape: it is measuring the actual hole rather than agreeing with the
+guess that produced it.
+
+### Break 2 is the one that guards the request
+
+A careless edit to `DOORS` that sends the client link back to the admin tab
+leaves the links working, the labels correct and every other assertion green —
+and quietly undoes the entire reason the doors were built. Assertion group 5
+compares the tabs against each other rather than against a constant, so the
+separation itself is what is asserted.
