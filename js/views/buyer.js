@@ -32,6 +32,7 @@ import { listBuyItAgain } from "../data/reorder.js";
 import { listPopularNow, popularTitle, popularSubtitle } from "../data/popular.js";
 import { listSimilarProducts, similarSubtitle } from "../data/similar.js";
 import { enterStore, marketplaceSession } from "../data/marketplace.js";
+import { registerMarketplaceRoutes } from "./marketplace.js";
 async function defaultLocation(wid) {
   // 18 Aug 2026 (migration 047): reads the RPC, not the table.
   //
@@ -1175,5 +1176,10 @@ export function registerBuyerRoutes(router) {
   router.register("/buyer/suppliers", (outlet) => suppliers(outlet));
   registerDirectoryRoutes(router);
   registerSearchRoutes(router);
+  // MK-01, 1 Sep 2026. The marketplace home. Registered here rather than
+  // replacing /buyer, because /buyer is the store you are INSIDE and it keeps
+  // that job — the reference app Hadi sent works the same way, and the
+  // per-store catalogue is what a buyer sees after they open a shop.
+  registerMarketplaceRoutes(router);
 }
 
