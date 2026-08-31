@@ -1,3 +1,4 @@
+import { sortSizes } from "../lib/size-order.js";
 // OGGI Wholesale v2 — catalog grid filter/sort logic (Batch 8)
 // Pure functions, deliberately kept free of any DOM/Supabase code so they
 // can be unit-reasoned-about and reused by both the buyer catalog toolbar
@@ -33,7 +34,9 @@ export function distinctColorsAndSizes(catalog) {
   });
   return {
     colors: [...colors.entries()].map(([name, hex]) => ({ name, hex })),
-    sizes: [...sizes.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    // localeCompare is ALPHABETICAL, which printed the chips L, M, S, XL, XXL.
+    // Same fix, same table as the order sheet's columns (31 Aug 2026).
+    sizes: sortSizes([...sizes.values()]),
   };
 }
 

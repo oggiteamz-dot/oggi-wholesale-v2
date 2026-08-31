@@ -8,6 +8,7 @@
 // possible values (e.g. a size filter across a whole catalog).
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { sortSizes } from "../lib/size-order.js";
 
 const NEW_BADGE_DAYS = 30;
 const LOW_STOCK_THRESHOLD = 15;
@@ -201,7 +202,7 @@ function shapeProduct(p, vs) {
       minPrice: prices.length ? Math.min(...prices) : 0,
       maxPrice: prices.length ? Math.max(...prices) : 0,
       colors: [...new Map(vs.map((v) => [v.color, { name: v.color, hex: v.colorHex }])).values()].filter((c) => c.name),
-      sizes: [...new Set(vs.map((v) => v.size))].filter(Boolean),
+      sizes: sortSizes([...new Set(vs.map((v) => v.size))].filter(Boolean)),
       variants: vs,
       // Batch 6: product-level MOQ (aggregated across every colour/size of
       // this product), with a separate reorder threshold when set.
