@@ -1304,3 +1304,47 @@ leaves the links working, the labels correct and every other assertion green —
 and quietly undoes the entire reason the doors were built. Assertion group 5
 compares the tabs against each other rather than against a constant, so the
 separation itself is what is asserted.
+
+---
+
+## GATE — `check_marketplace_feed.mjs`
+
+**1 September 2026.** Added with `v2_marketplace_feed`, the first piece of the
+marketplace: products from every catalogue a wholesaler chose to make public,
+woven together so the page reads as one shop front rather than six catalogues
+stacked end to end.
+
+14 assertions. The one that matters is not "the feed returns products" — it is
+that **a private catalogue never appears in it, for anybody, member or not.**
+
+### Red-proved twice
+
+| # | Deliberate break | Expected | Result |
+|---|---|---|---|
+| 1 | Drop the `c.is_public` condition — the exact mistake a careless widening of scope makes | FAIL on privacy | ✅ FAIL, **2 of 14**, naming all three Atelier gowns for the anonymous caller *and* the member |
+| 2 | Reserve organic space against the ad PERCENTAGE instead of actual ad SUPPLY | FAIL on page length | ✅ FAIL, **2 of 14**, `page 0 had 15, page 1 had 15, …` |
+| 3 | Restored | PASS | ✅ PASS, 14 assertions |
+
+### Why the privacy check names products instead of deriving them
+
+The obvious implementation reads `v2_catalogs`, splits public from private and
+compares. **It cannot:** `anon` has no `SELECT` on that table — correctly, the
+catalogue list is not public — so the gate has to *name* what it protects.
+
+It pins `A-102`, `A-109` and `A-110`: Atelier Ronde's made-to-order archive
+gowns, which live only in `Occasion Private Edit` (tier 4) and
+`Archive & Made to Order` (tier 5). Confirmed against the database that day as
+the complete population of private-only products in the demo data.
+
+A pinned list can rot, so the gate also asserts the converse: **Atelier's
+public products must be present.** Without it, a feed that returned nothing at
+all would pass the leak test perfectly.
+
+### The green proof that isn't one
+
+Raising `feed_pct_ads` from 20 to 25 with zero ads available leaves every page
+full — which *looks* like proof the backfill works, and is not. It only shows
+the config is read. The break that mattered was in the function, not the
+config, and it took changing one line (`v_org_now := p_limit - v_ad_slots`) to
+see the assertion fail. Worth remembering: turning a knob is not the same as
+breaking the mechanism the knob feeds.
