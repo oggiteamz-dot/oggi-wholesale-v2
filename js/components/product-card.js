@@ -552,7 +552,7 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   const sheetScroll = document.createElement("div");
   sheetScroll.className = "os-sheet-scroll";
   const grid = document.createElement("table");
-  grid.className = "os-grid";
+  grid.className = "bs-grid";
   sheetScroll.appendChild(grid);
   sheet.appendChild(sheetScroll);
   // ------------------------------------------------------------- GAP-2 ----
@@ -601,7 +601,7 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
   // instruction is furniture the eye learns to skip, and then it is not
   // read on the one occasion it matters.
   const hint = document.createElement("div");
-  hint.className = "os-hint";
+  hint.className = "bs-hint";
   hint.textContent = "Tap any number to change it.";
   sheet.appendChild(hint);
 
@@ -756,7 +756,7 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
       allSizes.forEach((sz) => {
         const v = variantAt(c.name, sz);
         const td = document.createElement("td");
-        td.className = "os-cell";
+        td.className = "bs-cell";
         if (!v) {
           // This colour is not made in this size. Blank, and unaimable --
           // never a zero, which would read as "available, none taken".
@@ -875,12 +875,12 @@ export function renderProductCard({ product, wid, locationId, currency, tiers = 
     const what = document.createElement("div");
     what.className = "os-what";
     const minus = document.createElement("button");
-    minus.type = "button"; minus.className = "btn os-step"; minus.textContent = "−";
+    minus.type = "button"; minus.className = "btn bs-step"; minus.textContent = "−";
     minus.setAttribute("aria-label", baseUnit > 1 ? `Remove ${baseUnit} pieces` : "Remove one piece");
     const val = document.createElement("div");
     val.className = "os-val";
     const plus = document.createElement("button");
-    plus.type = "button"; plus.className = "btn os-step"; plus.textContent = "+";
+    plus.type = "button"; plus.className = "btn bs-step"; plus.textContent = "+";
     plus.setAttribute("aria-label", baseUnit > 1 ? `Add ${baseUnit} pieces` : "Add one piece");
     const commit = document.createElement("button");
     commit.className = "btn btn-primary btn-sm os-commit";
