@@ -22,4 +22,4 @@
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self'; connect-src 'self' https://olaipgdckbgjediddloj.supabase.co wss://olaipgdckbgjediddloj.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: geolocation=(), camera=(), microphone=()
+  Permissions-Policy: geolocation=(), camera=(self), microphone=(self)

@@ -93,7 +93,7 @@ export default {
     withHeaders.headers.set("Content-Security-Policy", CSP);
     withHeaders.headers.set("X-Content-Type-Options", "nosniff");
     withHeaders.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-    withHeaders.headers.set("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
+    withHeaders.headers.set("Permissions-Policy", "geolocation=(), camera=(self), microphone=(self)");
     return withHeaders;
   },
 };
