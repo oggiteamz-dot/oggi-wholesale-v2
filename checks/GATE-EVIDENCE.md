@@ -2022,3 +2022,116 @@ lines_old = lines_new for every account;  price_changed_lines = 0 for every acco
 Zero price movement. But the rule now permits it where the data did not, so it
 is written down here and raised with Hadi rather than left for an invoice to
 discover. It belongs with MOD-06.
+
+---
+
+## MOD-06 — the discount stack, proven on an invoice (6 Sep 2026)
+
+`checks/check_discount_stacking.sql`, 21 assertions, run against a database
+rebuilt from this repo at `3c3260b` (122 migrations, shape hash
+`ba1c3dcdb9c538e85e32e881a2e64b42`, matching the 6 Sep production baseline).
+
+### Why a second pricing gate existed to be written
+
+The build plan states MOD-06 as *"prove a store at 10% + a customer at 5% still
+invoices correctly."* `check_store_pricing_dial` — written the day before —
+already proved that `v2_store_discount_pct` **returns 15** for that case.
+
+That is a number coming out of a function. It is not money.
+
+Nothing in the repo asserted what a buyer is actually **charged** once two
+discounts are in play. `check_line_pricing` comes closest and proves the *pack*
+path with a single `catalog_only` shelf and **no client at all**, so no test
+anywhere had ever stacked two rates and looked at the bill. Every assertion in
+the new file is a number `v2_submit_order` wrote onto `v2_order_items`, or the
+subtotal it wrote onto `v2_orders`.
+
+### The assertion that paid for the file
+
+Two discounts can stack two ways:
+
+```
+ADDITIVE      100 × (1 − (10+5)/100)      = 85.00     ← what the server does
+COMPOUNDING   100 × (1 − .10) × (1 − .05) = 85.50
+```
+
+Fifty cents on a hundred. Not a crash, not a wrong screen — a slightly wrong
+bill, which is the only kind of pricing bug that survives for months. Assertion
+1 alone would have passed under either rule had the fixture been built the other
+way round, so the rule is pinned **from both sides**: 85.00 is required *and*
+85.50 is forbidden by name, in its own assertion, with its own failure message.
+
+### Red-proved four ways
+
+Each sabotage was a `create or replace` inside the same transaction as the
+assertions, rolled back with them. What matters is not only that the file went
+red but **which rows** went red: two of the four are caught by a single
+assertion each, which is what says those rows are not redundant.
+
+| Sabotage | Rows that fired |
+|---|---|
+| `v2_catalog_discount_pct` combines multiplicatively instead of adding | 1, 2, 7, 10, 11, 11b — **6 of 21** |
+| the `v2_client_price_overrides` short-circuit is deleted | **9 only** |
+| `greatest(…, 0)` removed from the price expression | 8, 8b — and 8b caught a **−5.00 unit price** on an invoice line |
+| the quantity-break lookup is skipped | **10 only** |
+
+### What was measured on production, not assumed
+
+- **The stack is additive, live.** Cyprus Riviera Boutique (5%) against Atelier's
+  *Occasion Private Edit* (10%) resolves to exactly `15.00` today — the literal
+  MOD-06 case, already present in the data.
+- **Every store dial on the platform is 0.00%.** MOD-05 seeded each store from
+  its default shelf, and every default shelf is 0%. Every non-zero rate that
+  exists — 5, 6, 8, 10, −5 — lives on a **secondary** shelf. So the MOD-06 case
+  as written ("a store at 10%") does not occur anywhere yet; the 10% is a shelf.
+- **19 price overrides across 5 clients**, and every one is already deeper than
+  that customer's own percentage would have been. Override-wins therefore costs
+  no buyer money today. It is still worth knowing that a wholesaler typing "the
+  special price for this customer" gets exactly that and not that-less-15%.
+
+### ⚠ Two doors, two prices — open, and it is money
+
+Since MOD-04 a buyer **sees** the whole store but is **priced** through one
+shelf: `js/views/buyer.js` resolves `activeCatalogId` to `visibleCatalogs[0]`,
+which is the default shelf, and hands that to `v2_submit_order`. A share link,
+meanwhile, is priced by `v2_token_discount_pct` through the shelf the link
+names.
+
+Measured on production after MOD-07: **326 (account, variant) pairs** where the
+two doors disagree.
+
+```
+Aïsha Couture (demo-atelier, customer 15%)   A-101 Silk Slip Dress, list 128.00
+  through the store screen  →  108.80        (0% shelf + 15% customer)
+  through the Occasion link →   96.00        (10% shelf + 15% customer)
+```
+
+Same buyer, same shirt, same afternoon, 12.80 a unit apart. Nothing on either
+screen is wrong — the screen and the invoice agree with each other, which is
+precisely why nobody would report it. What disagrees is the two doors.
+
+Assertions 15 and 15b record this **as it stands**, not as it should be, and say
+in the file that whoever closes it must *invert* those rows rather than delete
+them. Closing it moves prices on real orders, so it is Hadi's decision. This is
+the same hazard MOD-07 raised from the other end — the 23 products in two or
+more shelves with conflicting rates — and it now has a number and a name.
+
+### ⚠ The store dial is bounded by nothing
+
+`v2_catalogs.discount_pct` carries `v2_catalogs_discount_range` (−100…100), and
+assertion 16 proves a shelf refuses 500%. Migration 117 added `discount_pct` to
+`v2_wholesalers` with a check constraint on `discount_mode` **and none on the
+percentage**. Assertion 17 sets a store to 500% and it is accepted.
+
+It costs nothing today because nothing reads it. The moment MOD-05's switch-over
+happens it is the number that prices every order in the store, and there is
+nothing between a fat-fingered keypress and the invoice. A one-line migration
+closes it; assertion 17 is written to be inverted when it does.
+
+### A note on why this gate is replay-safe
+
+Every assertion is scoped to the fixture's own `wid`. Nothing counts rows in the
+corpus it happens to find, and nothing asserts a property of production data.
+That is the rule migration 116 was corrected for and 119 broke again the
+following day, applied here on the way in rather than after `replay_migrations.sh`
+stopped.
