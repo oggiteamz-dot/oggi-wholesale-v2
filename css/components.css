@@ -1854,6 +1854,10 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
   min-height: 44px;
 }
 .cat-public input { accent-color: var(--brand-emerald); width: 18px; height: 18px; margin-top: 1px; flex: 0 0 auto; }
+/* MOD-08. The marketplace clarification sits on its own line and reads quieter
+   than the sentence above it: it is there to correct an assumption, not to
+   compete with the setting the person came here to change. */
+.cat-public-note { display: block; margin-top: var(--space-1); color: var(--text-tertiary); }
 
 /* Quiet, because it invalidates every link already sent and should not be the
    thing the eye lands on. */
