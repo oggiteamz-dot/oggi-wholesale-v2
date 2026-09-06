@@ -6,7 +6,7 @@ import { renderProductCard } from "../components/product-card.js";
 import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 import { supabase, sbCall } from "../lib/supabase-client.js";
-import { getCatalogByToken, getBuyerCatalog, getBuyerVisibleProducts, getWholesaler, listWholesalers, getVariantListPrices } from "../data/catalog.js";
+import { getCatalogByToken, getBuyerCatalog, getBuyerStore, getBuyerVisibleProducts, getWholesaler, listWholesalers, getVariantListPrices } from "../data/catalog.js";
 import { buyerCatalogs, catalogByToken } from "../data/catalogs.js";
 import { renderBillboard, sectionHeader } from "../components/billboard.js";
 import { cart } from "../data/cart.js";
@@ -99,7 +99,13 @@ async function dashboard(outlet) {
   ]);
   let activeCatalog = visibleCatalogs.find((c) => c.id === activeCatalogId) || visibleCatalogs[0] || null;
   activeCatalogId = activeCatalog?.id || null;
-  const catalog = await getBuyerCatalog(session.accountId, activeCatalogId);
+  // MOD-04. The buyer sees the whole STORE, not visibleCatalogs[0].
+  // activeCatalogId is still resolved above and still drives packs, price
+  // tiers, the discount lookup and order submission -- on purpose. Widening
+  // the LIST is safe; widening the PRICE is not, because v2_submit_order
+  // prices every line through the catalogue it is handed. getBuyerStore is
+  // gated by the same v2_buyer_catalogs() the per-catalogue read uses.
+  const catalog = await getBuyerStore(session.accountId);
 
   skeletonWrap.remove();
 
