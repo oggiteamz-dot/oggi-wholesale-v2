@@ -765,6 +765,8 @@ broke · ❌ not built
 | 449 | **A standing access request is a state, not a button.** A shop already asked shows "Requested" and how long that wholesaler takes to answer, rather than a second Request access that sends a duplicate for them to dismiss | `js/views/marketplace.js` (`storeRow`) | `check_access_request_standing_client.mjs` for the underlying rule | ✅ |
 | 450 | **The marketplace switch now lives on the PRODUCT, not the catalogue.** `v2_catalogs.is_public` was the only thing putting a product on the marketplace, and both the feed and the search reach it *through* the catalog join — so retiring the catalogue concept would have emptied the marketplace silently, for everyone. 116 adds `v2_products.is_public`, defaulting **false** so a new product is never published by accident, and backfills it from the live feed's own scope. Deliberately inert: nothing reads it yet | `migrations/116`, `v2_products.is_public` | `check_product_public_flag.sql` — containment asserted in BOTH directions over the whole table, red-proved 3 ways | ✅ |
 | 451 | **Two components may not share a CSS selector family.** `css/components.css` defined `.os-*` **twice** — the pack builder uses `.os-step` as an inline-flex WRAPPER holding `[-][n][+]`, and the buyer order-sheet block appended later redefined it as a 46×42 BUTTON with `flex:none`. Later wins, so every stepper on the platform was crushed into a box 8.7px too small and spilled into its neighbour. The buyer's four colliding names became `.bs-*` | `css/components.css`, `js/components/product-card.js` | `check_os_namespace.mjs` — 2 assertions, red-proved 3 ways (the stylesheet as deployed, one name restored, the box shrunk without touching a name) | ✅ |
+| 452 | **The pricing dial lives on the STORE, not the catalogue.** `v2_effective_unit_price` takes a `p_catalog_id`, so the catalogue is part of the PRICE. 23 products on production sit in two or more catalogues with **conflicting** discounts, which is why MOD-04 could not be built first. 117 puts one dial on `v2_wholesalers`, seeded from each store's DEFAULT catalogue — all of which are 0%, so no buyer's price moves. Deliberately inert; `v2_catalog_discount_pct` still prices every order | `migrations/117`, `v2_wholesalers.discount_pct` | `check_store_pricing_dial.sql` — parity over every (store × client) pair, red-proved 3 ways | ✅ |
+| 453 | **A new store starts at 0%, and the mode is constrained.** A dial defaulting to anything else would reprice every product of every wholesaler created from that day on, with nothing on screen looking wrong; an unconstrained `discount_mode` would silently fall through to `combine` and add a discount nobody set | `migrations/117` | `check_store_pricing_dial.sql` assertions 2 and 3 | ✅ |
 
 > **Rows 442–449 are MK-04**, one migration (`115`) and one gate
 > (`check_marketplace_search.mjs`, 41 assertions, red-proved 3 ways).
@@ -780,12 +782,12 @@ broke · ❌ not built
 
 
 
-## Reconciliation — 6 September 2026 (MOD-01, the product public flag) and 1 September 2026 (MK-01/02/03/04, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+## Reconciliation — 6 September 2026 (MOD-01 the product public flag, MOD-05 the store pricing dial) and 1 September 2026 (MK-01/02/03/04, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **451** |
-| Enforced and proven (✅) | **433** |
+| Features listed | **453** |
+| Enforced and proven (✅) | **435** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
