@@ -2135,3 +2135,99 @@ corpus it happens to find, and nothing asserts a property of production data.
 That is the rule migration 116 was corrected for and 119 broke again the
 following day, applied here on the way in rather than after `replay_migrations.sh`
 stopped.
+
+---
+
+## MOD-08 — the public checkbox stops lying, and the switch it lost gets a control (6 Sep 2026)
+
+`checks/check_marketplace_switch_reachable.mjs`, 10 assertions, red-proved five
+ways. Every sabotage was caught by **exactly one** assertion, which is what says
+no row in the file is redundant.
+
+### The lie had two halves, and only the first was written down
+
+The build plan names the first: `v2_catalogs.is_public` was the only thing that
+put a product on the OGGI marketplace, and its checkbox said *"Open to anyone
+with the link. No login."* It never mentioned the marketplace. Wrong before any
+of this refactor started.
+
+MOD-01 put the flag on the product; MOD-03 pointed the feed and the search at
+it. That ended the first half — and created a second, quieter one on the way
+past: the marketplace now read a column **no screen could write**. No RPC, no
+data-module writer, nothing. A wholesaler could not publish a new product and
+could not take an old one down. The marketplace was frozen at whatever migration
+116's backfill happened to produce, and no screen said so.
+
+Nothing was red, because everything that existed worked.
+
+### Which is `createRatio()` again
+
+`createRatio()` is the only function in the codebase that creates a size ratio.
+It has had no caller since 24 August, so every wholesaler onboarded since has an
+empty ratio list forever; nine of that module's twelve exports are unreachable.
+It has never been caught by anything.
+
+So this gate does not assert that the new toggle is *correct*. It asserts that
+it can be **reached**, as a chain:
+
+```
+a data module writes v2_products.is_public
+  → the writer is exported
+    → a view imports it
+      → the view CALLS it            ← the assertion createRatio() never had
+        → and the state is on screen  ← a toggle whose position you cannot see
+```
+
+Deleting the call site while leaving the import in place fires assertion 4 and
+nothing else. That is the exact shape of the bug, reproduced.
+
+### Red-proved five ways
+
+| Sabotage | Row that fired |
+|---|---|
+| the call site is deleted, the import left in place | **4 only** — the `createRatio()` case |
+| `setCatalogPublic` writes `v2_products` again | **8 only** — the two switches merged back into one |
+| the "On the marketplace" badge is removed | **6 only** |
+| the old marketplace rule creeps back into a comment | **9 only** |
+| the writer is renamed out of the export list | **2 only** |
+
+### The correction is on the screen, not only in the code
+
+A control that silently *narrows* is its own kind of lie. Every wholesaler who
+used that checkbox before today learned it published to the marketplace, and
+nothing would have told them it had stopped. The label now says so in words, and
+names where the switch that does now lives. Assertion 8 holds that sentence
+there.
+
+### Assertion 9 fired on the comment that was written to satisfy it
+
+`js/data/marketplace-feed.js` is the only place in `js/` that says where the
+marketplace's scope comes from, and it named the catalogue's flag — correct
+until migration 119, wrong the moment it landed. Assertion 9 forbids that
+sentence returning. It went red on the corrected comment's **first** run,
+because the correction quoted the old wording in order to explain it. The
+comment was reworded to describe the old rule rather than quote it. Worth
+recording: the assertion caught the one file most likely to reintroduce the
+sentence, on the first attempt, from the person who wrote the assertion.
+
+### ⚠ And the eighth inverted assertion, found a day late
+
+MOD-07's evidence in this file records a control replay that isolated *exactly
+seven* failing assertions across five gates. That was wrong.
+
+**The control ran only the SQL gates.** There were eight. The eighth is in
+`check_catalog_builder.mjs`, which asserted `cat-tier … cat-discount … cat-mode`
+were all present in that order — and MOD-07 took the tier control off that
+screen. The gate was red on `main` for about an hour and nobody looked, which is
+row 451's failure again: `check_os_namespace.mjs` sat red on `main` for five
+days for the same reason.
+
+The row is inverted rather than deleted, like the other seven: it now asserts
+the two remaining settings in order **and** that the tier control is gone, so
+putting it back turns the file red again.
+
+The lesson is not "remember the .mjs gates." It is that **a control run must
+cover every gate the repo has, or it measures its own blind spot instead of the
+change.** The run that found this one was every `.mjs` gate, against a control
+tree built from `main`, and it is the run that should have happened the first
+time.

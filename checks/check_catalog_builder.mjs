@@ -156,8 +156,24 @@ ok(/renderProductPicker\(/.test(view), "which opens the real picker");
 ok(/addProductsToCatalog\(/.test(view), "and files the chosen products in one call");
 ok(/catalogSettingsCard\(/.test(view), "the settings card is on the screen");
 ok(/updateCatalogSettings\(/.test(view), "and saves tier, discount and mode");
-ok(/cat-tier[\s\S]{0,2000}cat-discount[\s\S]{0,2000}cat-mode/.test(view),
-  "all three settings are present, in that order");
+// MOD-07 (D2, 6 Sep 2026) INVERTED THIS ROW rather than deleting it. It used to
+// read `cat-tier ... cat-discount ... cat-mode` and assert all THREE settings
+// were present in that order. The tier is not a setting any more -- a member of
+// a store sees that store -- so the row now asserts the two that remain, still
+// in order, AND that the third is gone. Turned around, not removed: the same
+// screen is still being checked, and putting the tier control back turns this
+// file red again.
+//
+// ⚠ THIS FILE WAS RED ON `main` FOR ABOUT AN HOUR AND I DID NOT NOTICE.
+// MOD-07's own evidence records a control replay that isolated exactly seven
+// failing assertions across five gates -- and that control only ran the SQL
+// gates. There were EIGHT, and the eighth was here, in a .mjs one. The lesson
+// is not "remember the .mjs gates"; it is that a control run must cover every
+// gate the repo has, or it measures its own blind spot instead of the change.
+ok(/cat-discount[\s\S]{0,2000}cat-mode/.test(view),
+  "discount and mode are present, in that order");
+ok(!/cat-tier/.test(view),
+  "and the tier control is GONE (MOD-07) — putting it back turns this row red");
 ok(/pay \$\{pct\}% LESS|% LESS than the price/.test(view),
   "the discount box says in words what the number will do — “-10” is read as “ten percent off” by someone in a hurry");
 

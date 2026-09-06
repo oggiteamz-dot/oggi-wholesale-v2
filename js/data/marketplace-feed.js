@@ -7,12 +7,26 @@
 //
 // THE SCOPE IS NOT SET HERE, AND CANNOT BE.
 // v2_marketplace_feed takes no wid and no catalogue id. What is browsable is
-// decided inside the function, by one rule — the catalogue's own is_public —
+// decided inside the function, by one rule — the PRODUCT's own is_public —
 // and a client that could name a store to browse is a client that could name a
 // store whose private line it has no business seeing. Same reasoning as
 // js/data/search.js, and the same reason the two are separate functions: search
-// answers "stores I belong to", the feed answers "catalogues their owners
+// answers "stores I belong to", the feed answers "products their owners
 // published", and those must never come to share a definition.
+//
+// MOD-01/MOD-03 (6 Sep 2026) MOVED THAT RULE, and the sentence above names the
+// column it moved TO. It used to name the catalogue's flag instead, and it was
+// correct until migration 119 pointed both v2_marketplace_feed and
+// v2_marketplace_search at p.is_public and dropped the catalogue join. It is
+// corrected rather than deleted because it is the only place in js/ that says
+// where the marketplace's scope comes from, and a comment naming the wrong
+// column is worse than no comment: the next person to touch the feed reads it
+// and goes looking in the wrong table.
+//
+// check_marketplace_switch_reachable.mjs asserts the old wording is gone. That
+// assertion caught this very comment on its first run, when the correction
+// quoted the old phrase in order to explain it -- which is the assertion doing
+// its job on the one file most likely to reintroduce the sentence.
 //
 // EVERY ROW IS MAPPED ONTO A FIXED SHAPE below. Anything the server starts
 // returning by accident stops here rather than reaching the page — the lesson
