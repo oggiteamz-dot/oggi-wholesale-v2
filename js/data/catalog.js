@@ -345,6 +345,31 @@ export async function getBuyerCatalog(accountId, catalogId) {
   return groupCatalogRows(data);
 }
 
+/** MOD-04. Every product across every catalogue this buyer may see, as ONE
+ *  store. Replaces the per-catalogue read on the buyer's main screen.
+ *
+ *  The buyer used to see visibleCatalogs[0] and there was no switcher, so
+ *  anything filed in a second catalogue was invisible to a customer the
+ *  wholesaler had already approved. Measured on production: the demo-atelier
+ *  buyer was entitled to 10 products and could reach 7 -- the three she could
+ *  not reach were that store's made-to-order gowns.
+ *
+ *  The gate is NOT re-implemented here. v2_buyer_store_read gates on
+ *  v2_buyer_catalogs(), the same function the per-catalogue read uses, so the
+ *  account check and the tier ceiling are identical. Deliberately unchanged:
+ *  packs, price tiers, the discount lookup and order submission all still use
+ *  activeCatalogId, so no product that is orderable today changes price.
+ *
+ *  Returns the same shape as getBuyerCatalog() -- same groupCatalogRows() --
+ *  so the cards cannot tell which read produced them. */
+export async function getBuyerStore(accountId) {
+  if (!accountId) return [];
+  const { data } = await sbCall(
+    supabase.rpc("v2_buyer_store_read", { p_account_id: accountId })
+  );
+  return groupCatalogRows(data);
+}
+
 /** The flat product x variant rows the two gated RPCs return, rebuilt into the
  *  nested shape the cards read. Shared, so the link path and the signed-in
  *  path cannot disagree about what a product is. */

@@ -79,8 +79,23 @@ if (!buyerCode.includes("getCatalogByToken(")) {
   problems.push("js/views/buyer.js never calls getCatalogByToken() — the token route was not moved.");
   fail = 1;
 }
-if (!buyerCode.includes("getBuyerCatalog(")) {
-  problems.push("js/views/buyer.js never calls getBuyerCatalog() — the SIGNED-IN route was not moved (S2b).");
+// WIDENED 6 Sep (MOD-04). The signed-in route no longer reads ONE catalogue --
+// it reads the whole STORE through getBuyerStore(), because a buyer used to see
+// visibleCatalogs[0] with no switcher and anything filed elsewhere was
+// invisible to a customer the wholesaler had already approved.
+//
+// This assertion is therefore about the RULE, not about one function name: the
+// signed-in read must go through a GATED data-layer function, and the set of
+// those is named here explicitly so adding a new read is a deliberate edit to
+// this list rather than something that slips in. Naming exactly one function
+// was what made this check fail the moment a legitimate change landed -- and a
+// gate that cries wolf gets weakened, which is how the real one gets through.
+const GATED_SIGNED_IN_READS = ["getBuyerStore(", "getBuyerCatalog("];
+if (!GATED_SIGNED_IN_READS.some((fn) => buyerCode.includes(fn))) {
+  problems.push(
+    "js/views/buyer.js calls none of " + GATED_SIGNED_IN_READS.join(", ") +
+    " — the SIGNED-IN route is not reading through a gated function (S2b/MOD-04)."
+  );
   fail = 1;
 }
 

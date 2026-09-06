@@ -74,16 +74,24 @@ begin
       v_flag, v_join;
   end if;
 
-  -- and the converse, because a backfill that flagged EVERYTHING would pass
-  -- the test above only if the join also returned everything.
+  -- CORRECTED 6 Sep 2026, same day, caught by checks/replay_migrations.sh.
+  --
+  -- This block used to RAISE when no private product existed. That is wrong,
+  -- and it broke replay: on a fresh rebuild into an empty database the seed
+  -- data can legitimately have every product in a public catalogue, and the
+  -- migration then refused to apply -- so the repo could no longer reproduce
+  -- production, which is the one thing the migration set exists to do.
+  --
+  -- It was also redundant. A backfill that flagged EVERYTHING is already
+  -- caught by the assertion above: v_flag would exceed v_join unless the join
+  -- genuinely returns everything, in which case nothing has leaked.
+  --
+  -- The "a private line must exist" property is REAL, but it is a property of
+  -- a CORPUS, not of a migration. It lives in checks/check_product_public_flag
+  -- assertion 9, which brings a fixture that guarantees one -- the same reason
+  -- 117's parity assertion is vacuous on replay and earned in its gate.
   select count(*) into v_priv
     from wholesale_v2.v2_products where not is_public;
-
-  if v_priv = 0 then
-    raise exception
-      'MOD-01 flagged every product public. A private line exists in this '
-      'data; refusing to commit a backfill that leaks it.';
-  end if;
 
   raise notice 'MOD-01 ok: % public, % private', v_flag, v_priv;
 end $$;

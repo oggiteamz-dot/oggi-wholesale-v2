@@ -1603,3 +1603,94 @@ non-zero discount** — so the result is not the artefact of an all-zero corpus.
 Exactly 1 overload of `v2_store_discount_pct`. Past orders cannot move:
 `v2_order_items.unit_price` is stored, not derived.
 
+---
+
+## check_buyer_store_read.sql — MOD-04, migration 118
+
+10 assertions. **Red-proved three ways:**
+
+| # | Break | Result |
+|---|---|---|
+| 1 | Remove the dedupe | **3 of 10 red** — a product in two catalogues appeared twice |
+| 2 | **Bypass the gate** — read every catalogue instead of the granted ones | **1 of 10 red** — `FAIL 6: an ungranted account read 3 rows` |
+| 3 | Dedupe prefers the LAST catalogue instead of the default | **2 of 10 red** — `FAIL 4` (sort_order 99, expected 1) and `FAIL 8` |
+
+### Break 2 is the reason this file exists
+
+`v2_buyer_store_read` deliberately does **not** re-derive "which catalogues may
+this account see" — it calls `v2_buyer_catalogs`, the same function the
+per-catalogue read gates on. Re-implementing that in a second place is how two
+answers drift apart, and **the day they do, the wider one wins silently** and a
+buyer sees a catalogue nobody granted them. Assertion 6 asserts the delegation
+by making the gate return nothing and requiring the store read to return
+nothing too — a behaviour, not a spelling.
+
+### Why stubs
+
+The fixture stubs `v2_buyer_catalogs` and `v2__catalog_rows` so the **real body**
+of `v2_buyer_store_read` runs against data the test controls. Rebuilding the
+whole catalogue stack would have been hundreds of lines that mostly test the
+fixture.
+
+---
+
+## Two gates that had been RED on `main`, found 6 Sep
+
+Neither was caused by the change being made. Both were found by running the
+suite before pushing, which is the only reason anyone knew.
+
+### 1. The buyer order sheet had no protection for five days
+
+PR #53 (1 Sep) renamed four CSS class families in `js/components/product-card.js`
+from `.os-*` to `.bs-*` — the fix for the stepper collision. It did not update
+the two gates that query those classes. `check_buyer_product_card` (75
+assertions) and `check_buyer_card_capabilities` (37) both went red immediately
+and **nobody ran them**, so from 1 Sep the buyer's order sheet — the screen
+being actively reported as broken — had no automated cover at all.
+
+Bisected to be sure: `9d4f48f~1` PASS, `9d4f48f` 23 of 75 failed.
+
+**The code was never at fault.** Correcting the four selectors turns both green
+(77 and 37). But that is exactly what makes it dangerous: a stale gate and a
+broken feature look identical from a distance, and the fix for one is the
+opposite of the fix for the other.
+
+### 2. `replay_migrations.sh` was measuring the calendar and the collation
+
+Red since 30 Aug for two reasons, both instrument error rather than drift:
+
+- **Partitions.** `v2_ensure_movement_partitions(p_months_ahead)` creates the
+  inventory-ledger partitions counted forward from **today**, so a September
+  replay makes 43 where production holds 42. Real tables were 61 = 61 all along.
+- **Collation.** The shape hash mixes bare relation names with `name(args)`
+  signatures and sorts the union. Those interleave differently depending on the
+  database's collation, because of where `(` falls relative to letters. Proven:
+  the relation-only hash and the function-only hash were **identical** on both
+  sides while the combined hash differed, and ordering by the UTF8 bytes made
+  the replay reproduce production's hash exactly.
+
+This is the same family as the `::text` truncation bug already recorded in that
+file — the repo's sharpest structural instrument quietly measuring the wrong
+thing. **A gate that cries wolf gets switched off, and then the real difference
+walks in.**
+
+Now green and meaningful: 120 migrations replay into an empty Postgres and match
+production on tables, views, functions, policies **and** shape hash
+(`ba1c3dcdb9c538e85e32e881a2e64b42`).
+
+---
+
+## A defect I shipped this morning, caught the same day
+
+Migration **116** (MOD-01) carried an assertion that raised when no private
+product existed. On a fresh replay into an empty database the seed data can
+legitimately have every product in a public catalogue, so **116 refused to
+apply and the replay stopped there** — the repo could no longer rebuild
+production, which is the one thing the migration set exists to do.
+
+It was also redundant: a backfill that flagged everything is already caught by
+the assertion above it. The real property — *a private line must exist in the
+corpus* — belongs to a corpus, not to a migration, and lives in
+`check_product_public_flag` assertion 9, which brings a fixture that guarantees
+one. Corrected in place the same day, with the reasoning left in the file.
+
