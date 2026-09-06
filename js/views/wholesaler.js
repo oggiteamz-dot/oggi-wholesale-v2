@@ -3599,13 +3599,6 @@ async function catalogsView(outlet, params = {}) {
       </div>
       <div class="cat-settings-grid">
         <div>
-          <label for="cat-tier">Customer tier</label>
-          <select class="input" id="cat-tier">
-            ${[1, 2, 3, 4, 5].map((t) => `<option value="${t}"${t === catalog.accessTier ? " selected" : ""}>Tier ${t}</option>`).join("")}
-          </select>
-          <p class="cat-hint" id="cat-tier-hint"></p>
-        </div>
-        <div>
           <label for="cat-discount">Discount %</label>
           <input class="input" id="cat-discount" type="number" step="0.5" min="-100" max="100" value="${catalog.discountPct}">
           <p class="cat-hint" id="cat-discount-hint"></p>
@@ -3621,17 +3614,10 @@ async function catalogsView(outlet, params = {}) {
       <p class="cat-hint cat-silent">Buyers never see this discount as a discount — the adjusted number is simply the price on the product. Only a customer's own rate is shown to them, struck through.</p>
     `;
 
-    const tierSel = card.querySelector("#cat-tier");
     const pctInput = card.querySelector("#cat-discount");
     const modeSel = card.querySelector("#cat-mode");
 
     function describe() {
-      const t = Number(tierSel.value);
-      card.querySelector("#cat-tier-hint").textContent = catalog.isPublic
-        ? "Ignored while this catalog is open to anyone with the link."
-        : t === 1 ? "Any of your customers with the link can open this catalog."
-                  : `Only your customers set to tier ${t} or above.`;
-
       const pct = Number(pctInput.value);
       const d = card.querySelector("#cat-discount-hint");
       if (!Number.isFinite(pct) || pct === 0) d.textContent = "Prices are exactly as set on each product.";
@@ -3641,7 +3627,7 @@ async function catalogsView(outlet, params = {}) {
       card.querySelector("#cat-mode-hint").textContent =
         DISCOUNT_MODES.find((m) => m.value === modeSel.value)?.help || "";
     }
-    [tierSel, pctInput, modeSel].forEach((el) => el.addEventListener("input", describe));
+    [pctInput, modeSel].forEach((el) => el.addEventListener("input", describe));
     describe();
 
     // ---- the link ----
@@ -3696,8 +3682,8 @@ async function catalogsView(outlet, params = {}) {
     const describePublic = () => {
       pubText.innerHTML = pub.checked
         ? "<strong>Open to anyone with the link.</strong> No login. They give a name and phone number when they order."
-        : "<strong>Login required.</strong> Only your own customers, at tier " +
-          `${catalog.accessTier} or above. A stranger with the link sees nothing.`;
+        : "<strong>Login required.</strong> Only customers you have approved for " +
+          "your store. A stranger with the link sees nothing.";
     };
     pub.addEventListener("change", async () => {
       pub.disabled = true;
@@ -3924,7 +3910,11 @@ async function catalogsView(outlet, params = {}) {
     save.addEventListener("click", async () => {
       save.disabled = true;
       const res = await updateCatalogSettings(activeId, {
-        accessTier: Number(tierSel.value),
+        // MOD-07: the tier no longer gates anything and has no control on this
+        // screen. It is passed through unchanged rather than defaulted, so
+        // saving a discount cannot silently rewrite a column 8 catalogues still
+        // carry a non-default value in.
+        accessTier: catalog.accessTier,
         discountPct: Number(pctInput.value),
         discountMode: modeSel.value,
       });
@@ -3932,7 +3922,6 @@ async function catalogsView(outlet, params = {}) {
       if (!res.ok) { status.textContent = res.error; toast(res.error, { type: "danger" }); return; }
       // Keep the in-memory catalog in step, or switching tabs and back would
       // show the old numbers and look like the save had not worked.
-      catalog.accessTier = Number(tierSel.value);
       catalog.discountPct = Number(pctInput.value);
       catalog.discountMode = modeSel.value;
       status.textContent = "Saved.";
