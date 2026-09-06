@@ -112,8 +112,10 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
                or specific_name like 'v2__catalog_pack_rows%')
              and parameter_name = 'pack_price')
 
-  -- 6. the fence
-  union all select 'a tier 1 buyer opening the TIER 5 link gets no packs', '0',
+  -- 6. the fence. MOD-07 (D2) removed the tier bar; the row is turned around
+  -- rather than deleted. The wrong-wholesaler and made-up-token rows beneath it
+  -- are untouched and are what the fence now consists of.
+  union all select 'a tier 1 buyer opening the TIER 5 link NOW gets packs (MOD-07)', '3',
          (select count(*)::text from wholesale_v2.v2_catalog_packs('tok_pack_t5','00000000-0000-4000-8000-0000000b4001'))
   union all select 'another wholesaler''s buyer gets no packs', '0',
          (select count(*)::text from wholesale_v2.v2_catalog_packs('tok_pack_t5','00000000-0000-4000-8000-0000000b4099'))
@@ -125,7 +127,7 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
          (select count(*)::text from wholesale_v2.v2_buyer_catalog_packs(
             '00000000-0000-4000-8000-0000000b4001','00000000-0000-4000-8000-0000000a4001')
            where pack_name = 'Full box')
-  union all select 'a catalog above the buyer''s tier gives no packs', '0',
+  union all select 'a catalog above the buyer''s old tier NOW gives packs (MOD-07)', '3',
          (select count(*)::text from wholesale_v2.v2_buyer_catalog_packs(
             '00000000-0000-4000-8000-0000000b4001','00000000-0000-4000-8000-0000000a4002'))
 

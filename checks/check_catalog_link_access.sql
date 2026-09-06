@@ -7,6 +7,9 @@
 --    don't have a username or password. They automatically can't see it."
 --   "Let's say a tier four got one of those links, and this is a tier two. They
 --    don't get access to it either. Only the right tier and above."
+--   SUPERSEDED 6 Sep 2026 by D2: "Tier two, gate. Drop it. Completely remove
+--   it." The tier row below now expects 'ok'. The WHOLESALER row below it is
+--   untouched and is the boundary that survives.
 --   "The wholesaler should have the ability to toggle on or off the publicness
 --    of this catalog... anyone can go in, anyone can see it, anyone can make an
 --    order, and the second they click order they just have to put in their name
@@ -50,7 +53,11 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
          (select status from wholesale_v2.v2_catalog_by_token('tok_private_t2', null)) as got
   union all select 'the right tier, logged in, gets in', 'ok',
          (select status from wholesale_v2.v2_catalog_by_token('tok_private_t2','00000000-0000-4000-8000-0000000b2002'))
-  union all select 'a tier 2 opening a TIER 4 link is refused', 'denied',
+  -- MOD-07 (D2) turned this row around instead of deleting it. It expected
+  -- 'denied' while a tier was a rank inside a shop. The rank is gone, so a
+  -- member of the shop gets in -- and the row still fails if anyone puts the
+  -- gate back. The NEXT row is the one that must never move: a different shop.
+  union all select 'a tier 2 opening a TIER 4 link NOW gets in (MOD-07)', 'ok',
          (select status from wholesale_v2.v2_catalog_by_token('tok_private_t4','00000000-0000-4000-8000-0000000b2002'))
   union all select 'an account from ANOTHER wholesaler is refused', 'denied',
          (select status from wholesale_v2.v2_catalog_by_token('tok_private_t2','00000000-0000-4000-8000-0000000b2099'))

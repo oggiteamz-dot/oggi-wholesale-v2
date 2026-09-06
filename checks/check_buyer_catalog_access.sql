@@ -1,16 +1,21 @@
 -- =============================================================================
--- CHECK: a buyer sees the catalogs their tier allows, and no others
+-- CHECK: a buyer sees their own store's catalogs, and no others
 -- =============================================================================
--- Hadi: "what kind of customer can see this catalog, and anyone above that
--- tier gets it."
+-- Hadi, before the store model: "what kind of customer can see this catalog,
+-- and anyone above that tier gets it." SUPERSEDED 6 Sep 2026 by D2 -- "Tier
+-- two, gate. Drop it. Completely remove it." The quote is kept because it is
+-- why the tier rows in this file exist at all; MOD-07 turned them around.
 --
 -- This runs against the live functions inside a transaction that is rolled
 -- back, so it touches no real data and is safe on production.
 --
--- The load-bearing rows are the NEGATIVE ones. It is easy to write a tier gate
--- that lets the right people in; the whole value is in who it keeps out, and
--- those are the cases that decay silently because nobody notices a door that
--- has quietly opened.
+-- The load-bearing rows are still the NEGATIVE ones -- but the negative that
+-- matters is now WHICH SHOP, not which rank. It is easy to write an access
+-- rule that lets the right people in; the whole value is in who it keeps out,
+-- and those are the cases that decay silently because nobody notices a door
+-- that has quietly opened. The tenant, inactive-catalogue and inactive-account
+-- rows below were all green through MOD-07 and are the reason that is known
+-- rather than hoped.
 --
 --   psql "$DATABASE_URL" -f checks/check_buyer_catalog_access.sql
 -- Every row must read PASS.
@@ -45,11 +50,15 @@ values ('00000000-0000-4000-8000-0000000a1003','00000000-0000-4000-8000-0000000d
 
 select label, expected, got, case when got = expected then 'PASS' else 'FAIL' end as verdict
 from (
-  select 'a tier 1 buyer is NOT shown a tier 2 catalog' as label, 0 as expected,
+  -- MOD-07 (D2) inverted this row rather than deleting it. Until 6 Sep a tier
+  -- was a rank inside a shop and this expected 0. The rank is gone: a member of
+  -- a store sees that store. The row is kept pointing the other way so the code
+  -- path is still exercised and reinstating the gate still turns this file red.
+  select 'a tier 1 buyer IS now shown a tier 2 catalog (MOD-07)' as label, 1 as expected,
          (select count(*)::int from wholesale_v2.v2_buyer_catalogs('00000000-0000-4000-8000-0000000b1001')
            where name = 'ZZ Tier 2 only') as got
   union all
-  select 'a tier 1 buyer is NOT shown a tier 3 catalog', 0,
+  select 'a tier 1 buyer IS now shown a tier 3 catalog (MOD-07)', 1,
          (select count(*)::int from wholesale_v2.v2_buyer_catalogs('00000000-0000-4000-8000-0000000b1001')
            where name = 'ZZ VIP')
   union all
@@ -73,7 +82,7 @@ from (
   union all
   -- The gate has to hold on the PRODUCTS call too, or a buyer who guessed a
   -- catalog id would get its contents without ever being shown the catalog.
-  select 'a tier 1 buyer asking for a VIP catalog''s products gets nothing', 0,
+  select 'a tier 1 buyer asking for a VIP catalog''s products NOW gets them (MOD-07)', 1,
          (select count(*)::int from wholesale_v2.v2_buyer_catalog_products(
             '00000000-0000-4000-8000-0000000b1001','00000000-0000-4000-8000-0000000a1003'))
   union all

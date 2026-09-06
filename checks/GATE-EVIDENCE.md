@@ -1884,3 +1884,141 @@ The member row is included because `access` is computed from memberships rather
 than from publicness. It is not something 119 touches, which is precisely why it
 is worth measuring: an unchanged hash on a column the change should not reach is
 what distinguishes "the rule moved" from "something else moved too".
+
+---
+
+## `check_tier_gate_removed` — MOD-07, migration 120
+
+**15 assertions. Green on production and on a database replayed from this repo.
+Red-proved two ways, and the two proofs do not overlap at all.**
+
+### The two 'denied's
+
+`v2_catalog_by_token` refused for two different reasons, four lines apart, with
+the identical string:
+
+```
+v_acct.wid is distinct from v_cat.wid   -> 'denied'    THE TENANT BOUNDARY
+v_tier < v_cat.access_tier              -> 'denied'    the tier gate
+```
+
+The first is which **shop** you belong to. The second was your **rank** inside
+it. D2 removed the second. Removing the first instead opens every wholesaler's
+private catalogues to every other wholesaler's customers — and the screen still
+says "denied" to a stranger, still says "log in" to a signed-out visitor, and
+only lets in a buyer who happens to belong to a *different shop*. It would not
+look broken from any screen anybody checks.
+
+So every "the gate is gone" assertion is paired with a "and this is still shut"
+assertion, in **both directions**: A must not reach B, and B must not reach A.
+
+### Red proof A — the tier gate put back
+
+Both live definitions were fetched with `pg_get_functiondef` and the comparison
+re-inserted inline, then the unchanged gate was run.
+
+**FAILED: 1, 6, 8** — the tier-5 catalogue hidden from a tier-1 buyer of that
+store, the product behind the old gate unreachable, the tier-5 link answering
+`denied`. Every tenant assertion passed.
+
+### Red proof B — the TENANT BOUNDARY deleted instead
+
+`c.wid = v_acct.wid` → `true`, and `or v_acct.wid is distinct from v_cat.wid`
+removed. This is the catastrophic edit, and it is the one worth proving.
+
+**FAILED: 3, 4, 7, 9, 10** — every cross-tenant assertion, in both directions,
+with assertions 9 and 10 returning **`ok`**: store B's buyer opening store A's
+private catalogue by link.
+
+**Assertions 1, 2, 6 and 8 passed under proof B.** A file that only proved the
+tier gate was gone would have gone green on a build that had deleted the tenant
+check. That is the entire reason the pairs exist.
+
+The two proofs share **no** failing assertion. Each half of the file catches a
+different mistake.
+
+### Proof A also shows why the structural assertion is the weak one
+
+Assertion 14 greps both bodies for a tier comparison. Under proof A it **passed**
+— the sabotage restored the gate with an inline subquery rather than the
+`v_tier` variable the grep looks for. The behavioural assertions caught it
+anyway. This is the same lesson as MOD-03: the grep is last on purpose.
+
+### Both proofs rolled back cleanly
+
+`CREATE OR REPLACE` ran via `EXECUTE` **inside** the same `DO` block as the
+assertions, ending on a deliberate `RAISE EXCEPTION`, so Postgres rolled the
+function definitions back with the fixture. Verified after: `zz_t7*` rows 0, and
+both normalised function bodies still hashing to their post-120 values.
+
+### The fixture carries a product production does not have
+
+On production, removing the gate moved **no product at all** — every gated
+catalogue's contents were already reachable through another catalogue. So the
+fixture brings a product that lives **only** behind the tier-5 catalogue, or
+assertion 6 would be measuring today's data rather than the rule.
+
+---
+
+## Seven assertions turned around, and the control that proved which seven
+
+MOD-07 turned five existing gates red. This is the `check_buyer_product_card`
+situation from 1 September — a gate encoding a rule that has since changed —
+except caught in the same session rather than five days later.
+
+**The failures were isolated with a control, not by reading.** A second replay
+database was built from `origin/main` and the whole `.sql` suite run against
+both:
+
+| | failing gates |
+|---|---|
+| with MOD-07 | 20 |
+| control (`origin/main`) | 18 |
+| **caused by MOD-07** | **2 files, 7 assertions** |
+
+The other 18 fail on **both** and are nothing to do with this change: they
+depend on production data and abort with things like *"fixture product 'Boxy
+Cotton Tee' (wid sq) is missing"*. **Eighteen of the repo's SQL gates cannot run
+against a replayed database at all** — a real blind spot, adjacent to CLEAN-09,
+recorded here and not fixed tonight.
+
+Without the control I would have been staring at twenty red gates with no way to
+tell which two were mine.
+
+### Turned around rather than deleted
+
+Every affected row was **inverted**, not removed:
+
+```
+'a tier 1 buyer is NOT shown a tier 3 catalog'      0
+'a tier 1 buyer IS now shown a tier 3 catalog'      1   (MOD-07)
+```
+
+The same function is still called with the same arguments, so the coverage
+survives and reinstating the gate turns these files red again. Deleting the rows
+would have thrown the coverage away with the obsolete expectation. The
+superseded quote from Hadi that produced them is kept in each file's preamble
+and marked superseded, because it is why the rows exist at all.
+
+Rows about a **different wholesaler**, an inactive catalogue, a dead token and a
+deactivated account were green before and after, and were not touched.
+
+### A hazard this found and did not resolve
+
+`check_buyer_pricing` failed on a **price**: a catalogue above the buyer's old
+tier now contributes its discount. That is correct under D2, but it names a real
+risk — MOD-05 recorded that **23 products sit in two or more catalogues with
+conflicting discounts**, and `v2_buyer_store_read` picks a winner by catalogue
+order (`is_default desc, name`). Widening the visible set can therefore change
+*which* catalogue wins and, in principle, what a buyer pays.
+
+**It did not happen.** Reconstructed on production, the old tier-filtered store
+read and the new one were compared line by line for all 13 accounts:
+
+```
+lines_old = lines_new for every account;  price_changed_lines = 0 for every account
+```
+
+Zero price movement. But the rule now permits it where the data did not, so it
+is written down here and raised with Hadi rather than left for an invoice to
+discover. It belongs with MOD-06.
