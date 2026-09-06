@@ -1012,6 +1012,36 @@ export async function setCatalogOnly(productId, catalogOnly) {
     .eq("id", productId));
 }
 
+/** MOD-08. The marketplace switch.
+ *
+ *  Until MOD-01 the ONLY thing that put a product on the OGGI marketplace was
+ *  `v2_catalogs.is_public` -- a checkbox whose label said, and still says,
+ *  "Open to anyone with the link. No login." It never mentioned the
+ *  marketplace, and it published every product on that shelf to it. That was
+ *  the lie.
+ *
+ *  MOD-01 moved the switch onto the product and MOD-03 pointed the feed and
+ *  the search at it, which fixed the lie and created a worse one in its place:
+ *  the marketplace flag existed, the feed read it, and **nothing in the app
+ *  could write it.** A wholesaler could neither publish a new product nor take
+ *  an old one down, and no screen said so. The marketplace was frozen at
+ *  whatever migration 116's backfill happened to set.
+ *
+ *  This is the writer. It exists so that the flag the marketplace reads is a
+ *  flag a person can actually reach -- the same failure as `createRatio()`,
+ *  which has been the only way to create a size ratio since 24 August and has
+ *  had no caller for just as long.
+ *
+ *  Deliberately a plain table update, like toggleArchived and setCatalogOnly
+ *  above: v2_products_update_scoped already restricts it to the wholesaler's
+ *  own products (or an owner), so an RPC would add a second copy of a rule
+ *  that is already enforced in one place. */
+export async function setProductPublic(productId, isPublic) {
+  return sbCall(supabase.from("v2_products")
+    .update({ is_public: !!isPublic, updated_at: new Date().toISOString() })
+    .eq("id", productId));
+}
+
 /** in / out / not_tracked for every product this wholesaler has, keyed by
  *  product id. One call for a whole catalog screen rather than one per
  *  tile, and one place that decides what "out of stock" means. */
