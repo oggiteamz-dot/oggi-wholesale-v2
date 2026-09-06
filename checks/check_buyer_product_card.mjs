@@ -178,14 +178,14 @@ function render(over = {}, opts = {}) {
 {
   const card = render({ baseUnit: 12 });
 
-  const cells = [...card.querySelectorAll(".os-cell")];
+  const cells = [...card.querySelectorAll(".bs-cell")];
   ok(cells.length > 0, "the order sheet offers a cell per colour x size for an open-stock product");
   const cell = cells.find((c) => c.getAttribute("role") === "button");
   ok(!!cell, "an in-stock cell can be aimed at");
   if (cell) cell.dispatchEvent(new dom.window.Event("click"));
 
-  const plus  = [...card.querySelectorAll("button.os-step")].find((b) => b.textContent === "+");
-  const minus = [...card.querySelectorAll("button.os-step")].find((b) => b.textContent === "−");
+  const plus  = [...card.querySelectorAll("button.bs-step")].find((b) => b.textContent === "+");
+  const minus = [...card.querySelectorAll("button.bs-step")].find((b) => b.textContent === "−");
   ok(!!plus && !!minus, "the sheet's one control has real + and − buttons");
   const readVal = () => {
     const v = card.querySelector(".os-val");
@@ -216,9 +216,9 @@ function render(over = {}, opts = {}) {
 {
   // Same rewrite as the block above: the control moved, the promise did not.
   const card = render({ baseUnit: 1 });
-  const cell = [...card.querySelectorAll(".os-cell")].find((c) => c.getAttribute("role") === "button");
+  const cell = [...card.querySelectorAll(".bs-cell")].find((c) => c.getAttribute("role") === "button");
   if (cell) cell.dispatchEvent(new dom.window.Event("click"));
-  const plus = [...card.querySelectorAll("button.os-step")].find((b) => b.textContent === "+");
+  const plus = [...card.querySelectorAll("button.bs-step")].find((b) => b.textContent === "+");
   if (plus) plus.dispatchEvent(new dom.window.Event("click"));
   const v = card.querySelector(".os-val");
   const got = v ? v.textContent : "(no control)";
@@ -307,7 +307,7 @@ function render(over = {}, opts = {}) {
     imagesByColor: new Map(), primaryImage: null, minPrice: 11, maxPrice: 11,
   });
 
-  const cells = card.querySelectorAll(".os-cell:not(.os-none)");
+  const cells = card.querySelectorAll(".bs-cell:not(.os-none)");
   ok(cells.length === 4,
      `a product with no colours is still orderable — 4 tappable size cells (got ${cells.length})`);
   // cells.length > 0 is not redundant: [].every() is TRUE, so without it this
@@ -324,7 +324,7 @@ function render(over = {}, opts = {}) {
 
   // One row is its own per-size total. A "Per size" footer under a single row
   // repeats that row, so it is dropped.
-  ok(!card.querySelector(".os-grid tfoot"),
+  ok(!card.querySelector(".bs-grid tfoot"),
      "and no per-size footer repeating the only row back at the reader");
 
   // The swatch bar has nothing to show; it must not leave an empty rail.
@@ -463,17 +463,17 @@ function seedCart(wid, lines) { localStorage.setItem(CART_KEY(wid), JSON.stringi
   localStorage.clear();
   const card = render();
 
-  ok(!!card.querySelector(".os-hint"),
+  ok(!!card.querySelector(".bs-hint"),
      "before anything is aimed, one quiet line says what to do");
   ok(!card.querySelector(".os-editrow"),
      "and there is no control row at all until a cell is tapped");
 
-  const cells = [...card.querySelectorAll('.os-cell[role="button"]')];
+  const cells = [...card.querySelectorAll('.bs-cell[role="button"]')];
   ok(cells.length > 1, "there is more than one tappable cell to choose between");
 
   // Tap a cell in the SECOND colour row -- the case the complaint is about.
-  const secondRow = card.querySelectorAll(".os-grid tbody tr")[1];
-  const cellInSecondRow = secondRow && secondRow.querySelector('.os-cell[role="button"]');
+  const secondRow = card.querySelectorAll(".bs-grid tbody tr")[1];
+  const cellInSecondRow = secondRow && secondRow.querySelector('.bs-cell[role="button"]');
   if (cellInSecondRow) cellInSecondRow.dispatchEvent(new window.Event("click", { bubbles: true }));
 
   const editRow = card.querySelector(".os-editrow");
@@ -488,37 +488,37 @@ function seedCart(wid, lines) { localStorage.setItem(CART_KEY(wid), JSON.stringi
   // the whole tbody, so a reference captured beforehand points at a detached
   // node and this assertion failed against working code. The aimed cell is the
   // reliable handle, because it is the thing the component itself marks.
-  const aimedCell = card.querySelector(".os-cell.os-aim");
+  const aimedCell = card.querySelector(".bs-cell.os-aim");
   const tapped = aimedCell ? aimedCell.closest("tr") : null;
   ok(!!aimedCell, "the tapped cell is marked as aimed, so the row can be found again after the repaint");
   ok(!!tapped && tapped.nextElementSibling === editRow,
      "and the control sits directly beneath the row being edited — not at the foot of the card");
-  ok(!!tapped && tapped !== card.querySelector(".os-grid tbody tr"),
+  ok(!!tapped && tapped !== card.querySelector(".bs-grid tbody tr"),
      "proven on the SECOND colour row, not the first — the first row would pass even if the control were still at the top");
 
   // It must span the whole grid, or the table renders ragged and reads as a bug.
   const td = editRow && editRow.querySelector("td");
-  const cols = card.querySelectorAll(".os-grid thead th").length;
+  const cols = card.querySelectorAll(".bs-grid thead th").length;
   ok(!!td && td.colSpan === cols,
      `and spans the full width of the grid (colspan ${td ? td.colSpan : "?"} vs ${cols} columns)`);
 
   ok(!!editRow && !!editRow.querySelector(".os-editstick"),
      "wrapped in a left-sticky element, so scrolling sideways on a wide size range cannot scroll the control off screen");
 
-  const hint = card.querySelector(".os-hint");
+  const hint = card.querySelector(".bs-hint");
   ok(!!hint && hint.hidden,
      "and the hint gets out of the way once the control is open");
 
   // Aiming a DIFFERENT colour moves the control to that row rather than
   // leaving two open or leaving it where it was.
-  const thirdRow = [...card.querySelectorAll(".os-grid tbody tr")].find(
-    (r) => r !== tapped && !r.classList.contains("os-editrow") && r.querySelector('.os-cell[role="button"]')
+  const thirdRow = [...card.querySelectorAll(".bs-grid tbody tr")].find(
+    (r) => r !== tapped && !r.classList.contains("os-editrow") && r.querySelector('.bs-cell[role="button"]')
       && r !== tapped.nextElementSibling);
   if (thirdRow) {
-    thirdRow.querySelector('.os-cell[role="button"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    thirdRow.querySelector('.bs-cell[role="button"]').dispatchEvent(new window.Event("click", { bubbles: true }));
     const rows = card.querySelectorAll(".os-editrow");
     ok(rows.length === 1, `only ever one control row is open (got ${rows.length})`);
-    const nowTapped = card.querySelector(".os-cell.os-aim") && card.querySelector(".os-cell.os-aim").closest("tr");
+    const nowTapped = card.querySelector(".bs-cell.os-aim") && card.querySelector(".bs-cell.os-aim").closest("tr");
     ok(!!nowTapped && nowTapped.nextElementSibling === rows[0],
        "and it follows the aim to the new row");
   }

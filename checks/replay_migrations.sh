@@ -149,14 +149,28 @@ done
 # The fix is `::text`, and the canary below is what stops it coming back: if the
 # cast is ever lost, every long signature collapses to exactly 63 characters and
 # `max(length)` drops to 63, which fails loudly instead of hashing quietly.
+# PARTITIONS ARE EXCLUDED FROM THE SHAPE -- added 6 Sep 2026.
+#
+# v2_ensure_movement_partitions(p_months_ahead) creates the inventory-ledger
+# partitions counted forward from TODAY, so a replay run in September makes one
+# more of them than production was left holding in August. The counts and the
+# hash therefore drifted by the calendar rather than by any change to the code,
+# and this gate had been failing for that reason with nothing wrong.
+#
+# Measured 6 Sep: replay 43 partitions / production 42, and REAL tables 61 = 61
+# on both sides. Excluding `relispartition` compares what the migrations
+# actually declare. A missing or extra real table still fails, and so does a
+# renamed partitioned PARENT, because the parent is not itself a partition.
 read -r t v fn pol shape maxlen <<<"$(psqlq -d "$DB" -Atc "
-  select (select count(*) from information_schema.tables where table_schema='wholesale_v2' and table_type='BASE TABLE')
+  select (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+            where n.nspname='wholesale_v2' and c.relkind in ('r','p') and not c.relispartition)
       || ' ' || (select count(*) from information_schema.views  where table_schema='wholesale_v2')
       || ' ' || (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='wholesale_v2')
       || ' ' || (select count(*) from pg_policies where schemaname='wholesale_v2')
-      || ' ' || (select md5(string_agg(nm, ',' order by nm)) from (
+      || ' ' || (select md5(string_agg(nm, ',' order by encode(convert_to(nm,'UTF8'),'hex'))) from (
                    select c.relname::text as nm from pg_class c join pg_namespace n on n.oid=c.relnamespace
                     where n.nspname='wholesale_v2' and c.relkind in ('r','v','p')
+                      and not c.relispartition
                    union all
                    select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
                      from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='wholesale_v2'
@@ -164,10 +178,29 @@ read -r t v fn pol shape maxlen <<<"$(psqlq -d "$DB" -Atc "
       || ' ' || (select max(length(nm)) from (
                    select c.relname::text as nm from pg_class c join pg_namespace n on n.oid=c.relnamespace
                     where n.nspname='wholesale_v2' and c.relkind in ('r','v','p')
+                      and not c.relispartition
                    union all
                    select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
                      from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='wholesale_v2'
                  ) q)")"
+
+# COLLATION -- added 6 Sep 2026, and this had been silently lying.
+#
+# The hash mixes BARE relation names with `name(args)` function signatures and
+# sorts the union. Those two shapes interleave DIFFERENTLY depending on the
+# database's collation, because of where '(' falls relative to letters. So two
+# schemas that are byte-for-byte identical hash differently on two machines,
+# and this gate reports a difference that does not exist.
+#
+# Measured 6 Sep: the replay and production agreed on every relation name and
+# every function signature -- the relation-only hash and the function-only hash
+# were IDENTICAL on both sides -- while the combined hash differed. Adding
+# `collate "C"` made the replay reproduce production's hash exactly:
+# ba1c3dcdb9c538e85e32e881a2e64b42.
+#
+# This is the same family as the `::text` truncation bug recorded above: the
+# repo's sharpest structural instrument quietly measuring the wrong thing. A
+# gate that cries wolf gets switched off, and then the real difference walks in.
 
 # THE CANARY. Not decoration: this exact condition was true for weeks and
 # nothing said so. If the longest thing being hashed is 63 characters, the
@@ -329,12 +362,21 @@ echo "   shape=$shape"
 # it could not see was 108's three changed signatures. See the truncation note
 # above.
 #
-# ⚠️ PRODUCTION IS STILL AT 107. Migrations 108 and 109 are applied to neither,
-# deliberately -- 108 makes the phone required and the deployed sign-in screen
-# has no field for one, so both go on after the code merges. Until then the
-# replay will not match production, and that is correct rather than a fault.
-EXP_T=104 EXP_V=4 EXP_F=162 EXP_P=96
-EXP_SHAPE=54e39f7c17ca67b159e3c2cb0442ad6f   # replay of 111 migrations, 30 Aug 2026
+# ⚠️ The note that stood here said "PRODUCTION IS STILL AT 107 -- 108 and 109 are
+# applied to neither". That has been FALSE since 30 Aug, when both were applied
+# and verified. A stale caveat in a gate is worse than none: it explains away a
+# real failure. Removed 6 Sep 2026.
+#
+# BASELINE MOVED 6 Sep 2026, and measured FROM PRODUCTION rather than from the
+# replay -- taking it from the replay would only prove the replay agrees with
+# itself. Production on that date: 62 real tables, 4 views, 166 functions,
+# 96 policies. The replay of all 120 migrations reproduces it exactly.
+#
+# Migrations 112-118 landed after the previous baseline (the marketplace feed
+# and search, the login doors, then MOD-01/05/04), which is why it had drifted
+# from 162 functions to 166.
+EXP_T=62 EXP_V=4 EXP_F=166 EXP_P=96
+EXP_SHAPE=ba1c3dcdb9c538e85e32e881a2e64b42   # production, 6 Sep 2026, partitions excluded
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
@@ -343,9 +385,9 @@ EXP_SHAPE=54e39f7c17ca67b159e3c2cb0442ad6f   # replay of 111 migrations, 30 Aug 
 # and function signatures and not ACLs -- which is exactly why S7
 # (check_anon_grants.sql) has to be run as well, and is what caught 097.
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
-  echo "   MATCHES the 30 Aug 2026 production baseline exactly, shape included."
+  echo "   MATCHES the 6 Sep 2026 production baseline exactly, shape included."
 else
-  echo "   !! differs from the 30 Aug 2026 production baseline"
+  echo "   !! differs from the 6 Sep 2026 production baseline"
   echo "      expected tables=$EXP_T views=$EXP_V functions=$EXP_F policies=$EXP_P"
   echo "      Either a migration was applied to production without a file (check"
   echo "      supabase_migrations.schema_migrations against supabase/migrations/),"

@@ -101,7 +101,7 @@ ok(el.querySelectorAll(".color-swatch").length === 2, "12 one swatch per colour"
 // They now assert the capability rather than the control that used to express
 // it. That is the honest fix; quietly deleting them would have been the
 // dishonest one. Recorded here rather than in a commit message nobody re-reads.
-const cells = [...el.querySelectorAll(".os-cell")];
+const cells = [...el.querySelectorAll(".bs-cell")];
 ok(cells.length >= 4, `13 every colour x size is reachable — a cell each (got ${cells.length})`);
 const outCell = cells.find((c) => c.classList.contains("os-out"));
 ok(!!outCell && !outCell.hasAttribute("role"),
@@ -112,7 +112,7 @@ if (live) live.dispatchEvent(new dom.window.Event("click"));
 const padEl = el.querySelector(".os-pad");
 ok(!!padEl && !padEl.classList.contains("os-pad-idle"),
    "15 a quantity control appears for the chosen cell");
-const steps = [...el.querySelectorAll(".os-step")];
+const steps = [...el.querySelectorAll(".bs-step")];
 ok(steps.length >= 2, "17 real + / - buttons, one control for the whole sheet");
 const plus = steps.find((b) => txt(b) === "+");
 if (plus) plus.dispatchEvent(new dom.window.Event("click"));
@@ -125,7 +125,7 @@ ok(/Add \d+ more of this product/.test(after) || /min 24/i.test(after), "20 a pr
 ok(/Add \d+ more in Red/.test(after), "21 a per-colour shortfall names the colour");
 ok(/to reach \$9/.test(after), "22 the next quantity break is offered as a nudge");
 ok([...el.querySelectorAll("button")].some((b) => /Add to cart|Update/.test(txt(b))), "23 an add-to-cart control exists");
-ok(!!el.querySelector(".os-grid thead th[data-size]"), "31 sizes are named ONCE, across the top");
+ok(!!el.querySelector(".bs-grid thead th[data-size]"), "31 sizes are named ONCE, across the top");
 // Counts COLOUR rows, not every row in the body.
 //
 // This used to count `tbody tr` outright, which was a fine proxy until the
@@ -135,12 +135,12 @@ ok(!!el.querySelector(".os-grid thead th[data-size]"), "31 sizes are named ONCE,
 // and the intent is unchanged; only the proxy was wrong. Excluding the edit
 // row states the intent directly, and `[data-colour]` cross-checks it, so
 // this cannot be satisfied by rows that are not colours.
-ok(el.querySelectorAll(".os-grid tbody tr:not(.os-editrow)").length === 2, "32 one row per colour");
-ok(el.querySelectorAll(".os-grid tbody tr[data-colour]").length === 2,
+ok(el.querySelectorAll(".bs-grid tbody tr:not(.os-editrow)").length === 2, "32 one row per colour");
+ok(el.querySelectorAll(".bs-grid tbody tr[data-colour]").length === 2,
    "32b and each of those rows is a real colour, not padding");
 ok(!!el.querySelector(".os-rt"), "33 a running total per colour, on its row");
-ok(!!el.querySelector(".os-grid tfoot td[data-total-size]"), "34 a total per SIZE along the bottom");
-ok(!!el.querySelector(".os-grid tfoot td[data-grand]"), "35 a grand total for the product");
+ok(!!el.querySelector(".bs-grid tfoot td[data-total-size]"), "34 a total per SIZE along the bottom");
+ok(!!el.querySelector(".bs-grid tfoot td[data-grand]"), "35 a grand total for the product");
 ok(/available/.test(after), "24 remaining availability is shown");
 ok(/MSRP/.test(after), "25 MSRP and margin are shown when known");
 
