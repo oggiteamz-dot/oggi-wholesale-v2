@@ -8,7 +8,7 @@
 --
 -- The rows below are, in order:
 --   1-3   the shop works        — products, prices and live stock come back
---   4-7   the fence holds       — wrong tier, wrong wholesaler, dead token,
+--   4-7   the fence holds       — wrong wholesaler, dead token,
 --                                 not-logged-in all return NOTHING
 --   8     no cross-catalog bleed — a second catalog on the SAME wholesaler is
 --                                 invisible, which is the ordinary case that
@@ -114,8 +114,12 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
          (select max(base_unit)::text
             from wholesale_v2.v2_catalog_read('tok_read_public', null))
 
-  -- 4-7: the fence
-  union all select 'a tier 1 buyer opening a TIER 5 link gets nothing', '0',
+  -- 4-7: the fence. MOD-07 (D2) removed the tier bar from this fence; the rows
+  -- were turned around rather than deleted, so the same code paths are still
+  -- exercised and putting the gate back still turns this file red. The rows
+  -- about ANOTHER wholesaler and a switched-off catalogue are the fence that
+  -- remains, and they were green throughout MOD-07.
+  union all select 'a tier 1 buyer opening a TIER 5 link NOW gets its rows (MOD-07)', '3',
          (select count(*)::text
             from wholesale_v2.v2_catalog_read('tok_read_t5','00000000-0000-4000-8000-0000000b3001'))
   union all select 'a buyer of ANOTHER wholesaler gets nothing', '0',
@@ -171,9 +175,11 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
             from wholesale_v2.v2_buyer_catalog_read(
               '00000000-0000-4000-8000-0000000b3001',
               '00000000-0000-4000-8000-0000000a3001'))
-  -- The catalog exists, is stocked, and belongs to the RIGHT wholesaler --
-  -- it is simply above this buyer's tier. Zero rows can only be the gate.
-  union all select 'a catalog above the buyer''s tier gives nothing', '0',
+  -- The catalog exists, is stocked, and belongs to the RIGHT wholesaler -- it
+  -- is simply above this buyer's old tier. Until MOD-07 zero rows could only be
+  -- the gate; now rows can only be its absence, which is the same assertion
+  -- read the other way.
+  union all select 'a catalog above the buyer''s old tier NOW gives its rows (MOD-07)', '3',
          (select count(*)::text
             from wholesale_v2.v2_buyer_catalog_read(
               '00000000-0000-4000-8000-0000000b3001',

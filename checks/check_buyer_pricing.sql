@@ -101,8 +101,12 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
             '00000000-0000-4000-8000-0000000b5002',
             '00000000-0000-4000-8000-0000000a5002'),'FM990.00'))
 
-  -- 5-7. the fence
-  union all select 'a catalogue above the buyer''s tier contributes nothing', '10.00',
+  -- 5-7. the fence. MOD-07 (D2) removed the tier bar from it. The row below is
+  -- turned around rather than deleted: a catalogue that used to be above the
+  -- buyer's rank now contributes its discount like any other in their store, so
+  -- 20.00 is the new truth and reinstating the gate turns this file red again.
+  -- The DEACTIVATED-account and wrong-wholesaler rows are the fence that stays.
+  union all select 'a catalogue above the buyer''s old tier NOW contributes (MOD-07)', '20.00',
          (select to_char(wholesale_v2.v2_buyer_discount_pct(
             '00000000-0000-4000-8000-0000000b5001',
             '00000000-0000-4000-8000-0000000a5003'),'FM990.00'))
@@ -136,7 +140,7 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
   union all select 'and they are the wholesaler''s own numbers', '9.00,8.00',
          (select string_agg(to_char(unit_price,'FM990.00'), ',' order by min_qty)
             from wholesale_v2.v2_catalog_tiers('tok_price', null))
-  union all select 'a tier-5 catalogue gives a tier-1 buyer no breaks', '0',
+  union all select 'a tier-5 catalogue NOW gives a tier-1 buyer its breaks (MOD-07)', '2',
          (select count(*)::text from wholesale_v2.v2_catalog_tiers(
             'tok_prc_t5','00000000-0000-4000-8000-0000000b5001'))
   union all select 'a made-up token gives no breaks', '0',
