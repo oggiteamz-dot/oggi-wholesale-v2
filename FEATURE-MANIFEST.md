@@ -767,6 +767,9 @@ broke · ❌ not built
 | 451 | **Two components may not share a CSS selector family.** `css/components.css` defined `.os-*` **twice** — the pack builder uses `.os-step` as an inline-flex WRAPPER holding `[-][n][+]`, and the buyer order-sheet block appended later redefined it as a 46×42 BUTTON with `flex:none`. Later wins, so every stepper on the platform was crushed into a box 8.7px too small and spilled into its neighbour. The buyer's four colliding names became `.bs-*` | `css/components.css`, `js/components/product-card.js` | `check_os_namespace.mjs` — 2 assertions, red-proved 3 ways (the stylesheet as deployed, one name restored, the box shrunk without touching a name) | ✅ |
 | 452 | **The pricing dial lives on the STORE, not the catalogue.** `v2_effective_unit_price` takes a `p_catalog_id`, so the catalogue is part of the PRICE. 23 products on production sit in two or more catalogues with **conflicting** discounts, which is why MOD-04 could not be built first. 117 puts one dial on `v2_wholesalers`, seeded from each store's DEFAULT catalogue — all of which are 0%, so no buyer's price moves. Deliberately inert; `v2_catalog_discount_pct` still prices every order | `migrations/117`, `v2_wholesalers.discount_pct` | `check_store_pricing_dial.sql` — parity over every (store × client) pair, red-proved 3 ways | ✅ |
 | 453 | **A new store starts at 0%, and the mode is constrained.** A dial defaulting to anything else would reprice every product of every wholesaler created from that day on, with nothing on screen looking wrong; an unconstrained `discount_mode` would silently fall through to `combine` and add a discount nobody set | `migrations/117` | `check_store_pricing_dial.sql` assertions 2 and 3 | ✅ |
+| 454 | **A granted buyer sees the whole STORE, not one catalogue.** `js/views/buyer.js` took `visibleCatalogs[0]` and there is no switcher, so anything filed in a second catalogue was invisible to a customer the wholesaler had already approved. Measured on production: the demo-atelier buyer is entitled to 10 products and could reach 7 — the three she could not reach were that store's **hand-beaded made-to-order gowns**. Only the LIST widens; packs, tiers, the discount lookup and `v2_submit_order` keep the catalogue they already use, so nothing orderable today changes price | `migrations/118`, `js/data/catalog.js` `getBuyerStore()`, `js/views/buyer.js` | `check_buyer_store_read.sql` — 10 assertions, red-proved 3 ways incl. a gate-bypass break | ✅ |
+| 455 | **The replay gate compares the SCHEMA, not the calendar or the collation.** `replay_migrations.sh` had been red since 30 Aug for two reasons that were both instrument error: the inventory-ledger partitions are created N months forward from *today*, so a September replay made one more than production held; and the shape hash sorts bare relation names mixed with `name(args)` signatures, which **interleave differently under different collations**. Both halves of the hash matched all along. Now excludes partitions and orders by UTF8 bytes; replay of all 120 migrations reproduces production exactly, hash included | `checks/replay_migrations.sh` | itself — `MATCHES the 6 Sep 2026 production baseline exactly, shape included` | ✅ |
+| 456 | **The buyer order-sheet gates survived the `.os-*` → `.bs-*` rename.** PR #53 renamed four CSS class families in `js/components/product-card.js` and did not update the two gates that query them, so `check_buyer_product_card` (75 assertions) and `check_buyer_card_capabilities` (37) had been RED on `main` since 1 Sep — the buyer's order sheet had **no automated protection for five days**. Selectors corrected; both green, and the code was never at fault | `checks/check_buyer_product_card.mjs`, `checks/check_buyer_card_capabilities.mjs` | themselves — 77 and 37 assertions, green against the shipped component | ✅ |
 
 > **Rows 442–449 are MK-04**, one migration (`115`) and one gate
 > (`check_marketplace_search.mjs`, 41 assertions, red-proved 3 ways).
@@ -782,12 +785,12 @@ broke · ❌ not built
 
 
 
-## Reconciliation — 6 September 2026 (MOD-01 the product public flag, MOD-05 the store pricing dial) and 1 September 2026 (MK-01/02/03/04, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+## Reconciliation — 6 September 2026 (MOD-01 the product public flag, MOD-05 the store pricing dial, MOD-04 the whole store, and three gates found red on main) and 1 September 2026 (MK-01/02/03/04, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **453** |
-| Enforced and proven (✅) | **435** |
+| Features listed | **456** |
+| Enforced and proven (✅) | **438** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
