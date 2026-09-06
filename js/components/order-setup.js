@@ -56,6 +56,14 @@
 // =============================================================================
 
 import { esc } from "../lib/utils.js";
+// CNT-00, 6 Sep 2026. coloursOf, sizesOf, variantAt and colourMeta used to be
+// private functions in this file. The receive screen needs the same four
+// answers, and this repo's rule is that a helper copy-pasted into two places
+// is a bug waiting for one copy to be fixed -- so they MOVED to js/lib, and
+// this file holds no second definition of them. If the pack builder and the
+// receive screen ever disagreed about which colours a product has, there
+// would be no way to tell which grid was right.
+import { coloursOf, sizesOf, variantAt, colourMeta } from "../lib/variant-grid.js";
 import { toast } from "./toast.js";
 import { setBaseUnit } from "../data/size-ratios.js";
 import { setProductMoq, setSellingModel } from "../data/pricing-admin.js";
@@ -69,61 +77,6 @@ import { listPacksForProduct, createPack, archivePack } from "../data/prepacks.j
 // as shortcuts that fill the same grid.
 import { suggestPackRatio } from "../data/prepacks.js";
 import { listRatios, ratioShorthand } from "../data/size-ratios.js";
-
-/** Colour names of a product, in the order its variants were created. */
-function coloursOf(product) {
-  const seen = [];
-  (product.variants || []).forEach((v) => {
-    const c = v.extra_attrs?.color ?? v.color;
-    if (c && !seen.includes(c)) seen.push(c);
-  });
-  return seen;
-}
-
-/**
- * Swatch and photo for a colour.  Added 24 Aug 2026.
- *
- * Hadi: "I can read blue, green, navy, whatever. I don't know if these are the
- * right names for them, and I might forget... I want to see the actual colour.
- * Also I want to see the small image of the product."
- *
- * Both were already in the data and neither was on screen -- the recurring
- * shape of this codebase's failures. `extra_attrs.colorHex` has been written
- * on every variant since migration 001, and per-colour photos already drive
- * the BUYER's card through imagesByColor() in js/data/catalog.js. The setup
- * screen, where the wholesaler decides what goes in a box, showed a word.
- *
- * A word is the weakest possible identifier here: "Navy" and "Blue" are two
- * taps apart in a grid and nothing on screen distinguishes them.
- */
-function colourMeta(product, colour) {
-  const vs = (product.variants || []).filter((v) => (v.extra_attrs?.color ?? v.color) === colour);
-  const hex = vs.map((v) => v.extra_attrs?.colorHex ?? v.colorHex).find(Boolean) || "#999";
-  // First real photo on any variant of this colour. image_url first, then the
-  // images array -- the same order js/data/catalog.js resolves them in, so the
-  // wholesaler sees the picture the buyer will see rather than a second guess.
-  const image = vs.map((v) => v.image_url || (Array.isArray(v.images) ? v.images[0] : null)).find(Boolean) || null;
-  return { hex, image };
-}
-
-/** Size names, same ordering rule. Left-to-right order matters: a size run
- *  read out of order turns "2 Small, 3 Medium" into nonsense. */
-function sizesOf(product) {
-  const seen = [];
-  (product.variants || []).forEach((v) => {
-    const s = v.extra_attrs?.size ?? v.size;
-    if (s && !seen.includes(s)) seen.push(s);
-  });
-  return seen;
-}
-
-function variantAt(product, colour, size) {
-  return (product.variants || []).find((v) => {
-    const c = v.extra_attrs?.color ?? v.color;
-    const s = v.extra_attrs?.size ?? v.size;
-    return c === colour && s === size;
-  }) || null;
-}
 
 /**
  * @param {object}   o
