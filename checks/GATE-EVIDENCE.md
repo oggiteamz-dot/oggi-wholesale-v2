@@ -1506,3 +1506,53 @@ The normalised body of `supabase/migrations/115_v2_marketplace_search.sql`
 `642223c6cbeb78a959fc33d3704ea927`, and so does `pg_proc.prosrc` for the live
 function. The file the repo would replay is the function the database is
 running — not a file that looks like it.
+
+---
+
+## check_product_public_flag.sql — MOD-01, migration 116
+
+10 assertions. **Red-proved three ways**, each break caught by the assertions
+written for it, green again on restore:
+
+| # | Break | Result |
+|---|---|---|
+| 1 | Publish a product that lives only in a PRIVATE catalogue | **2 of 10 red** — `FAIL 4: LEAK` and `FAIL 7: 1 product(s) flagged public with no public catalogue` |
+| 2 | Un-publish a product that lives in a public catalogue | **2 of 10 red** — `FAIL 3` and `FAIL 8: 1 public-catalogue product(s) were dropped from the feed` |
+| 3 | `alter column is_public set default true` | **1 of 10 red** — `FAIL 1: a new product did not default to private` |
+
+### The draft of this gate that would have lied
+
+The first version **re-ran the migration's backfill** before asserting. Pointed
+at a production snapshot that had drifted, that `UPDATE` silently repairs the
+drift inside its own transaction and then every assertion passes — a check that
+fixes the defect it exists to find. It is the same failure `check_pack_moq.sh`
+was written about, wearing different clothes: seven green while the function
+crashed on every call.
+
+The flags are now set explicitly in the fixture and the invariant is measured,
+never re-derived. The file is safe to point at production for that reason.
+
+### Why break 3 matters more than it looks
+
+Nothing on any screen would look wrong if `is_public` defaulted to true. Every
+product a wholesaler created from that day on would publish itself to the entire
+marketplace the instant they pressed save — including the private couture lines
+that are the whole reason the flag exists. There is no error state, no warning
+and nothing red. Assertion 1 is checked **before** the fixture is flagged, on a
+row nobody has touched, because that is the only moment the default is visible.
+
+### Containment, not sampling — the third gate to reach for it by default
+
+Assertions 7 and 8 are the same shape `check_marketplace_search` and
+`check_marketplace_feed` arrived at: assert only "nothing leaked" and a backfill
+that flagged NOTHING passes perfectly; assert only "nothing was dropped" and a
+backfill that flagged EVERYTHING passes perfectly. Assertion 9 exists solely to
+close the second hole — the private side of the platform must not be empty.
+
+### Verified against production, read-only, 6 Sep 2026
+
+`101` flagged public, `26` private, `0` leaked, `0` dropped, default `false`,
+`NOT NULL` enforced. Atelier's `A-102`, `A-109` and `A-110` — the three
+made-to-order gowns the feed gate already protects by name — are in the private
+set, and Atelier's 7 published products are still public, so the result cannot
+be a shelf that is simply empty.

@@ -1,6 +1,6 @@
 # Feature Manifest — OGGI Wholesale v2
 
-**Last reconciled: 1 September 2026** (previous: 15 August — six days and seven
+**Last reconciled: 6 September 2026** (previous: 15 August — six days and seven
 batches out of date, which is the problem this rewrite exists to stop repeating.)
 
 One row per shipped feature, naming **the file it lives in** and **the assertion
@@ -763,6 +763,8 @@ broke · ❌ not built
 | 447 | **Advertising does not jump the queue in a search.** The feed reserves a share of every page for paid placement because a feed is a shelf OGGI arranges; a search is a question the buyer asked. `is_promoted` still rides along so a match can be labelled Sponsored, and it changes no ordering | `migrations/115` | `check_marketplace_search.mjs` — the ordering is asserted to be the relevance bands alone | ✅ |
 | 448 | **An empty query is not a browse.** Clearing the box returns to the rails rather than running a search that quietly means "everything" — otherwise the two screens are indistinguishable | `migrations/115`, `js/views/marketplace.js` | `check_marketplace_search.mjs` — red-proved by removing the guard (97 rows for an empty string) | ✅ |
 | 449 | **A standing access request is a state, not a button.** A shop already asked shows "Requested" and how long that wholesaler takes to answer, rather than a second Request access that sends a duplicate for them to dismiss | `js/views/marketplace.js` (`storeRow`) | `check_access_request_standing_client.mjs` for the underlying rule | ✅ |
+| 450 | **The marketplace switch now lives on the PRODUCT, not the catalogue.** `v2_catalogs.is_public` was the only thing putting a product on the marketplace, and both the feed and the search reach it *through* the catalog join — so retiring the catalogue concept would have emptied the marketplace silently, for everyone. 116 adds `v2_products.is_public`, defaulting **false** so a new product is never published by accident, and backfills it from the live feed's own scope. Deliberately inert: nothing reads it yet | `migrations/116`, `v2_products.is_public` | `check_product_public_flag.sql` — containment asserted in BOTH directions over the whole table, red-proved 3 ways | ✅ |
+| 451 | **Two components may not share a CSS selector family.** `css/components.css` defined `.os-*` **twice** — the pack builder uses `.os-step` as an inline-flex WRAPPER holding `[-][n][+]`, and the buyer order-sheet block appended later redefined it as a 46×42 BUTTON with `flex:none`. Later wins, so every stepper on the platform was crushed into a box 8.7px too small and spilled into its neighbour. The buyer's four colliding names became `.bs-*` | `css/components.css`, `js/components/product-card.js` | `check_os_namespace.mjs` — 2 assertions, red-proved 3 ways (the stylesheet as deployed, one name restored, the box shrunk without touching a name) | ✅ |
 
 > **Rows 442–449 are MK-04**, one migration (`115`) and one gate
 > (`check_marketplace_search.mjs`, 41 assertions, red-proved 3 ways).
@@ -778,15 +780,22 @@ broke · ❌ not built
 
 
 
-## Reconciliation — 1 September 2026 (MK-01/02/03/04, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
+## Reconciliation — 6 September 2026 (MOD-01, the product public flag) and 1 September 2026 (MK-01/02/03/04, the login doors, the size order) and 30 August 2026 (SR-07, SR-05, AC-08/09/17, AC-07/11 + PB-01) and 28–29 August 2026 (Batch S, Batch N 1–4, the Client View gaps, AC-01, Door A, ID-01)
 
 | | |
 |---|---|
-| Features listed | **449** |
-| Enforced and proven (✅) | **431** |
+| Features listed | **451** |
+| Enforced and proven (✅) | **433** |
 | Present but unproven (⚠️) | **18** |
 | Not built (❌) | **0** |
 | **Features lost since the last count** | **0** |
+
+> **Row 451 was found by the manifest gate, not by a person.** `check_os_namespace.mjs`
+> shipped in PR #53 on 1 September and nobody gave it a row, so
+> `check_manifest_is_honest.mjs` — the gate whose entire job is stopping this
+> file from drifting — **had been red on `main` for five days** and no one
+> looked. A gate nobody runs is a document, and this file already knows what
+> happens to documents nothing verifies.
 
 > **Rows 147–154 are the Client View gap pass**, and they exist because a line
 > in `CLAUDE.md` was wrong. It said the live buyer view "still shows one colour
