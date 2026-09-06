@@ -4,7 +4,7 @@ import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 // (import from "../data/catalog.js" removed — every symbol it brought in was only used by renderRatioSection, deleted in CR-0001)
 import { getWholesalerOrders, getWholesalerOrder, advanceOrderStatus, nextStatus, setFulfilNote } from "../data/wholesaler-orders.js";
-import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate, setCatalogOnly, getStockStates } from "../data/products-admin.js";
+import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate, setCatalogOnly, setProductPublic, getStockStates } from "../data/products-admin.js";
 import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, getLocations } from "../data/inventory-admin.js";
 import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, setVariantRetailPrice, setVariantReorderSettings, setVariantBarcode, setVariantImages, getOrderMinimums, setOrderMinimums } from "../data/pricing-admin.js";
 // CR-0001, 24 Aug 2026: the ratio imports are gone from THIS file because
@@ -1052,6 +1052,11 @@ async function productsPane(outlet) {
     // for why the default deliberately does not get a badge.
     const smA = sellingModelBadge(p.selling_model);
     if (smA) badges.push(smA);
+    // MOD-08. The one place a wholesaler can see whether the OGGI marketplace
+    // is showing this product. There is deliberately no badge for the private
+    // case: most products are private and a badge on nearly every tile stops
+    // being read. The action below always says which way the click goes.
+    if (p.is_public) badges.push({ text: "On the marketplace", kind: "badge-success" });
 
     grid.appendChild(renderProductTile({
       id: p.id,
@@ -1067,6 +1072,30 @@ async function productsPane(outlet) {
         { label: p.archived ? "Unarchive" : "Archive", onClick: async () => {
             await toggleArchived(p.id, !p.archived);
             toast(p.archived ? "Unarchived" : "Archived", { type: "success" });
+            reload();
+          } },
+        // MOD-08. THE MARKETPLACE SWITCH, and the first control that has ever
+        // existed for it. The label states the RESULT of pressing it, the same
+        // rule the catalog-only toggle follows -- a button called "On the
+        // marketplace" leaves you working out whether that is what it is or
+        // what it will become.
+        //
+        // The title says the two things a wholesaler cannot see from here and
+        // would otherwise learn from a support message: that this is separate
+        // from the catalog link, and that an archived product or an inactive
+        // store is filtered out at read time regardless of this flag.
+        { label: p.is_public ? "Take off the marketplace" : "Put on the marketplace",
+          title: p.is_public
+            ? "Stop showing this product to buyers browsing the OGGI marketplace. It stays in your catalogs and your approved customers still see it."
+            : "Show this product to every buyer browsing the OGGI marketplace. Your prices and your customers are unaffected — and it still needs your store to be active and the product not archived to actually appear.",
+          onClick: async () => {
+            const goingPublic = !p.is_public;
+            const { error } = await setProductPublic(p.id, goingPublic);
+            if (error) { toast("Could not change this", { type: "danger" }); return; }
+            toast(goingPublic
+              ? `"${p.name}" is now on the OGGI marketplace.`
+              : `"${p.name}" is off the OGGI marketplace. Your own customers still see it.`,
+              { type: "success" });
             reload();
           } },
         { label: "Duplicate as template", title: "Creates an archived, zero-stock copy you can edit and publish", onClick: async () => {
@@ -3680,10 +3709,18 @@ async function catalogsView(outlet, params = {}) {
     pub.checked = !!catalog.isPublic;
     const pubText = document.createElement("span");
     const describePublic = () => {
-      pubText.innerHTML = pub.checked
+      // MOD-08. The sentence about the marketplace is the point of this
+      // change. This checkbox controls ONE thing -- whether the share link
+      // opens without a login -- and until MOD-03 it silently controlled a
+      // second: every product on this shelf was published to the OGGI
+      // marketplace through it. That is fixed, and the label now says so,
+      // because a wholesaler who learned the old behaviour will otherwise
+      // keep using this box to do a job it no longer does.
+      pubText.innerHTML = (pub.checked
         ? "<strong>Open to anyone with the link.</strong> No login. They give a name and phone number when they order."
         : "<strong>Login required.</strong> Only customers you have approved for " +
-          "your store. A stranger with the link sees nothing.";
+          "your store. A stranger with the link sees nothing.")
+        + " <span class=\"cat-public-note\">This does not put anything on the OGGI marketplace \u2014 that is a switch on each product, under Products.</span>";
     };
     pub.addEventListener("change", async () => {
       pub.disabled = true;
