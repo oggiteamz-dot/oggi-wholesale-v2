@@ -1556,3 +1556,50 @@ close the second hole — the private side of the platform must not be empty.
 made-to-order gowns the feed gate already protects by name — are in the private
 set, and Atelier's 7 published products are still public, so the result cannot
 be a shelf that is simply empty.
+
+---
+
+## check_store_pricing_dial.sql — MOD-05, migration 117
+
+14 assertions. **Red-proved three ways:**
+
+| # | Break | Result |
+|---|---|---|
+| 1 | Remove the `customer_only` 0% fallback | **1 of 14 red** — `FAIL 8: customer_only + 0% customer gave 0, expected the 10% store fallback` |
+| 2 | `combine` stops adding the customer discount | **2 of 14 red** — `FAIL 4` **and `FAIL 13: 2 (store, client) pairs would be repriced`** |
+| 3 | Create a second overload of the function | **1 of 14 red** — `FAIL 12: 2 overloads — PostgREST will refuse all of them` |
+
+### Break 2 is the one to read
+
+It was caught **twice** — by the direct arithmetic assertion and by the
+**parity** assertion. Parity is the whole safety argument for MOD-04: for every
+store × every client, the store dial must return exactly what that store's
+default catalogue returns today. If that holds, merging the catalogues into one
+store provably is not a price change. Break 2 shows the parity assertion
+actually bites rather than decorating the file.
+
+### Why this gate exists at all, and what it found first
+
+MOD-04 was next in the build order and **could not safely be built.**
+`v2_effective_unit_price` takes a `p_catalog_id` — the catalogue is part of the
+PRICE, not just a shelf. Measured on production: **23 products sit in two or
+more catalogues and all 23 have conflicting discount percentages.** Merging the
+catalogues first would have given those 23 products two prices with no rule to
+choose between them. The plan's order was wrong and the data said so.
+
+### The migration's own assertion is vacuous on replay — deliberately
+
+117 compares the same two functions, but a fresh replay into an empty database
+has no wholesalers and no clients, so it passes over **zero pairs**. Correct for
+replay, useless as evidence. This file is where the parity claim is earned,
+because it brings its own corpus — and **assertion 14 exists solely to prove the
+corpus is not all zeros**, since parity over an all-zero corpus proves nothing.
+That is the same hole assertion 9 closes in `check_product_public_flag`.
+
+### Verified against production, 6 Sep 2026
+
+**767 (wholesaler × client) pairs, 0 repriced**, and **520 of those pairs carry a
+non-zero discount** — so the result is not the artefact of an all-zero corpus.
+Exactly 1 overload of `v2_store_discount_pct`. Past orders cannot move:
+`v2_order_items.unit_price` is stored, not derived.
+
