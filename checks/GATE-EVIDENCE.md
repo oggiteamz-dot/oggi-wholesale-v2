@@ -1694,3 +1694,193 @@ corpus* — belongs to a corpus, not to a migration, and lives in
 `check_product_public_flag` assertion 9, which brings a fixture that guarantees
 one. Corrected in place the same day, with the reasoning left in the file.
 
+
+---
+
+## `check_marketplace_reads_product_flag` — MOD-03, migration 119
+
+**12 assertions. Green against production. Red-proved two ways, both by putting
+the real defect back rather than by breaking the check.**
+
+### Why the assertions are behavioural
+
+The structural test — *does the body still say `v2_catalog_products`* — is the
+easy half, and it is the half that lies. Grepping for `is_public` passes
+happily on a function reading the **catalogue's** `is_public`, which is the
+exact bug MOD-03 exists to remove. So the fixture builds two products that the
+old rule and the new rule **disagree** about, and asks the live functions which
+one they obey:
+
+| fixture | `p.is_public` | catalogue | old rule says | new rule says |
+|---|---|---|---|---|
+| `pFlag` | true | one PRIVATE catalogue only | hidden | **shown** |
+| `pJoin` | false | a PUBLIC catalogue | **shown** | hidden |
+
+There is no way to pass both while reading the wrong column, and no way to pass
+either by accident. Assertion 11 (the grep) is last on purpose: it is the
+weakest thing in the file and catches only the edit that adds the join back.
+
+### Red proof A — both functions reverted to the catalogue join
+
+Both live definitions were fetched with `pg_get_functiondef`, `where
+p.is_public` was replaced by the old two-join form at all three sites (2 in the
+feed, 1 in the search — the site count is asserted before the revert, so a
+silent partial revert aborts rather than producing a weak proof), and the
+unchanged gate was run against them.
+
+**7 passed, 5 FAILED:**
+
+```
+1 feed hides a flagged product | 2 LEAK in the feed |
+6 search hides a flagged product | 7 LEAK in the search |
+11 2 function(s) still join the catalogue
+```
+
+### Red proof B — only the SEARCH reverted
+
+The half-done refactor: one function moved to the flag, the other left behind.
+This is the failure the file was really written against, because it is the one
+that looks fine on screen.
+
+**8 passed, 4 FAILED:**
+
+```
+6 search hides a flagged product | 7 LEAK in the search |
+8 DRIFT feed vs search | 11 1 function(s) still join the catalogue
+```
+
+Assertion 8 fires **only** in proof B — in proof A both functions were wrong in
+the same direction and agreed with each other perfectly. That is the point:
+agreement is not correctness, and correctness is not agreement. The file needs
+both kinds of assertion.
+
+### Everything ran inside one DO block, so the DDL rolled back too
+
+Reverting a live function on production is not a safe thing to do casually.
+Both proofs did the `CREATE OR REPLACE` with `EXECUTE` **inside** the same
+`DO` block as the assertions and ended on a deliberate `RAISE EXCEPTION`, so
+Postgres rolled the function definitions back with the fixture — a `DO` block
+is a single statement, and DDL in Postgres is transactional. Verified after:
+`zz_m3` rows 0, catalogue joins remaining 0, and the feed and search hashes
+still `f920f6d2…` and `d885bf0a…`.
+
+### What this gate deliberately does NOT assert
+
+Migration 119 proved at apply time that the flag and the catalogue join select
+the identical set across the whole corpus — 0 gained, 0 lost. **That equality
+is not repeated in the gate**, and the omission is the point: it was true of
+one moment, the moment the rule moved. The store model exists so that a
+wholesaler can publish a product belonging to no catalogue, and on that day
+corpus equality is correctly false. A gate asserting it would go red the first
+time the product did what it was built to do — and a gate that cries wolf gets
+ignored, which is how `check_buyer_product_card` sat red on `main` for five
+days.
+
+Assertion 9 keeps the one corpus property that outlives catalogues: the
+marketplace is not empty. Without it, "the feed and the search agree" is
+satisfied perfectly by a marketplace that shows nothing to anyone.
+
+### And it was proved against the REPO, not only against production
+
+`replay_migrations.sh` was run with `KEEP_DB=1` and the gate was pointed at the
+resulting scratch database — 121 migrations replayed into an empty Postgres 16,
+no production data anywhere near it:
+
+```
+== 121 migrations applied, no errors
+   tables=62 views=4 functions=166 policies=96
+   shape=ba1c3dcdb9c538e85e32e881a2e64b42
+   MATCHES the 6 Sep 2026 production baseline exactly, shape included.
+
+check_marketplace_reads_product_flag: 12 passed, 0 failed
+```
+
+This matters more than the production run. The shape hash covers **signatures**,
+not bodies, so it is unchanged by 119 by design and proves nothing about the new
+rule; running the behavioural gate against the replayed database is what shows
+that the repo — not the live database — is what produces functions obeying it.
+
+---
+
+## The same defect, twice: a corpus assertion inside a migration
+
+Migration **119** was written with a converse guard: refuse to apply if no
+product is public, because *0 gained, 0 lost* is satisfied perfectly by two
+rules that both return nothing.
+
+**It stopped the replay at file 121 of 121:**
+
+```
+!! STOPPED AT 119_marketplace_reads_product_flag.sql
+ERROR:  MOD-03: no product is public. Refusing a silent empty marketplace.
+   120 migration(s) applied before this one.
+```
+
+An empty database has no public products because it has no products. The
+migration refused, and the repo could no longer rebuild production — the one
+job the migration set has.
+
+**This is the identical mistake migration 116 was corrected for the day
+before**, recorded a few sections above in this same file. Writing that entry
+did not stop me making it again, which is worth saying plainly rather than
+quietly fixing: the lesson had been recorded as a story about 116 rather than
+as a rule, and a story about one migration does not generalise on its own.
+
+The rule, stated so it generalises:
+
+> **A migration may assert things about the change it makes. It may not assert
+> things about the data it happens to find.** The first is true on every
+> database the file will ever run against. The second is true only where the
+> author was standing.
+
+The *gained/lost* comparison stays in 119 — it is a statement about the change,
+trivially true on an empty database and a real brake on a populated one. The
+converse moved to `check_marketplace_reads_product_flag` assertion 9, which
+brings a fixture and therefore brings its own corpus.
+
+Found by `replay_migrations.sh` — which had itself been red for five days on an
+instrument fault, and was repaired the day before this. It caught a real defect
+within 24 hours of being trustworthy again.
+
+### Repo and database compared, not assumed
+
+The corrected 119 file differs from the text that was applied to production by
+one block — the removed guard, which creates no object. That is a claim, so it
+was measured rather than reasoned about. `md5(pg_proc.prosrc)` for both
+functions, on production and on the database replayed from the repo:
+
+| function | production | replayed from repo |
+|---|---|---|
+| `v2_marketplace_feed` | `9ada08dab4492109d6f47c38209db2e0` (6595 ch) | `9ada08dab4492109d6f47c38209db2e0` (6595 ch) |
+| `v2_marketplace_search` | `87ed3eb7077648aeb2f0ab2585a9240c` (3930 ch) | `87ed3eb7077648aeb2f0ab2585a9240c` (3930 ch) |
+
+Byte-identical, so no re-apply is needed and the repo genuinely rebuilds what
+is running.
+
+### The before/after evidence for "nothing a buyer sees moved"
+
+Captured on production immediately before applying 119 and re-measured with the
+identical query immediately after. Each hash is over `product_id | slot |
+access` in returned order.
+
+| probe | hash | rows |
+|---|---|---|
+| feed, signed out, page 0 | `f920f6d2ad2f5e449ae3bfb58765a6d8` | 100 |
+| feed, signed out, page 1 | `ccfc2c8ee2d39972aab847d6e13fd5cb` | 1 |
+| feed, sort=new | `a6930cfab1cd718f71bb370832e60371` | 100 |
+| feed, sort=popular | `e2cca706334b2a10b8bdebcd4cf278c6` | 32 |
+| feed, member of all six stores | `2fec898c6aa3337b7ea7ee09a389ce6e` | 100 |
+| search "boot" | `d885bf0a83ac94da0f519ab1cc1c3ea5` | 5 |
+| search "shirt" | `757978ca0876f861ca40b7b5d024ebce` | 4 |
+| search "A-102", signed out | — | **0** |
+| search "A-102", Atelier member | — | **0** |
+
+All seven hashes identical after; both leak probes still 0. `A-102` is one of
+Atelier's hand-beaded made-to-order gowns and is the named leak case carried
+through MK-04 and MOD-01 — it must return nothing to anyone, including a member
+of that very wholesaler, and it still does.
+
+The member row is included because `access` is computed from memberships rather
+than from publicness. It is not something 119 touches, which is precisely why it
+is worth measuring: an unchanged hash on a column the change should not reach is
+what distinguishes "the rule moved" from "something else moved too".
