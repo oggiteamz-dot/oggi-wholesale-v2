@@ -3030,3 +3030,170 @@ ERROR: PRODUCTION LINK-01 PROBE: ALL 18 ASSERTIONS HELD (rolled back)
 The three not carried over are the two that read `pg_attrdef`/`pg_attribute`
 metadata already covered by the structural fingerprint above, and the
 own-shelf-still-works row, which the probe folds into its cross-tenant check.
+
+---
+
+## LINK-06/03/04/07/08/09 — redeeming a link (migration 128)
+
+**The claim.** Every successful redemption ends with a marketplace account and a
+live session. Only the store access varies: `joined`, `requested`, `already`.
+
+**Gates:** `checks/check_redeeming_a_link.sql` (26 assertions) and
+`checks/check_link_cap_under_concurrency.sh` (5, across real connections).
+
+### ⭐ THE GATE FOUND A DEFECT IN CODE THIS FEATURE DID NOT WRITE
+
+`v2_rate_limit_check` has never been safe under concurrency:
+
+```
+select * into v_row from v2_rate_limit_hits where key = p_key for update;
+if v_row.key is null then
+  insert into v2_rate_limit_hits(key, hits, window_start) values (p_key, 1, now());
+```
+
+`for update` locks a row that EXISTS. On a key nobody has used yet there is
+nothing to lock, so every concurrent caller takes that branch and all but one
+gets
+
+```
+ERROR: duplicate key value violates unique constraint "v2_rate_limit_hits_pkey"
+CONTEXT: PL/pgSQL function v2_rate_limit_check(text,integer,integer) line 8
+```
+
+raised straight out of the RPC at whoever was unlucky.
+
+**It was not found by reading.** The concurrency gate races eight sign-ups down
+one link, and the link token is the rate-limit key, so all eight hit a
+brand-new key at the same instant. The first run:
+
+```
+joined=3 requested=4 errors=1 uses_count=3 sessions=7
+```
+
+Three joined, four asked, and **one got a Postgres error**. The cap was right;
+the limiter was not.
+
+**Blast radius, measured rather than assumed.** Production carries the identical
+body (`md5 30e9a0381c38ab395132936ede8cf0f3`, byte-identical to the replay) and
+three live callers, all of them anonymous public forms:
+
+```
+v2_submit_signup_request      the "request access" form on the login screen
+v2_directory_request_access   asking a store in the directory for access
+v2_redeem_invite              redeeming a buyer invitation
+```
+
+The window is the FIRST hit of any key — which for a form meant to be shared is
+not exotic. Rewritten as one atomic upsert, with the allow/deny boundary
+preserved exactly (p_max calls allowed, the next denied) and asserted at that
+boundary rather than at "eventually says no".
+
+### The concurrency gate, and the two attempts that did not measure anything
+
+**Attempt 1** launched eight background `psql` processes and hoped. It did not
+race: spawn, connect and parse cost tens of milliseconds each while the
+redemption takes about one. The proof that this mattered is that with the row
+lock REMOVED the race still let in exactly the cap. *A negative test that passes
+on sabotaged code is not a negative test.* Fixed with a starting gun: every
+racer connects first, then sleeps to one shared wall-clock instant.
+
+**Attempt 2**, with the gun, also let in exactly the cap — and this one is not a
+scheduling artefact:
+
+> ⚠ **The cap currently survives a race for a reason that is not the row lock.**
+> The rate limiter is keyed on the TOKEN, and now that it is an atomic upsert,
+> that upsert takes a row lock on one key which every redeemer of one link
+> contends for. Redemptions of a single link are already serialised there,
+> several statements before the link row is read.
+
+That is a coincidence of two unrelated keys agreeing, not a design. Change the
+rate-limit key — to include a phone, an IP, anything — and the serialisation
+disappears silently while every gate stays green. `for update` stays because it
+is the guard a person can read, and the note stays so nobody deletes it later on
+the evidence of a green race.
+
+**Attempt 3** removes both, and the result is better evidence than an overshoot:
+
+```
+shipped:   joined=3 requested=5 errors=0 uses_count=3 sessions=8   ← all 8 signed up
+sabotaged: joined=3 requested=0 errors=5 uses_count=3 sessions=3
+```
+
+The cap still holds, because migration 127's `v2_share_links_uses_within_cap`
+CHECK refuses the row — **the constraint is the backstop.** But the refusal
+arrives as a raw check violation: five of eight people get an error instead of
+an answer and are turned away from OGGI entirely, which is the one thing this
+feature is built never to do. The lock is the difference between "please wait
+for approval" and a stack trace.
+
+Stable across three consecutive runs, green and red both.
+
+The gate refuses to report a green it has not earned: if the sabotaged run
+behaves correctly it prints **INCONCLUSIVE and fails**, rather than concluding
+the lock is unnecessary.
+
+### The SQL gate — 26 assertions, and the sessions are spent, not counted
+
+`session_token is not null` passes on a token that resolves to nothing. Every
+session in this gate is handed to `v2_session_person`, and a joined redeemer's
+is also handed to `v2_session_stores` — the call the app makes to draw the store
+switcher. Assertion 23 goes further and signs in through `v2_marketplace_login`
+with the password the redeemer chose.
+
+Rows worth naming:
+
+- **5** — the discounted link does not undo migration 122. The same variant is
+  priced through the buyer's default shelf and through a decoy shelf carrying
+  40%, and both must return 85.00.
+- **17/18** — a token that never existed, one withdrawn and one expired give
+  *one distinct answer*, and it names no store.
+- **22** — a refused redemption wrote **nothing at all**: no person, no channel,
+  no session. Asserted by looking for the phone afterwards and finding zero.
+- **13** — `uses_count` spends a slot on a grant, not on an arrival.
+
+### A fixture detail that is migration 127 doing its job
+
+The expired-link row could not be fabricated: `v2_share_links_expiry_window`
+requires `expires_at > created_at`, so an expiry cannot be shoved into the past.
+The fixture ages BOTH timestamps instead, which is what really happens to a link
+somebody sent last month.
+
+### Control replay
+
+```
+check_redeeming_a_link.sql vs a replay of origin/main .... RED
+  ERROR: relation "wholesale_v2.v2_share_links" does not exist
+check_link_cap_under_concurrency.sh vs origin/main ....... refuses to run, and says why
+  SETUP FAILED — v2_redeem_share_link is not in 'oggi_main' (migration 128 not applied).
+  This is NOT a finding about the cap. Nothing was tested.
+```
+
+The shell gate exiting 2 with that sentence rather than 1 is deliberate: a gate
+that cannot run must not look like a gate that failed, and must not look like
+one that passed either.
+
+### Production and the replay were compared before the baseline moved
+
+```
+replay of all 130 migrations, empty Postgres .. 63/4/171/96  c7ce0e83bd86731941b17a763e9a643d
+PRODUCTION, measured with the identical query . 63/4/171/96  c7ce0e83bd86731941b17a763e9a643d
+```
+
+The hash moved by one function. It did **not** move for the rate-limiter rewrite
+— a same-signature body replacement, invisible to it, exactly as migration 107's
+rewrite of `v2_approve_signup_request` was — and it cannot see
+`v2_signup_requests.share_link_id` either. So the bodies were compared directly:
+
+```
+v2_rate_limit_check(text,integer,integer) ................ 5d0055fc05182e9550a3b23110d89a8d
+v2_redeem_share_link(text,text,text,text,text,text,jsonb) . 9148908f6926dc1b8678c50e2eaba7ec
+```
+
+Identical on both sides.
+
+### Suite on the 128 replay
+
+```
+42 SQL gates proved, 0 red, 9 could not run for want of seed data, of 51
+76 JS gates pass
+```
