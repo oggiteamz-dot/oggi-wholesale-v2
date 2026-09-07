@@ -72,6 +72,32 @@ export function hasMarketplaceSession() {
   return !!readMkt();
 }
 
+/** LINK-05. Adopt a session this module did not mint.
+ *
+ *  v2_redeem_share_link hands back a session in the SAME shape
+ *  v2_marketplace_login does — a 32-byte secret returned once, stored server
+ *  side only as a SHA-256 hash — because it is minted by the same recipe in
+ *  migration 128. Somebody who has just redeemed a link is signed in, and
+ *  Hadi's sentence is that they are signed in EITHER WAY, granted access or
+ *  not.
+ *
+ *  It lives here rather than in the share-link module so that ONE file owns
+ *  the storage key. A second writer of `oggi-v2-marketplace` is a second
+ *  opinion about what a session looks like, and the first time the two
+ *  disagree the buyer is silently signed out. */
+export function adoptMarketplaceSession(s) {
+  if (!s?.sessionId || !s?.token) return false;
+  writeMkt({
+    sessionId: s.sessionId,
+    token: s.token,
+    personId: s.personId || null,
+    displayName: s.displayName || null,
+    expiresAt: s.expiresAt || null,
+    activeWid: null,
+  });
+  return true;
+}
+
 export function marketplaceSession() {
   return readMkt();
 }
