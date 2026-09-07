@@ -2894,3 +2894,139 @@ Identical on both sides.
 
 The nine are row 493's: written against production data a clean replay does not
 have. Nothing was proven by them and nothing is broken.
+
+---
+
+## LINK-01 — a link is a row (migration 127)
+
+**The claim.** `v2_share_links` holds all four link kinds, and every combination
+the model forbids is impossible to *store* — not merely hard to create through
+a form. Nothing in 127 decides who gets into a store; redemption is 128.
+
+**Gate:** `checks/check_a_link_is_a_row.sql` — 21 assertions.
+
+### Every constraint red-proved by dropping it
+
+Not by inventing a wrong value and watching it bounce — by removing the rule and
+watching the gate notice. Each ran against a `template oggi_link` copy so the
+sabotages could not contaminate one another:
+
+```
+=== drop v2_share_links_cap_matches_kind ............ 2 red (rows 6, 7)
+=== drop v2_share_links_one_time_needs_a_person ..... 1 red (row 8)
+=== drop v2_share_links_discount_only_on_one_time ... 1 red (row 9)
+=== drop v2_share_links_discount_range .............. 1 red (row 10)
+=== drop v2_share_links_uses_within_cap ............. 1 red (row 11)
+=== drop v2_share_links_token_shape ................. 1 red (row 12)
+=== drop v2_share_links_expiry_window ............... 1 red (row 13)
+=== drop v2_share_links_revocation_has_an_actor ..... 1 red (row 14)
+=== drop v2_share_links_catalog_same_store .......... 2 red (rows 15, 21)
+=== drop index v2_share_links_token_uq .............. 1 red (row 17)
+=== disable row level security ...................... 1 red (row 19: RLS IS OFF)
+=== add an open read policy (RLS on, but using(true)) 1 red (row 19: rls on, 1 policies)
+=== grant select to anon ............................ 1 red (row 20: anon:SELECT)
+=== grant select to PUBLIC .......................... 1 red (row 20: PUBLIC:SELECT)
+=== drop trigger trg_v2_share_links_touch ........... 1 red (row 18)
+=== alter column invitee_phone_key drop expression .. 2 red (rows 4, 5)
+=== alter column token drop default ................. RED as a CRASH, see below
+```
+
+**The PUBLIC sabotage is there on purpose.** Granting to `anon` and granting to
+PUBLIC are two different failures and only one of them is the one this codebase
+has actually made: migration 124's first sabotage did not go red because `anon`
+held the privilege *through* PUBLIC rather than directly. A gate that only
+checks the named roles would have said nothing.
+
+**Row 16 is what stops a bad fix.** Assertion 15 requires a link naming another
+store's shelf to be refused; assertion 16 requires the store's *own* shelf to
+still be storable. Without 16, "make `catalog_id` reject every catalogue" turns
+15 green and breaks the feature.
+
+### The one sabotage that goes red as a crash rather than a row
+
+Dropping the token DEFAULT does not produce a failed assertion — the first
+insert dies on the NOT NULL constraint and the transaction aborts, so no report
+is printed at all. `run_sql_gates.sh` classifies that RED under rule 3 ("a gate
+it cannot classify is RED"), which is the correct outcome, but it is worth
+naming: the gate proves the default through assertion 3 reading `pg_attrdef`,
+and it is that row, not the crash, that would notice a default quietly changed
+to something weaker.
+
+### Control replay
+
+```
+check_a_link_is_a_row.sql vs a replay of origin/main .. RED
+  ERROR: relation "wholesale_v2.v2_share_links" does not exist
+  classified RED:unclassified
+```
+
+Classified RED rather than `RED:cannot-run` because `is_unreachable`'s pattern
+is `relation "[a-z_0-9]+"` and this error names the relation schema-qualified.
+Both are red and the outcome is correct either way; recorded so the next person
+reading the runner's categories is not surprised by it.
+
+### ⚠️ A FINDING THAT WAS NOT REAL, AND WHY IT IS WRITTEN DOWN ANYWAY
+
+While red-proving assertion 3 I concluded that a NULL `got` produces an EMPTY
+verdict cell — neither `PASS` nor `FAIL` — and therefore that any verdict-table
+gate in this repo could report GREEN with an assertion unanswered. I changed the
+gate's verdict expression to `is not distinct from`, added a fifth rule to
+`run_sql_gates.sh` to catch blank cells, and added a fifth self-test case.
+
+**The premise is false.** A CASE whose condition is NULL is not true, so the
+ELSE branch fires:
+
+```
+label                            | expected | got | verdict
+a rule whose answer went missing | present  |     | FAIL
+```
+
+The runner change was reverted, the self-test case removed, and the gate went
+back to a plain `=`. What was kept is `coalesce(got, '(no answer)')`, because an
+empty cell next to the word FAIL tells the reader nothing about what was found.
+
+It is recorded rather than deleted for two reasons. The first is that "there is
+no hole in the verdict expression" is worth an hour of somebody's time — the
+reasoning is plausible enough that I acted on it. The second is the sharper one:
+**a runner rule added to guard a hazard that does not exist is a grep that can
+only ever cry wolf**, and this file already records what happens to a gate that
+cries wolf. The negative test that caught it was cheap and should be habit —
+remove the new rule, and check whether the thing it was added for still fails.
+It did not.
+
+### Production and the replay were compared before the baseline moved
+
+```
+replay of all 129 migrations, empty Postgres .. 63/4/170/96  29ac81e8e81ce2d141024985b99a3827
+PRODUCTION, measured with the identical query . 63/4/170/96  29ac81e8e81ce2d141024985b99a3827
+```
+
+The shape hash sees one new table and one new function, which is what a
+migration adding a single empty table would look like. Eleven CHECK constraints,
+a composite foreign key, three indexes and a trigger — the entire substance of
+127 — are invisible to it. So the table's full structure was fingerprinted on
+both sides: every column with its type, nullability, generated expression and
+default; every constraint definition on `v2_share_links` *and* `v2_catalogs`;
+every index; the RLS flag; the policies; the browser-role grants; the trigger
+definition; and the trigger function's body.
+
+```
+structural fingerprint, replay ....... 9c058884a045ed3de1390b102bb6f6b2  (53 parts)
+structural fingerprint, PRODUCTION ... 9c058884a045ed3de1390b102bb6f6b2  (53 parts)
+```
+
+That comparison exists because 127 had to be handed to the apply tool with its
+comments stripped — the same step that cost migration 121 its in-body comments.
+
+### And the gate was run against production itself
+
+Eighteen of the twenty-one assertions were re-run directly on production inside
+a transaction that raises at the end, so the fixture rolls back:
+
+```
+ERROR: PRODUCTION LINK-01 PROBE: ALL 18 ASSERTIONS HELD (rolled back)
+```
+
+The three not carried over are the two that read `pg_attrdef`/`pg_attribute`
+metadata already covered by the structural fingerprint above, and the
+own-shelf-still-works row, which the probe folds into its cross-tenant check.

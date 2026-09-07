@@ -422,8 +422,38 @@ echo "   shape=$shape"
 #
 # No new tables (v2_persons, v2_person_channels, v2_person_credentials and
 # v2_person_memberships all predate this) and no new policies.
-EXP_T=62 EXP_V=4 EXP_F=169 EXP_P=96
-EXP_SHAPE=5108b500f802f20bad5560488f00e36d   # production, 7 Sep 2026, after 126, partitions excluded
+# BASELINE MOVED AGAIN 8 Sep 2026, after migration 127 -- LINK-01, the share
+# links table. Same order as every legitimate move:
+#
+#   replay of all 129 migrations, empty Postgres .. 63/4/170/96  29ac81e8e81ce2d141024985b99a3827
+#   PRODUCTION, measured with the identical query .. 63/4/170/96  29ac81e8e81ce2d141024985b99a3827
+#
+# 62 -> 63 tables (v2_share_links) and 169 -> 170 functions
+# (v2_share_links_touch, the updated_at trigger function). No new policies, and
+# that is the design rather than an omission: the table has RLS ON and NO
+# POLICY, which denies every non-owner role outright whatever the grants say.
+# On a database where `authenticated` holds privileges no migration in this
+# repo grants -- which is production, see "the grant drift" -- a lock that
+# depended on a revoke staying in place would not be a lock.
+#
+# WHAT THIS HASH CANNOT SEE, AND IT IS MOST OF MIGRATION 127. Eleven CHECK
+# constraints, a composite foreign key, three indexes and a trigger are the
+# entire substance of that migration, and none of them are relation names or
+# function signatures. The counts moved by one and one, which is exactly what a
+# migration that added a single empty table would look like.
+# checks/check_a_link_is_a_row.sql is what actually watches it, and the table's
+# full structure -- every column, default, generated expression, constraint
+# definition, index, the RLS flag, the grants, the trigger and the trigger
+# function's body -- was fingerprinted on both sides before this line moved:
+#
+#   structural fingerprint, replay ....... 9c058884a045ed3de1390b102bb6f6b2 (53 parts)
+#   structural fingerprint, PRODUCTION ... 9c058884a045ed3de1390b102bb6f6b2 (53 parts)
+#
+# That comparison exists because 127 could not be handed to the apply tool with
+# its comments -- the same step that cost migration 121 its in-body comments and
+# taught this file to compare bodies rather than trust the apply.
+EXP_T=63 EXP_V=4 EXP_F=170 EXP_P=96
+EXP_SHAPE=29ac81e8e81ce2d141024985b99a3827   # production, 8 Sep 2026, after 127, partitions excluded
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
@@ -432,9 +462,9 @@ EXP_SHAPE=5108b500f802f20bad5560488f00e36d   # production, 7 Sep 2026, after 126
 # and function signatures and not ACLs -- which is exactly why S7
 # (check_anon_grants.sql) has to be run as well, and is what caught 097.
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
-  echo "   MATCHES the 7 Sep 2026 production baseline exactly, shape included."
+  echo "   MATCHES the 8 Sep 2026 production baseline exactly, shape included."
 else
-  echo "   !! differs from the 7 Sep 2026 production baseline"
+  echo "   !! differs from the 8 Sep 2026 production baseline"
   echo "      expected tables=$EXP_T views=$EXP_V functions=$EXP_F policies=$EXP_P"
   echo "      Either a migration was applied to production without a file (check"
   echo "      supabase_migrations.schema_migrations against supabase/migrations/),"
