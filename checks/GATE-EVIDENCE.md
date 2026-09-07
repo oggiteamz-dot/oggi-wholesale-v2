@@ -3466,3 +3466,133 @@ reason.
 were written — which is the gate doing its job, and the same way row 451 was
 found). `check_no_feature_loss.sh`: **zero deletions**, no `ALLOW_DELETIONS`
 needed. `check_imports_resolve.sh`: 380 specifiers, all resolve.
+
+---
+
+## LINK-13 — what a share link may never do (8 Sep 2026)
+
+`checks/check_what_a_link_may_never_do.sql` — **32 assertions, thirteen
+sabotages, all thirteen proved red.** Written across migrations 126–129 rather
+than against any one of them, because every property it asserts is a property
+of the seam between two, and a seam is what a per-migration gate cannot see.
+
+### The thirteen
+
+| # | Sabotage | Result |
+|---|---|---|
+| S1 | The peek names the store on a dead token | 3 red |
+| S2 | A used one-person link is shown a wall | 1 red |
+| S3 | The links table granted to `anon`, RLS off | 2 red |
+| S4 | `v2_my_share_links` granted to `anon` | 2 red |
+| S5 | Rate limit keyed on a constant, not the token | 2 red |
+| S6 | The membership written into another store | 1 red |
+| S7 | The cap is ignored | **gate aborts** — red |
+| S8 | A withdrawn link is redeemable | 3 red |
+| S9 | The link's discount never reaches the customer | **gate aborts** — red |
+| S10 | The peek names the invitee | 1 red |
+| S11 | A redemption writes stock | 1 red (the census) |
+| S12 | The cross-store catalogue key dropped | 2 red |
+| S13 | The cap constraint dropped | 1 red |
+
+### ⚠️ Four things this gate got wrong before it got them right
+
+**1. It demanded that a used one-person link answer like a dead one.** The
+first draft put `used`, `revoked`, `expired` and an invented token in one set
+and required a single answer. It went red — and the gate was wrong, not the
+code. A used link is **alive**: LINK-05's whole promise is that there is no
+state of that screen where somebody holding a real link is shown a wall, and
+Hadi's sentence is *"either way, they get access and they are logged in."* The
+no-oracle rule of migration 056 is about tokens a **guesser** holds — dead or
+invented — not about a real token that has been spent. Had that assertion
+shipped, the gate would have demanded the removal of the feature the block
+exists for. It is now two assertions that pull in opposite directions
+(assertion 1 and assertion 6), so neither half can be quietly dropped.
+
+**2. It compared a share-link token against catalogue pricing and called the
+answer a defect.** `v2_token_discount_pct` resolves `#/c/<token>` catalogue
+links; a share link is `#/j/<token>`; no screen passes one to the other, and it
+correctly returned 0. Replaced with the security assertion that is actually
+worth making and is stronger: **a share-link token must buy no discount on the
+catalogue pricing path.** If it ever resolved, the link's rate would be
+readable by anyone holding the token without redeeming it and without an
+account — the "a door decides the price" shape migration 122 exists to prevent.
+
+**3. The row census was written from memory and named seven tables. It is
+nine.** The three it missed are the three worth naming: `v2_people` and
+`v2_person_channels` are migration 126's entire subject, and `v2_rate_limit_hits`
+moves because redemption is rate limited. A census written from memory
+certifies whatever the code happens to do; this one went red, and the red was
+right.
+
+**4. It asserted a rate-limit key string I had invented.** The first version
+required `'share:' || p_token`; migration 128 writes `'link|' || coalesce(p_token, '')`.
+It now asserts that `p_token` appears **inside** the key expression, which is
+the property that matters and does not go red on a rename that changes nothing.
+
+Also: `v2_share_links_touch` matched the "no other share-link function is open
+to a stranger" assertion, because Postgres grants EXECUTE on trigger functions
+to PUBLIC by default. It is excluded **by return type**, not by name — calling a
+trigger function directly raises *"trigger functions can only be called as
+triggers"*, and excluding by name would have let a real function called
+`v2_share_links_touch_v2` through.
+
+### ⭐ And one mistake in the sabotage harness, which is the more useful finding
+
+**S7 and S9 were reported GREEN on the first run, and both were red.**
+
+Sabotaging the cap makes the redemption bump `uses_count` past `max_uses`,
+which violates **127's `v2_share_links_uses_within_cap`** — so the transaction
+aborts and the gate emits **no verdict rows at all**. The throwaway harness
+driving these sabotages counted `| FAIL` lines, found none, and printed *"did
+not go red"*.
+
+That is precisely the failure `checks/run_sql_gates.sh` was written for on
+7 September, repeated in a scratch script four days later. The real runner,
+pointed at the same sabotaged database, classified it correctly:
+
+```
+RED   check_what_a_link_may_never_do.sql  (unclassified)
+```
+
+because its rule 4 is *a gate it cannot classify is RED*. The harness now
+treats an aborted or rowless run as red.
+
+**The system was right in both cases** — the table refused to hold a link that
+had let more shops in than it was set to, before the function's branch mattered
+at all. The gate was proving the branch and not the floor the branch stands on,
+so assertion 32 now gates the constraint itself, and S13 proves that assertion
+red by dropping it.
+
+### Verification against production
+
+The gate applies no migration, so what has to be true is that it asserts on
+**production's own function bodies**. All nine `prosrc` md5s match exactly:
+
+```
+v2_buyer_discount_pct    1e21931e497d99a6f4fe3179045c5b9d
+v2_create_share_link     97759012a8600e898df823fbeab53427
+v2_effective_unit_price  a4c7706978be1b5a3eff527e680cb23d
+v2_my_share_links        90d2dfc9a70699739c800964b2847660
+v2_rate_limit_check      5d0055fc05182e9550a3b23110d89a8d
+v2_redeem_share_link     9148908f6926dc1b8678c50e2eaba7ec
+v2_revoke_share_link     9039f993d6d3646bc023c57168730eca
+v2_share_link_peek       6c3c3c9f9875b6d5fdeddc0231071ced
+v2_token_discount_pct    ead437a9eeed14b583f7577164adbe58
+```
+
+and the five security facts were measured on production directly, not inferred
+from the replay — which matters because the **grant drift is still open**:
+
+```
+anon-callable link fns      v2_redeem_share_link, v2_share_link_peek
+links table RLS closed      closed
+links table browser grants  none
+cap constraint              present
+cross-store catalogue key   present
+```
+
+### Suite
+
+`bash checks/run_sql_gates.sh oggi_link13` on a clean replay of all 131
+migrations (shape `14ddb0643bc17d4eb1a94440458860d1`, matching production):
+**44 proved, 0 red, 9 could not run for want of seed data, of 53.**
