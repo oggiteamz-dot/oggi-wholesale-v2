@@ -2368,3 +2368,181 @@ stripped. The SQL was identical and `md5(prosrc)` was not, which makes the
 repo-rebuilds-production proof quietly false — and the comments are the part a
 future reader needs most. Re-applied as `121a`; production and a database
 replayed from this repo now both hash to `5a226bab8b1177b201709d6e7c84e054`.
+
+---
+
+## 122 / 123 / 124 — the door stops deciding the price, the dial gets limits, and a signed-out stranger stops writing stock (7 Sep 2026)
+
+Three fixes Hadi authorised in one reply, built and proven together because
+they touch the same two functions. His words on each, verbatim:
+
+- the two prices — *"why is that happening? It shouldn't. No. The marketplace
+  doesn't add some kind of price or, like, percentage or anything like that.
+  They should get the same price. The share link just automatically grants them
+  access to the wholesaler that gave them that link."*
+- the security hole — *"I did not understand that, so I don't know what to do,
+  how to fix it. Do as you see it."*
+- the dial's limit — *"I guess... yes. I don't know what the dial is and
+  what... what's the right limit for it."*
+
+### The control run is a database built from `origin/main`
+
+Every claim below is measured twice: once against `oggi_r2` (this branch's
+migrations) and once against `oggi_ctl`, a **fresh replay of `main`** on the
+same Postgres. That removes the usual weakness of a red-proof — a sabotage I
+invented, which can be a sabotage the gate happens to be shaped to catch. Here
+the "sabotage" is the product as it shipped yesterday.
+
+| gate | on the fixed database | on `origin/main` |
+|---|---|---|
+| `check_one_price_per_buyer.sql` (new, 21 assertions) | 0 fail | **14 fail** |
+| `check_anon_cannot_write_stock.sql` (new, 10 assertions) | 0 fail | **7 fail** |
+| `check_discount_stacking.sql` (28, was 21) | 0 fail | **10 fail** |
+| `check_buyer_pricing.sql` (17, was 16) | 0 fail | **6 fail** |
+| `check_catalog_pricing.sql` (15, was 10) | 0 fail | **9 fail** |
+
+### `check_one_price_per_buyer.sql` — red-proved five ways
+
+The fixture's numbers are all different on purpose — store dial 7.00, customer
+11.00, shelves at 10.00 / −5.00 / 20.00 — so **every wrong answer any earlier
+version of this code could give is a different number from every right one.**
+A fixture where the rates are all zero would make "the shelf contributed
+nothing" and "nothing contributed anything" the same green.
+
+```
+baseline FAIL rows: 0
+=== SABOTAGE: the store screen goes back to reading the SHELF        FAIL rows: 7  → restored 0
+=== SABOTAGE: the share link goes back to carrying its own rate      FAIL rows: 3  → restored 0
+=== SABOTAGE: the invoice goes back to reading the shelf named       FAIL rows: 5  → restored 0
+=== SABOTAGE: the store dial is dropped, only the customer survives  FAIL rows: 6  → restored 0
+=== SABOTAGE: the token function stops checking access               FAIL rows: 2  → restored 0
+```
+
+The fourth matters most. Without assertion 6 — *"the STORE dial is in the
+number, not just the customer's rate"* — a function that returned the
+customer's own rate alone would satisfy every other row in the file.
+
+### `check_anon_cannot_write_stock.sql` — and a sabotage that did NOT go red
+
+```
+=== SABOTAGE: the anon grant comes back on v2_receive_stock            FAIL rows: 4  → restored 0
+=== SABOTAGE: the anon grant comes back on assemble_kit ONLY           FAIL rows: 3  → restored 0
+=== SABOTAGE: a 'tidy up the grants' pass closes the signed-out cart   FAIL rows: 0  ← ⚠
+=== SABOTAGE: somebody grants to PUBLIC instead of to a role           FAIL rows: 5  → restored 0
+=== SABOTAGE: the revoke takes the warehouse screens with it           FAIL rows: 1  → restored 0
+```
+
+**The third one is recorded because it failed to fail.** `revoke execute ...
+from anon` left the privilege intact, because `v2_reserve_stock` was granted to
+**PUBLIC**, and `anon` inherits from PUBLIC. So the gate was telling the truth
+and my sabotage was a no-op — a fault in the test of the test. Redone properly:
+
+```
+=== SABOTAGE 3 (redone): revoke from anon, public                     FAIL rows: 2
+  the signed-out buyer can still RESERVE stock|allowed|REFUSED — the signed-out cart is broken|FAIL
+  the signed-out cart keeps all three reservation calls|3|2|FAIL
+                                                                       → restored 0
+```
+
+That accident is also *why* migration 124 revokes from `public` as well as from
+`anon`: a grant to PUBLIC is a grant to every role that will ever exist, and it
+is how the `anon` grant got there in the first place.
+
+### A migration that applied cleanly, asserted itself, and was still wrong
+
+122's first draft read `r.wholesaler_wid` from `v2_catalog_by_token`. The column
+is `wid`; `wholesaler_name` is the store's name. PL/pgSQL does not resolve a
+column reference until the statement runs, so:
+
+- the migration applied with no error,
+- **its own closing DO block passed**, because that block prices through the
+  two shelf functions and never through the token,
+- and the first real share link priced would have raised
+  `column r.wholesaler_wid does not exist`.
+
+`check_one_price_per_buyer.sql` assertion 7 caught it on the gate's first run.
+The lesson is written into the migration next to the fix: **a migration's own
+DO block tests the paths its author remembered.** That is why the closing
+assertion is not the gate.
+
+### Blast radius, measured on production before and after
+
+Before:
+
+```
+ dial vs default shelf, all 13 stores : identical rate AND identical mode
+ orders in the product's history      : 131
+   carrying a shelf id at all         :   1  (the default shelf)
+   ever priced through a discounted shelf : 0
+```
+
+So the store screen's price is provably unchanged for every store on the
+platform — the dial and the default shelf hold the same number and the same
+mode in all 13 — and the only path that moved is the share link, which now
+agrees with the store screen. After applying:
+
+```
+ (client, variant) pairs priced through two different shelves : 11,238
+ pairs that still disagree                                    :      0
+```
+
+### Shape and byte-identity
+
+The three pricing function bodies hash identically in production and in the
+repo replay:
+
+```
+v2_buyer_discount_pct    1e21931e497d99a6f4fe3179045c5b9d
+v2_effective_unit_price  a4c7706978be1b5a3eff527e680cb23d
+v2_token_discount_pct    ead437a9eeed14b583f7577164adbe58
+```
+
+The replay baseline in `checks/replay_migrations.sh` moved from
+`62/4/166/96 · ba1c3dcd…` to `62/4/167/96 · 2ebab640…`, and **in that order**:
+the replay produced the new hash, the baseline was *not* touched on that
+evidence, production was then measured with the identical query and produced
+exactly the same five values, and only then was the number changed. 121 is what
+moved it (one new function). 122, 123 and 124 moved it by nothing at all —
+122 keeps every signature, 123 adds check constraints, 124 changes grants, and
+this hash sees none of those. **That is a real limit of that check, not a clean
+bill of health**, and the three gates above are what actually watch them.
+
+### Rows turned around rather than deleted
+
+Five gates carried assertions that recorded the OLD behaviour as today's truth,
+each with a comment saying to invert it when the decision was made. All five
+were inverted in this commit, none deleted:
+
+- `check_discount_stacking.sql` 15/15b — the two doors. Now submits the same
+  order through both and requires one answer; 15c compares the default shelf
+  against the deepest one; 95.00, the old store-screen answer, is forbidden by
+  name.
+- `check_discount_stacking.sql` 17 — the unbounded dial, plus new 17b (the
+  markup direction) and 17c (the customer rate, which had never been checked at
+  all). 17d is **new today's-truth**: the SUM is still unbounded, on purpose,
+  and says where the reasoning is written down.
+- `check_discount_stacking.sql` 14 — the MOD-05 bridge. It used to require the
+  dial and the default shelf to agree, because the crossing had not happened.
+  It now moves the dial to 25%, a number no shelf in the fixture carries, and
+  requires the invoice to follow it.
+- `check_buyer_pricing.sql` 4 and 5 — the shelf's hidden −5.00 markup and the
+  tier-5 shelf's 20.00. Row 5 has now been turned around **twice** (MOD-07,
+  then 122) and is still not deleted, which is the point of the practice: two
+  different regressions turn it red and neither can be mistaken for the other.
+  New row 9b requires that a shelf's rate is no longer the server's rule.
+- `check_catalog_pricing.sql` — every expected number is unchanged, because the
+  arithmetic did not move, only the source of the rate. The shelves are kept as
+  **decoys**: each case is still priced *through* a shelf carrying its own rate
+  and mode, and rows 4–6 name the wrong answers (70.00, 95.00, 85.00) that a
+  shelf which had started pricing again would produce.
+
+### The cart followed without a line of JavaScript changing
+
+`js/data/pricing.js` asks the server for the discount percentage rather than
+working it out, so 122 corrected the browser and the invoice in one statement.
+A browser that computed the rate itself would have shown the old price in the
+cart and been invoiced the new one. Its comment claiming both functions
+"DELEGATE to `v2_catalog_discount_pct`" was true until 122 and is now corrected
+— four comment lines removed, `ALLOW_DELETIONS=1`, no behaviour touched.
+`check_price_agreement.mjs` gained a sixth mirror entry so that deleting the
+decoy rows from the SQL gate fails there too.

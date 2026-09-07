@@ -13,13 +13,29 @@
 //   1. effectivePrice() produces the expected number for a table of worked
 //      examples -- including the two that encode instructions given in words:
 //      stacking is ADDITIVE ("they combine into 25%"), and a customer sitting
-//      at 0% under customer_only mode falls back to the catalog's discount.
+//      at 0% under customer_only mode falls back to the store's own discount.
 //
 //   2. That table is IDENTICAL to the one in checks/check_catalog_pricing.sql,
 //      which runs the same cases against the real database. Two copies of a
 //      pricing rule drift; two copies of a rule plus a check that they are the
 //      same copy cannot drift silently. Editing one file and not the other
 //      fails here.
+//
+// ↺ 7 Sep 2026 -- MIGRATION 122 changed nothing in this file's arithmetic and
+// two things about its wording. effectivePrice() takes a percentage it is
+// GIVEN; it has never worked out where that percentage came from, so every
+// worked example below is untouched. What moved is the source: js/data/pricing.js
+// asks v2_buyer_discount_pct / v2_token_discount_pct for the number, and since
+// 122 those return the STORE dial plus the customer's own rate rather than the
+// shelf's. Because the browser asks the server for the percentage instead of
+// working it out, the cart followed the fix without a line changing -- which is
+// the whole reason that call is an RPC and not a local calculation.
+//
+// The mirror list at the foot of this file DID have to move: two of the labels
+// it looks for in checks/check_catalog_pricing.sql now say "store" where they
+// said "catalog", and a sixth entry has been added for the decoy rows 122 made
+// necessary -- so that deleting the proof that a shelf no longer prices fails
+// here too.
 //
 //   node checks/check_price_agreement.mjs
 // =============================================================================
@@ -127,10 +143,15 @@ ok(round2(14.9925) === 14.99, "round2 matches Postgres round(numeric, 2) on a ha
 const sql = readFileSync("checks/check_catalog_pricing.sql", "utf8");
 const mustAppear = [
   ["combine 5+20", /5 \+ 20 = 25% off 100 \(additive, NOT 76\.00\)/],
-  ["customer_only fallback", /customer_only \+ customer at 0 falls back to the catalog discount/],
+  ["customer_only fallback", /customer_only \+ customer at 0 falls back to the store discount/],
   ["catalog_only", /catalog_only: the customer 20% is ignored/],
-  ["negative catalog", /negative catalog discount raises the price/],
+  ["negative store rate", /a negative store discount raises the price/],
   ["negotiated untouched", /negotiated price wins outright, no discount touches it/],
+  // 122. The decoy rows are the ones that prove a SHELF no longer prices, and
+  // they are the first thing a "tidy up the fixture" pass would remove --
+  // after which check_catalog_pricing would still be green and would no longer
+  // be testing the thing it exists to test.
+  ["the shelf is a decoy", /the shelf is a decoy: its -10% markup does not reach the bill/],
 ];
 mustAppear.forEach(([name, re]) => {
   ok(re.test(sql), `checks/check_catalog_pricing.sql still covers "${name}" against the real database`);
