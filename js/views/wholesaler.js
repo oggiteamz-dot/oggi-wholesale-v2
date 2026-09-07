@@ -39,6 +39,10 @@ import { getVisibilityMirror, getVisibilityQueries } from "../data/visibility.js
 // SR-05: the published ranking policy, linked from the visibility mirror below
 // as well as carrying its own navigation entry.
 import { registerRankingPolicyRoute } from "./ranking-policy.js";
+// LINK-02/11, 8 Sep 2026 — making and managing share links. Its own file for
+// the same reason ranking-policy.js is: this one is 5,400 lines and its own
+// comment calls it the last monolith in the repo.
+import { registerShareLinkAdminRoutes } from "./share-links-admin.js";
 // AC-08: the shared decline vocabulary, matched to the database constraint.
 import { DECLINE_REASONS } from "../data/decline-reasons.js";
 // Batch N step 4, 28 Aug 2026 — handing one order to someone outside the app.
@@ -2865,6 +2869,35 @@ async function clientsView(outlet) {
   // themselves, in the WhatsApp thread they are already having with that
   // shop. Cin7 does exactly this, and it is how every credential in this
   // product is already relayed.
+  // =======================================================================
+  // DOOR B — A SHARE LINK                          LINK-02/11, 8 Sep 2026
+  // =======================================================================
+  // The way through to /wholesaler/links, which has no navigation entry
+  // because the sidebar is capped at nine -- the same call access requests
+  // made on 28 Aug, and the same place: a shop that comes through a link is
+  // a client, so Clients is where its door belongs.
+  //
+  // ⚠️ THIS DOES NOT REPLACE DOOR A BELOW, AND MUST NOT PRETEND TO. Whether
+  // v2_buyer_invites is retired is decision D-1 and it is Hadi's to make
+  // (docs/LINK-PLAN.md). Until he makes it both doors are real, so this
+  // card says what a share link does DIFFERENTLY rather than calling the
+  // invitation old -- a screen that quietly disparages a working feature is
+  // how a feature gets removed without anybody approving its removal.
+  const links = document.createElement("button");
+  links.type = "button";
+  links.className = "card no-print";
+  links.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px 16px;margin-bottom:14px;border:1px solid var(--border-subtle);background:transparent;cursor:pointer;font:inherit;color:inherit;";
+  links.innerHTML = `
+    <span style="font-size:20px;flex:none;">🔗</span>
+    <span style="flex:1;min-width:0;">
+      <strong style="display:block;">Share links</strong>
+      <span style="font-size:12px;color:var(--text-secondary);">One link for one shop, or one link for a hundred — and you decide whether they walk straight into your store or land in your access requests.</span>
+    </span>
+    <span class="btn btn-secondary btn-sm" style="flex:none;pointer-events:none;">Open</span>
+  `;
+  links.addEventListener("click", () => { window.location.hash = "#/wholesaler/links"; });
+  outlet.insertBefore(links, outlet.children[1] || null);
+
   const invites = document.createElement("div");
   invites.className = "card no-print";
   invites.style.cssText = "padding:14px 16px;margin-bottom:14px;";
@@ -5358,6 +5391,11 @@ export function registerWholesalerRoutes(router) {
   // SR-05 — the published ranking policy. Its own file: it is a document, and
   // this view is already the last monolith in the repo.
   registerRankingPolicyRoute(router);
+  // LINK-02/11. No nav entry, same call as access requests on 28 Aug: the
+  // wholesaler sidebar is capped at NINE and that cap is Hadi's requirement,
+  // not a layout preference. Reached from Clients, where a redeemed link's
+  // shop ends up anyway.
+  registerShareLinkAdminRoutes(router);
   // Batch 6: Products folded into Inventory. This route is KEPT and lands on
   // the Products pane, because an installed PWA can hold the old navigation in
   // its cache and a bookmark can outlive any refactor -- a link that used to

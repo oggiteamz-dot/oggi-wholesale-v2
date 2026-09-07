@@ -3406,3 +3406,63 @@ message per the standing rule.
 
 76 JS gates pass, 6 of 8 shell gates (the other two want a database or a
 `wtest` fixture and say so), 43 SQL gates proved / 0 red on the 129 replay.
+
+---
+
+## LINK-02/11 — the wholesaler's side of the link (8 Sep 2026)
+
+`checks/check_share_link_screen.mjs` — **35 assertions, ten sabotages, all ten
+proved red.**
+
+### What the ten sabotages proved, and how many assertions each moved
+
+| # | Sabotage | Went red |
+|---|---|---|
+| S1 | Toast D-2's refusal instead of showing it | 4 |
+| S2 | Toast the finished link instead of showing it | 5 |
+| S3 | Fold the approval queue into the used count | 2 |
+| S4 | Recompute the link's state in the browser | 2 |
+| S5 | Drop the `approval` kind | 1 |
+| S6 | Offer the discount box on every kind | 1 |
+| S7 | Take a tenth sidebar entry | 3 |
+| S8 | Remove the door to the screen from Clients | 1 |
+| S9 | Lose one state's word (`revoked`) | 1 |
+| S10 | Repaint the form after making a link, destroying it | 4 |
+
+Each sabotage names an **exact string** and the runner fails loudly if that
+string is not found exactly once. That check is not decoration: on
+`check_join_screen.mjs`, two sabotages passed while proving nothing — `if
+(false) adopt(...)` leaves the call text in the file, so a source-level
+assertion still matched. A sabotage that silently matches nothing is a green
+gate with no evidence behind it.
+
+S4 and S9 both moved the assertion *"every state the database can return has a
+word a wholesaler reads"*, which is what that assertion is for: it fails whether
+the browser invents a state or loses one.
+
+### The nine-entry cap, and a counting mistake worth recording
+
+The first version of the cap assertion counted `{ icon:` in `nav-config.js` and
+got **13**. Six of those are inside the comment recording the entries Batch 8B
+folded into Inventory — **a regex over source counts the history as well as the
+list.** Replaced with an import of the real `NAV_BY_ROLE.wholesaler` array, the
+way `check_inventory_module.mjs` has done it since 23 August. Two gates now
+assert the same cap from the same source of truth rather than from two
+different readings of the file.
+
+### One thing the gate made me change in the code
+
+`share-links-admin.js` had two multi-line imports. The gate loads a view with
+its imports stripped by `startsWith("import ")`, which leaves the continuation
+line behind and fails to parse — the error names a `}` and not the cause. The
+imports are one line each now, with a comment saying why, because the next
+person to add an import to that file will otherwise break the gate in a way
+that does not explain itself. `join.js` has the same property for the same
+reason.
+
+### Suite
+
+77 JS gates pass (`check_manifest_is_honest.mjs` was red until rows 535–543
+were written — which is the gate doing its job, and the same way row 451 was
+found). `check_no_feature_loss.sh`: **zero deletions**, no `ALLOW_DELETIONS`
+needed. `check_imports_resolve.sh`: 380 specifiers, all resolve.
