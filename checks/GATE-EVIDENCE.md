@@ -3197,3 +3197,103 @@ Identical on both sides.
 42 SQL gates proved, 0 red, 9 could not run for want of seed data, of 51
 76 JS gates pass
 ```
+
+---
+
+## LINK-02/11/05 — making, listing and peeking at a link (migration 129)
+
+**Gate:** `checks/check_making_and_reading_a_link.sql` — 21 assertions.
+
+Migration 127 gave a link a shape and 128 gave it a redemption. Nothing could
+CREATE one: the only way a share link existed was an INSERT typed by hand.
+
+### The two rows that carry the file
+
+**Assertion 12 — what the screen promises is what redemption does.** The hint
+is computed in `v2_share_link_peek` and the outcome in `v2_redeem_share_link`:
+two functions, the same two facts, the branches written out twice. Two copies of
+one rule is how a screen ends up promising *"you're straight in"* to somebody
+the server is about to file an approval request for. The gate calls **both** for
+all four kinds — including a capped link before and after it fills up, so the
+row also proves that both change their minds at the same moment.
+
+**Assertion 6 — the peek never names the person the link was sent to.** A
+one-person link travels by WhatsApp and WhatsApp messages get forwarded. A
+screen that opens with *"Hi Rita"* publishes, to whoever the message reaches, a
+fact the wholesaler told exactly one person. Proven by BEHAVIOUR: the fixture
+uses a name and a number nothing else in the schema could produce
+(`Zzqx Secret Shopfront`, `03 818 191`) and requires them to appear nowhere in
+anything peek returns. Assertion 20 proves the same rule structurally, by
+reading the function's source — which is what turns red the day somebody adds
+the column back for a friendlier greeting.
+
+### Sabotages, each on its own `template` copy
+
+```
+=== the peek greets them by name ...................... 3 red (6, 12, 20)
+=== a dead link names its store ....................... 3 red (10, 11, 12)
+=== the peek always promises immediate access ......... 1 red (12: 3 disagreements)
+=== grant the link list to anon ....................... 1 red (18)
+=== the list stops scoping to the caller .............. 3 red (13, 14, 16 — 6 rows leak)
+=== revoke stops checking whose link it is ............ 1 red (17: THEY WITHDREW SOMEBODY ELSE'S LINK)
+=== D-2's lookup neutered in the SHIPPED body ......... 1 red (15: IT WAS ACCEPTED)
+```
+
+The D-2 sabotage is worth naming. The first attempt replaced the whole function
+with a stripped version — which broke four earlier assertions before ever
+reaching row 15, and told us nothing about D-2 specifically. Rewritten to take
+the function's own `prosrc` from the database and neuter exactly one statement
+(`select c.shop_name into v_clash` → `select null::text into v_clash`), it turns
+**one** row red. A sabotage that breaks five things has not isolated anything.
+
+### Control replay
+
+```
+check_making_and_reading_a_link.sql vs a replay of origin/main .. RED
+  ERROR: function wholesale_v2.v2_create_share_link(unknown, text, text, numeric) does not exist
+```
+
+### ⚠️ A MIGRATION SHOULD NOT WRITE TO `auth.users` TO TEST ITSELF
+
+129's probe was originally written to exercise `v2_create_share_link` end to
+end. That needs a wholesaler identity, and `v2_user_profiles.id` references
+`auth.users` — so the probe inserted a row into **Supabase's own auth table**.
+It worked, and every gate in `checks/` does the same thing, which is why it did
+not look wrong at first.
+
+The difference is where each runs. A gate runs against a scratch replay inside a
+transaction that is rolled back. A migration runs against **production**, where
+`auth.users` is the real user table with real triggers on it. A migration that
+writes to auth to test itself is a migration nobody should feel comfortable
+applying, and "it deletes the row afterwards" is not the reassurance it sounds
+like — the delete only runs if nothing before it raised.
+
+The behavioural half moved to the gate, which does more of it (create, refuse,
+list, withdraw, the tenant boundary, D-2, and the peek/redeem agreement) and
+rolls back. The migration keeps only assertions about the change it makes: four
+functions, one overload each, the peek's source, and the grants. That is the
+rule migration 116 was corrected for — *a migration may assert things about the
+CHANGE it makes, never about the DATA it happens to find* — applied to the
+migration's own test fixture.
+
+### Production and the replay were compared before the baseline moved
+
+```
+replay of all 131 migrations, empty Postgres .. 63/4/175/96  14ddb0643bc17d4eb1a94440458860d1
+PRODUCTION, measured with the identical query . 63/4/175/96  14ddb0643bc17d4eb1a94440458860d1
+
+v2_create_share_link ... 97759012a8600e898df823fbeab53427
+v2_my_share_links ...... 90d2dfc9a70699739c800964b2847660
+v2_revoke_share_link ... 9039f993d6d3646bc023c57168730eca
+v2_share_link_peek ..... 6c3c3c9f9875b6d5fdeddc0231071ced
+```
+
+All four bodies identical on both sides.
+
+### Suite on the 129 replay
+
+```
+43 SQL gates proved, 0 red, 9 could not run for want of seed data, of 52
+76 JS gates pass
+check_link_cap_under_concurrency.sh green, and red under SABOTAGE=1
+```

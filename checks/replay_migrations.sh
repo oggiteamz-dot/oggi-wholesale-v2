@@ -478,8 +478,26 @@ echo "   shape=$shape"
 # checks/check_link_cap_under_concurrency.sh, the only gate in this repo that
 # opens more than one connection, which is what found the defect in the first
 # place.
-EXP_T=63 EXP_V=4 EXP_F=171 EXP_P=96
-EXP_SHAPE=c7ce0e83bd86731941b17a763e9a643d   # production, 8 Sep 2026, after 128, partitions excluded
+# BASELINE MOVED AGAIN 8 Sep 2026, after migration 129 -- LINK-02/11/05, the
+# wholesaler's side of a link and what a stranger is told when they open one.
+#
+#   replay of all 131 migrations, empty Postgres .. 63/4/175/96  14ddb0643bc17d4eb1a94440458860d1
+#   PRODUCTION, measured with the identical query .. 63/4/175/96  14ddb0643bc17d4eb1a94440458860d1
+#
+# 171 -> 175 functions: v2_create_share_link, v2_revoke_share_link,
+# v2_my_share_links and v2_share_link_peek. No tables, no policies -- every one
+# of them is SECURITY DEFINER over a table that stays fail-locked (127).
+#
+# All four bodies were compared directly as well, because the apply tool takes
+# the file with its header stripped and a hash over signatures cannot tell a
+# body apart:
+#
+#   v2_create_share_link ... 97759012a8600e898df823fbeab53427
+#   v2_my_share_links ...... 90d2dfc9a70699739c800964b2847660
+#   v2_revoke_share_link ... 9039f993d6d3646bc023c57168730eca
+#   v2_share_link_peek ..... 6c3c3c9f9875b6d5fdeddc0231071ced
+EXP_T=63 EXP_V=4 EXP_F=175 EXP_P=96
+EXP_SHAPE=14ddb0643bc17d4eb1a94440458860d1   # production, 8 Sep 2026, after 129, partitions excluded
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
