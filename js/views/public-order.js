@@ -35,6 +35,7 @@
 
 import { getOrderByToken, orderLink, whatsappHref } from "../data/order-handoff.js";
 import { inviteByToken, redeemBuyerInvite } from "../data/buyer-invites.js";
+import { joinView } from "./join.js";
 import { esc, money } from "../lib/utils.js";
 import { toast } from "../components/toast.js";
 
@@ -348,6 +349,10 @@ export function registerPublicRoutes(router) {
   router.register("/o/:token", (outlet, params) => orderSheetView(outlet, params));
   // AC-03: accepting an invitation. No session, by definition.
   router.register("/i/:token", (outlet, params) => inviteView(outlet, params));
+  // LINK-05: joining through a share link. `j` for JOIN, deliberately not `c`
+  // (a catalogue link) or `i` (a v2_buyer_invites link) -- three different
+  // things that must not be confusable in a log or a support conversation.
+  router.register("/j/:token", (outlet, params) => joinView(outlet, params));
 }
 
 /** Does this path need no session? Asked by app.js before it decides to show
@@ -356,5 +361,6 @@ export function registerPublicRoutes(router) {
 export function isPublicPath(path) {
   return /^\/o\/[^/]+$/.test(path || "")   // an order handed to a warehouse
       || /^\/c\/[^/]+$/.test(path || "")   // a catalogue share link
-      || /^\/i\/[^/]+$/.test(path || "");  // an invitation to join a store
+      || /^\/i\/[^/]+$/.test(path || "")   // an invitation to join a store
+      || /^\/j\/[^/]+$/.test(path || "");  // a share link: joining a store
 }

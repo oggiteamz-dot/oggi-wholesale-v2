@@ -128,9 +128,36 @@ function mountShell() {
   // and is then replaced -- a visible flash of "Page not found" on every
   // single sign-in. Setting the hash first means the first resolve is already
   // the right route.
+  //
+  // ⭐ AND THE PLACE THEY WERE TRYING TO GET TO COMES FIRST, which until now
+  // it did not. js/views/buyer.js:1020 writes sessionStorage "v2:after-login"
+  // when somebody clicks "Sign in" on a catalogue link that needs one:
+  //
+  //     // Come back here afterwards rather than dumping them on a dashboard --
+  //     // they clicked a link to see a catalog, not to arrive somewhere.
+  //
+  // NOTHING HAS EVER READ IT. The comment described the intention and the key
+  // was written on every such click since, so the promise it makes -- come
+  // back here -- was never kept: signing in dumped them on the dashboard,
+  // which is precisely what the comment says not to do. Found while wiring
+  // LINK-05, which needs the same return path.
+  //
+  // Read once and REMOVED whether or not it is used. A stale destination that
+  // survives a session is a link that reopens itself days later, and the
+  // person who set it has long since forgotten clicking anything.
   const homeByRole = { owner: "/owner", wholesaler: "/wholesaler", sales: "/sales", buyer: "/buyer" };
   if (!router.matches(router.currentPath())) {
-    const home = homeByRole[session.role] || "/";
+    let back = null;
+    try {
+      back = sessionStorage.getItem("v2:after-login");
+      sessionStorage.removeItem("v2:after-login");
+    } catch { /* private mode: no destination, and no crash */ }
+
+    // It must still resolve. A destination stored by an older build of this
+    // app, or a route that has since been removed, would put them on the
+    // not-found page -- worse than the dashboard this exists to improve on.
+    const home = (back && router.matches(back)) ? back : (homeByRole[session.role] || "/");
+
     // Assign the hash directly rather than via router.go(): nothing is
     // listening for hashchange yet (init() attaches that listener), so go()
     // would set the hash and no resolve would follow. init() below does it.
