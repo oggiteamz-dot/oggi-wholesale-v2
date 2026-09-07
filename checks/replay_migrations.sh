@@ -392,8 +392,38 @@ echo "   shape=$shape"
 # it -- and that is a real limit of this check, not a clean bill of health.
 # check_one_price_per_buyer.sql, check_anon_cannot_write_stock.sql and
 # check_discount_stacking.sql are what actually watch those three.
-EXP_T=62 EXP_V=4 EXP_F=167 EXP_P=96
-EXP_SHAPE=2ebab6400df11d3d526eac52dbbbe953   # production, 7 Sep 2026, partitions excluded
+# BASELINE MOVED AGAIN 7 Sep 2026 (later the same day), after migration 126 --
+# LINK-00, a person on every way in. Same order as every legitimate move, and
+# the order is the only thing that makes it legitimate:
+#
+#   replay of all 128 migrations, empty Postgres .. 62/4/169/96  5108b500f802f20bad5560488f00e36d
+#   PRODUCTION, measured with the identical query .. 62/4/169/96  5108b500f802f20bad5560488f00e36d
+#
+# The replay was run FIRST and produced the hash; production was then measured
+# and produced the same one. Had they differed, the right action would have been
+# to find out why, not to write down whichever was newer.
+#
+# 167 -> 169 functions: v2_ensure_person and v2_ensure_person_credential are
+# new. v2_redeem_buyer_invite and v2_approve_signup_request are REWRITTEN and
+# keep their signatures exactly, so this hash cannot see the most consequential
+# half of 126 at all -- the half where both doors stopped minting accounts with
+# `person_id NULL`. That is the same blind spot 107 is recorded against above.
+# checks/check_person_on_every_way_in.sql is what watches it, and the four
+# bodies were compared directly rather than assumed:
+#
+#   v2_ensure_person(text,text,text) .............. 849d86c21a3e9ca9669407459a15fcf9
+#   v2_ensure_person_credential(uuid,text) ........ 7c7bb26a6e676d7ac452f4996da98994
+#   v2_redeem_buyer_invite(text,text,text,text) ... 51f8478ce38d7e6914e3928b0dbca5b8
+#   v2_approve_signup_request(uuid,text) .......... 10c2f1ef427a3b51434765106ebb9202
+#
+# -- identical on production and on the replay. That comparison exists because
+# of migration 121: a body applied through the MCP in stripped chunks is not
+# necessarily the body in the file, and nothing else here would notice.
+#
+# No new tables (v2_persons, v2_person_channels, v2_person_credentials and
+# v2_person_memberships all predate this) and no new policies.
+EXP_T=62 EXP_V=4 EXP_F=169 EXP_P=96
+EXP_SHAPE=5108b500f802f20bad5560488f00e36d   # production, 7 Sep 2026, after 126, partitions excluded
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
