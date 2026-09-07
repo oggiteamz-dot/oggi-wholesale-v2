@@ -187,6 +187,26 @@ begin
   --    subscription price and expiry date to the anon role while
   --    v2_wholesalers itself looked like it had policies.
   ------------------------------------------------------------------
+  --    ONE ACKNOWLEDGED EXEMPTION, and it is typed here on purpose.
+  --
+  --    v2_live_holds is definer-rights BY DECISION, and migration 064 wrote the
+  --    reason down before making it: a stock hold belongs to a cart and a buyer,
+  --    so an INVOKER view reports ZERO holds to the buyer looking at the shelf,
+  --    who then orders stock somebody else is already holding and oversells it.
+  --    Definer is the safe direction here, and the view exposes an aggregate
+  --    quantity per (variant, location) and nothing about WHO -- no cart_id, no
+  --    buyer_id, no client_id.
+  --
+  --    Naming it here is not the same as suppressing it. The exemption is for
+  --    THIS view keeping THAT shape, and checks/check_partition_isolation.sql
+  --    assertion 7 reads its definition and turns red the day it starts
+  --    exposing cart_id, buyer_id or client_id -- red-proved by making it do
+  --    exactly that. A view added to this list without that second assertion
+  --    would be a hole with a comment in front of it.
+  --
+  --    ⚠ Anything NOT on this list is still a failure. Adding a name is a
+  --    deliberate act somebody has to type, which is the same discipline
+  --    migration 124 uses for the anon grants on the stock writers.
   for txt in
     select c.relname
       from pg_class c
@@ -195,9 +215,25 @@ begin
        and coalesce(array_to_string(c.reloptions, ','), '') not like '%security_invoker=true%'
        and (has_table_privilege('anon', c.oid, 'SELECT')
             or has_table_privilege('authenticated', c.oid, 'SELECT'))
+       and c.relname not in ('v2_live_holds')
   loop
     fails := fails || format('DEFINER VIEW: %s runs with its owner''s rights (no security_invoker) AND is readable by a browser role -- it bypasses RLS on every table it reads. Either set security_invoker=true or revoke it and expose an owner-checked function.', txt);
   end loop;
+
+  --    And the other half of the exemption: if v2_live_holds ever stops being
+  --    an aggregate, the name above stops protecting it here too.
+  if exists (select 1 from pg_class c
+               join pg_namespace ns on ns.oid = c.relnamespace and ns.nspname='wholesale_v2'
+              where c.relname = 'v2_live_holds'
+                and pg_get_viewdef(c.oid) ~* 'cart_id|buyer_id|client_id') then
+    -- ::text is not decoration. `fails` is text[], and `text[] || <untyped
+    -- literal>` makes Postgres guess the literal is an ARRAY -- "Array value
+    -- must start with {". Every other line in this block passes format(),
+    -- which is typed text, so this was the first bare literal here and it
+    -- raised the first time the assertion actually fired. Found by sabotaging
+    -- the view, which is the entire argument for sabotaging things.
+    fails := fails || 'DEFINER VIEW: v2_live_holds is exempt only while it exposes an aggregate quantity. It now names a cart, a buyer or a client, which is the thing migration 064 promised it would never do.'::text;
+  end if;
 
   ------------------------------------------------------------------
   -- 10. No browser role may hold TRUNCATE, REFERENCES or TRIGGER.

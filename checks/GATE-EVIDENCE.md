@@ -2546,3 +2546,219 @@ cart and been invoiced the new one. Its comment claiming both functions
 — four comment lines removed, `ALLOW_DELETIONS=1`, no behaviour touched.
 `check_price_agreement.mjs` gained a sixth mirror entry so that deleting the
 decoy rows from the SQL gate fails there too.
+
+---
+
+## ⚠ A CORRECTION to the section above, and the leak the correction uncovered (7 Sep 2026, later)
+
+### The number I reported was never measured
+
+The section above ends with:
+
+> Full sweep on a clean replay of all 126 migrations: **47/47 SQL gates green,
+> 69/69 mjs green, 6/7 sh green**
+
+**The 47/47 is wrong. It was measured against a database that had already been
+dropped**, and it is in the merged description of PR #62.
+
+`checks/replay_migrations.sh` drops its scratch database at the end unless
+`KEEP_DB=1` — the flag exists precisely because this was got wrong once before,
+by hand, in August, and the script's own comment says so. The sweep was written
+inline that evening, in the same shell call, *after* the replay had finished and
+therefore after the drop. Every subsequent `psql` printed
+
+```
+psql: error: connection to server ... FATAL: database "oggi_final" does not exist
+```
+
+and the detector was grepping for `ERROR:` and `|FAIL`. **"FATAL" is neither.**
+So all 47 files produced no matching line and all 47 counted as green.
+
+The mjs (69/69) and sh (6/7) numbers were real — those gates do not touch the
+database.
+
+### What the true state was
+
+Re-measured properly, against a database that exists, with a runner that has
+been shown a red run before it is allowed to report a green one:
+
+```
+== SQL gates on a replay of main
+   36 proved, 6 red, 5 could not run for want of seed data, of 47
+```
+
+Two of those findings are worth more than the correction:
+
+- **Nine of the 47 SQL gates cannot run on a clean replay at all.** They were
+  written against production data — they want wholesaler `sq`, or a product
+  called "Boxy Cotton Tee", or simply "an active wholesaler to hang a fixture
+  on". `checks/seed.sql` does not supply it (that seed is the WS-001 fixture for
+  the MOQ gate and nothing else). They say so honestly and refuse. So the
+  replay has never been a complete test bed, and any past claim of the form
+  "the whole suite is green on a replay" could not have been true.
+- **`check_tenant_isolation.sql` was failing, with 44 problems, and had been for
+  some time.** It reports through `raise exception 'check_tenant_isolation
+  FAILED with 44 problem(s)'` — a shape the ad-hoc detector also did not match.
+  Nobody had run it because **there has never been a runner for the SQL gates**:
+  `checks/package.json` has had `npm test` for the .mjs gates since Batch 7, and
+  the 47 SQL files have only ever been run one at a time, by whoever remembered.
+
+### `checks/run_sql_gates.sh` — the runner, and why it self-tests
+
+It classifies on the failure signatures the gates themselves emit, catalogued by
+running all 47 and reading the output rather than guessing. Three rules matter:
+
+1. "Could not connect" and "database does not exist" are **RED**, loudly. That
+   is the sentence this whole section exists for.
+2. A gate that honestly reports a missing fixture is counted in its own
+   category and **never as green** — nothing was proven, so it cannot be green;
+   nothing is broken, so calling it red would train people to skim the red list.
+3. **A gate it cannot classify is RED.** If a new gate speaks a dialect the
+   runner does not know, the suite goes red and somebody teaches it the dialect.
+
+And it refuses to report anything at all until `--self-test` has shown it all
+four outcomes on the spot — a passing gate, a fabricated failing gate, an
+unrecognised gate, and a database that is not there:
+
+```
+== self-test: the runner must see a red before it may report a green
+  ok  a passing gate reads GREEN
+  ok  a failing gate reads RED:assertions-failed
+  ok  a missing database reads RED:cannot-run
+  ok  an unrecognised gate reads RED:unclassified
+== self-test passed -- the runner can see all four outcomes
+```
+
+The third line is the 7 Sep false green, and it now fails the runner rather than
+passing the suite. A detector that has never been shown a red is itself a check
+that has never failed, which is the sentence at the top of this file.
+
+The first draft of the runner then had to be corrected in the other direction:
+it matched a bare "does not exist" anywhere in the output, and
+`check_approval_grants_access.sql` asserts *"...no membership was invented for a
+person who does not exist"* — so a **passing** gate read as unreachable. Both
+directions cost the same thing.
+
+---
+
+## 125 — a partition is a door, and 41 of them were unlocked
+
+Found by the runner above, on its first honest run. This is the finding, not the
+correction.
+
+### What was open
+
+`v2_inventory_movements` is the stock ledger for every wholesaler on the
+platform. It is partitioned by month. Its tenant policy is correct and it is on
+the **parent**. Postgres evaluates a parent's policies for queries on the parent,
+and a partition's own policies when a partition is named directly — and
+`create table ... partition of` does **not** inherit row security, because
+`relrowsecurity` is per-relation and a new partition starts OFF.
+
+Migration 074 creates partitions with a bare `create table`. `authenticated`
+holds SELECT on all of them. So:
+
+```
+select * from wholesale_v2.v2_inventory_movements          -- your rows
+select * from wholesale_v2.v2_inventory_movements_2026_09  -- EVERYONE'S
+```
+
+**41 of 41 partitions were open**, over a ledger of 3,081 rows. The second query
+is one HTTP request with the same logged-in token any wholesaler already holds.
+
+### Measured, not reasoned about
+
+On a replay, as a real wholesaler — a `v2_user_profiles` row and a
+`request.jwt.claims`, role `wholesaler` and deliberately never `owner`, because
+an owner passes every tenant check and would make the file green for the wrong
+reason:
+
+|  | through the PARENT (theirs) | naming a PARTITION (everyone's) |
+|---|---|---|
+| before 125 | **1** | **2** |
+| after 125 | **1** | **0** |
+
+The left column is why this was safe to apply: switching row security on for a
+partition does not disturb reads through the parent. The partitions get RLS and
+**no policy**, which is the right shape — every legitimate read goes through the
+parent, so a direct read of a partition should return nothing at all, not
+something filtered. Nothing in `js/` names a partition; that was checked, not
+assumed.
+
+### `check_partition_isolation.sql` — 7 assertions, every one seen to fail
+
+The strongest red proof available was not a sabotage I invented — it was the
+product as it shipped. Run against a replay of `origin/main`:
+
+```
+ a wholesaler still reads their OWN ledger through the parent | 1         | 1    | PASS
+ naming the live partition directly returns nothing (was 2)   | 0         | 2    | FAIL
+ the default partition is closed too                          | 0         | 0    | PASS
+ EVERY partition of the ledger has row security on            | none open | ...42 names... | FAIL
+ the partition creator switches row security on               | yes       | NO — OCTOBER REOPENS IT | FAIL
+ the parent still carries the tenant policy                   | 1         | 1    | PASS
+ v2_live_holds is still an aggregate and still definer-rights | aggregate only | aggregate only | PASS
+```
+
+Rows 1, 6 and 7 stay green there — the file is not simply failing everything —
+so they were red-proved separately:
+
+```
+=== SABOTAGE: the parent's tenant policy is dropped              FAIL rows: 2 (rows 1 and 6) → restored 0
+=== SABOTAGE: v2_live_holds starts revealing WHO is holding      FAIL rows: 1 (row 7)        → restored 0
+=== SABOTAGE: one month's partition is reopened                  FAIL rows: 3 (rows 2 and 4) → restored 0
+```
+
+**Assertion 1 is the one that stops a bad fix.** Without it, "revoke everything
+from `authenticated`" would turn every leak row green and take the movement
+history, the valuation report and the dead-stock report blank with it.
+
+**Row 6 caught a mistake while it was being written.** A restore step in the
+sabotage script created a *second* policy on the parent instead of restoring the
+first; the row asserts `count = 1`, not `>= 1`, and went red immediately. A gate
+that only checked "a policy exists" would have said nothing.
+
+**Row 3 is weaker than it looks and is left in anyway.** The default partition
+reads 0 on an unfixed database too — because nothing lands in it, not because it
+is closed. Row 4 is what actually binds it, by naming every open partition
+rather than the three somebody remembered.
+
+**Row 7 is today's truth, not an endorsement.** `v2_live_holds` is a
+definer-rights view readable by `anon`. Migration 064 chose that deliberately
+and wrote down why: an invoker view reports zero holds to a buyer, who then
+oversells stock someone else is already holding. It exposes an aggregate
+quantity and nothing about *who*. The row asserts that it stays that way.
+
+### ⚠ THE GRANT DRIFT — found here, NOT fixed, and it is the reason 125 uses RLS
+
+While reproducing the leak, the fixture would not run on a replay: `authenticated`
+lacked SELECT on `v2_products` and `v2_product_variants`, which the parent's own
+policy reads. On **production** it holds them. Measuring the gap:
+
+> On production, `authenticated` holds SELECT/INSERT/UPDATE/DELETE on **nearly
+> every table in `wholesale_v2`** — v2_clients, v2_orders, v2_portal_accounts,
+> v2_people, v2_person_channels, v2_signup_requests, v2_audit_log,
+> v2_login_throttle, and about fifty more. **A replay of all 126 migrations in
+> this repo produces almost none of it.**
+
+Something granted that on production out of band. It is not in any file here.
+
+RLS is still doing its job on the tables that have it — a blanket grant plus a
+scoped policy is survivable, and the deliberately fail-locked tables
+(`v2_person_credentials`, `v2_buyer_sessions`, `v2_access_reapply_policy`) were
+checked and are still locked. But it is exactly how 41 partitions with **no**
+policy became readable, and it is why 125 switches row security on rather than
+revoking a grant: **a fix that depends on a grant staying revoked is a fix the
+next blanket grant undoes silently.**
+
+The wider consequence is worth stating plainly, because `replay_migrations.sh`'s
+banner claims the opposite:
+
+> **This repo can rebuild the product's tables, views and functions — the shape
+> hash proves it on every run. It cannot rebuild its privileges, and nothing
+> checks them.**
+
+That is unfixed and is a decision for Hadi: either bring the grants into a
+migration and make the replay reproduce them, or add a privilege check that
+compares production against the repo the way the shape hash compares structure.
+Recorded here rather than guessed at.
