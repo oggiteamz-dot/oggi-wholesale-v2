@@ -80,10 +80,22 @@ export async function getPricingContext(productIds, accountId, { clientId = null
   // Migration 053, re-gated in 083. The server applies a discount percentage
   // AFTER the override/tier/list decision and v2_submit_order re-prices every
   // line with it, so a screen that does not apply the same percentage shows a
-  // cart that disagrees with the invoice. Both gated functions DELEGATE to
-  // v2_catalog_discount_pct with ids the database resolved itself -- the
-  // arithmetic stays in one place. Two implementations of one rule is how the
-  // cart and the invoice drift apart.
+  // cart that disagrees with the invoice. The percentage is ASKED FOR, never
+  // worked out here -- the arithmetic stays in one place, and two
+  // implementations of one rule is how the cart and the invoice drift apart.
+  //
+  // ↺ Migration 122 is the proof that this was the right shape. Until 7 Sep
+  // 2026 both functions delegated to v2_catalog_discount_pct, so the rate came
+  // from whichever SHELF the buyer arrived on and the same person was quoted
+  // two prices through two doors (326 pairs on production). 122 pointed them at
+  // the STORE dial instead. Not one line of this file changed, and the cart was
+  // correct the moment the migration applied -- which would not have been true
+  // of a browser that computed the rate itself.
+  //
+  // p_catalog_id is still sent and is now IGNORED by the server. It is kept
+  // because removing an argument changes a signature, and migration 113 is the
+  // record of what that costs: a second overload, PGRST203, and a dead
+  // marketplace feed until 114 dropped the old one.
   let discountPct = 0;
   if (token) {
     const { data } = await sbCall(

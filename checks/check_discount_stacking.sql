@@ -29,13 +29,28 @@
 -- round, so the rule is pinned from BOTH sides: 85.00 is required AND 85.50
 -- is forbidden, by name.
 --
--- ASSERTION 15 IS AN OPEN QUESTION, NOT A BUG REPORT.
--- It records that the same buyer, on the same day, is charged two different
--- prices for the same shirt depending on which door they came through. That
--- is true of production today and is the decision MOD-06 puts to Hadi.
--- Whoever closes it must INVERT that row rather than delete it, the way
--- MOD-07 inverted the tier rows -- so that the day the two doors agree, this
--- file says so out loud instead of going quiet.
+-- ↺ 7 Sep 2026 -- MIGRATION 122 MOVED THE STACK, AND THIS FILE MOVED WITH IT.
+-- When MOD-06 wrote this file, "a store at 10%" was implemented as a SHELF at
+-- 10%, and assertion 15 recorded the consequence as an open question: the same
+-- buyer, the same shirt, the same afternoon, two different prices depending on
+-- which link they opened. Hadi closed it -- "They should get the same price.
+-- The share link just automatically grants them access to the wholesaler that
+-- gave them that link." -- and migration 122 made v2_wholesalers.discount_pct
+-- the only rate that reaches a price.
+--
+-- So the SUBJECT of this file is unchanged: a store rate stacking with a
+-- customer rate, measured on an invoice. What changed is where the store rate
+-- lives. Nearly every number below is therefore the SAME number as before,
+-- reached through the dial instead of the shelf, and the shelves stay in the
+-- fixture as DECOYS: every order is still routed through a shelf carrying its
+-- own rate, and the assertion is that the rate does not reach the bill. An
+-- order routed through the 10% shelf while the dial reads 10% must invoice
+-- 85.00 and never 75.00, and that companion row is written out by name.
+--
+-- Assertion 15 is inverted rather than deleted, per the practice: it now
+-- submits the SAME order through two different shelves and requires one
+-- answer. Assertion 17 is inverted too -- migration 123 bounded the dial the
+-- day after this file recorded that it was unbounded.
 -- =============================================================================
 begin;
 set local search_path = wholesale_v2, public;
@@ -67,8 +82,11 @@ begin
   insert into wholesale_v2.v2_wholesalers (wid, name) values (w, 'MOD06 Co') on conflict (wid) do nothing;
   -- Order minimums off: this file is about price, and a minimum that refuses
   -- the order would make every assertion below fail for the wrong reason.
+  -- THE DIAL IS THE SUBJECT (122). 10.00/combine is "a store at 10%", which is
+  -- the sentence MOD-06 was written to prove. Individual assertions move it and
+  -- put it back; each one says which value it needs and why.
   update wholesale_v2.v2_wholesalers
-     set order_min_qty = null, order_min_value = null, discount_pct = 0, discount_mode = 'combine'
+     set order_min_qty = null, order_min_value = null, discount_pct = 10.00, discount_mode = 'combine'
    where wid = w;
 
   insert into wholesale_v2.v2_locations (wid, name, is_default) values (w, 'MOD06 store', true)
@@ -132,14 +150,19 @@ begin
          (cCustOnly, v_prod, 10), (cMarkup, v_prod, 10), (cDeep, v_prod, 10);
 
   ---------------------------------------------------------------------------
-  -- 1. THE MOD-06 CASE. A 10% shelf and a 5% customer, on the invoice.
+  -- 1. THE MOD-06 CASE. A store at 10% and a customer at 5%, on the invoice.
+  --    Routed through the 10% COMBINE SHELF on purpose: since 122 that shelf's
+  --    rate must reach nothing, so 85.00 is a claim about two things -- the
+  --    dial arrived, and the shelf did not. 1b names the wrong answer.
   ---------------------------------------------------------------------------
   o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
          'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
          'variant_id', v100, 'qty', 1)), cliFive, null, cCombine, null);
   select unit_price into n from v2_order_items where order_id = o.id;
   if n = 85.00 then PASS := PASS+1; else FAIL := FAIL+1;
-    raise warning 'FAIL 1: 10%% shelf + 5%% customer invoiced % per unit, expected 85.00', n; end if;
+    raise warning 'FAIL 1: a 10%% store dial + 5%% customer invoiced % per unit, expected 85.00', n; end if;
+  if n <> 75.00 then PASS := PASS+1; else FAIL := FAIL+1;
+    raise warning 'FAIL 1b: 75.00 -- the SHELF''s 10%% was added to the dial''s 10%%. Migration 122 says a shelf carries no rate; the door is deciding the price again.'; end if;
 
   ---------------------------------------------------------------------------
   -- 2. AND IT IS NOT COMPOUNDED. 100 x .90 x .95 = 85.50. The rule is
@@ -149,20 +172,28 @@ begin
     raise warning 'FAIL 2: the server COMPOUNDED the two discounts (85.50). Every stacked invoice on the platform is now wrong by the product of the two rates.'; end if;
 
   ---------------------------------------------------------------------------
-  -- 3. combine with a customer on zero is the shelf rate alone.
+  -- 3. combine with a customer on zero is the STORE rate alone (122).
   ---------------------------------------------------------------------------
   o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
          'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
          'variant_id', v100, 'qty', 1)), cliZero, null, cCombine, null);
   select unit_price into n from v2_order_items where order_id = o.id;
   if n = 90.00 then PASS := PASS+1; else FAIL := FAIL+1;
-    raise warning 'FAIL 3: 10%% shelf + 0%% customer invoiced %, expected 90.00', n; end if;
+    raise warning 'FAIL 3: a 10%% store dial + 0%% customer invoiced %, expected 90.00', n; end if;
 
   ---------------------------------------------------------------------------
   -- 4. catalog_only IGNORES the customer -- on the invoice, not just in the
-  --    percentage function. A customer who negotiated 5% and is put on a
-  --    catalog_only shelf gets nothing for it, and that is the intended rule.
+  --    percentage function. A customer who negotiated 5% gets nothing for it,
+  --    and that is the intended rule.
+  --    ↺ SINCE 122 THE MODE IS THE STORE'S, not the shelf's, so the mode is set
+  --    on the dial here. The order is still routed through the catalog_only
+  --    SHELF, which now means nothing -- and that is the second half of the
+  --    assertion, because if shelf modes still worked this row would pass for
+  --    the old reason. Row 4b removes that escape: the store is put in
+  --    'combine' while the shelf stays 'catalog_only', and the customer's 5%
+  --    must come back.
   ---------------------------------------------------------------------------
+  update wholesale_v2.v2_wholesalers set discount_mode = 'catalog_only' where wid = w;
   o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
          'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
          'variant_id', v100, 'qty', 1)), cliFive, null, cCatOnly, null);
@@ -170,9 +201,18 @@ begin
   if n = 90.00 then PASS := PASS+1; else FAIL := FAIL+1;
     raise warning 'FAIL 4: catalog_only invoiced % for a 5%% customer, expected 90.00 (the customer must be ignored)', n; end if;
 
+  update wholesale_v2.v2_wholesalers set discount_mode = 'combine' where wid = w;
+  o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
+         'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
+         'variant_id', v100, 'qty', 1)), cliFive, null, cCatOnly, null);
+  select unit_price into n from v2_order_items where order_id = o.id;
+  if n = 85.00 then PASS := PASS+1; else FAIL := FAIL+1;
+    raise warning 'FAIL 4b: the SHELF''s catalog_only mode is still being obeyed -- invoiced %, expected 85.00 now that the STORE is on combine (122)', n; end if;
+
   ---------------------------------------------------------------------------
-  -- 5. customer_only: the customer's own rate replaces the shelf's.
+  -- 5. customer_only: the customer's own rate replaces the STORE's (122).
   ---------------------------------------------------------------------------
+  update wholesale_v2.v2_wholesalers set discount_mode = 'customer_only' where wid = w;
   o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
          'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
          'variant_id', v100, 'qty', 1)), cliFive, null, cCustOnly, null);
@@ -181,8 +221,8 @@ begin
     raise warning 'FAIL 5: customer_only invoiced %, expected 95.00', n; end if;
 
   ---------------------------------------------------------------------------
-  -- 6. THE QUIRK, PRICED. A customer_only shelf with a customer on 0% falls
-  --    back to the SHELF rate rather than charging list. check_store_pricing_
+  -- 6. THE QUIRK, PRICED. customer_only with a customer on 0% falls back to
+  --    the STORE rate rather than charging list. check_store_pricing_
   --    dial asserts this as a percentage; here it is 90.00 on a bill. If
   --    anyone ever "simplifies" the fallback away, every such client is
   --    silently moved to full price and this row is what says so.
@@ -192,19 +232,24 @@ begin
          'variant_id', v100, 'qty', 1)), cliZero, null, cCustOnly, null);
   select unit_price into n from v2_order_items where order_id = o.id;
   if n = 90.00 then PASS := PASS+1; else FAIL := FAIL+1;
-    raise warning 'FAIL 6: customer_only + 0%% customer invoiced %, expected the 90.00 shelf fallback', n; end if;
+    raise warning 'FAIL 6: customer_only + 0%% customer invoiced %, expected the 90.00 store fallback', n; end if;
+  update wholesale_v2.v2_wholesalers set discount_mode = 'combine' where wid = w;
 
   ---------------------------------------------------------------------------
   -- 7. A NEGATIVE dial sells ABOVE list, and a customer discount only
   --    partly offsets it: -10 + 5 = -5, so 100.00 is billed at 105.00.
   --    A markup is real pricing and must survive stacking intact.
+  --    ↺ The -10 is now on the DIAL. The order still goes through the -10%
+  --    markup SHELF, so a shelf that had started pricing again would give
+  --    -20 + 5 = 115.00 rather than 105.00.
   ---------------------------------------------------------------------------
+  update wholesale_v2.v2_wholesalers set discount_pct = -10.00 where wid = w;
   o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
          'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
          'variant_id', v100, 'qty', 1)), cliFive, null, cMarkup, null);
   select unit_price into n from v2_order_items where order_id = o.id;
   if n = 105.00 then PASS := PASS+1; else FAIL := FAIL+1;
-    raise warning 'FAIL 7: a -10%% shelf with a 5%% customer invoiced %, expected 105.00', n; end if;
+    raise warning 'FAIL 7: a -10%% store dial with a 5%% customer invoiced %, expected 105.00 (115.00 means the shelf priced too)', n; end if;
 
   ---------------------------------------------------------------------------
   -- 8. A stack over 100% floors at ZERO. It must never go negative: a
@@ -212,10 +257,14 @@ begin
   --    and it would flow into subtotal, into the picking sheet, and into
   --    whatever accounting this ever exports to.
   --
-  --    100% is the deepest a SHELF may go -- v2_catalogs_discount_range bounds
-  --    it to -100..100 -- so the overshoot has to come from the customer's
-  --    own rate, which is bounded by nothing at all (see 17). 100 + 5 = 105.
+  --    100% is the deepest EITHER rate may go -- v2_catalogs_discount_range
+  --    has always bounded the shelf, and migration 123 now bounds the dial and
+  --    the customer rate to the same -100..100. The overshoot therefore has to
+  --    come from the SUM, which 123 deliberately leaves unbounded and explains
+  --    why in its header. 100 + 5 = 105, and this row is the reason that is
+  --    survivable: the price floors at 0.00 instead of going negative.
   ---------------------------------------------------------------------------
+  update wholesale_v2.v2_wholesalers set discount_pct = 100.00 where wid = w;
   o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
          'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
          'variant_id', v100, 'qty', 1)), cliFive, null, cDeep, null);
@@ -224,6 +273,7 @@ begin
     raise warning 'FAIL 8: a 105%% stack invoiced %, expected 0.00', n; end if;
   if n >= 0 then PASS := PASS+1; else FAIL := FAIL+1;
     raise warning 'FAIL 8b: a NEGATIVE unit price (%) reached an invoice line', n; end if;
+  update wholesale_v2.v2_wholesalers set discount_pct = 10.00 where wid = w;
 
   ---------------------------------------------------------------------------
   -- 9. A NEGOTIATED PRICE WINS OUTRIGHT. The override is an absolute number,
@@ -290,41 +340,66 @@ begin
     raise warning 'FAIL 13: % order(s) whose subtotal is not the sum of their lines', m; end if;
 
   ---------------------------------------------------------------------------
-  -- 14. THE MOD-05 BRIDGE, IN MONEY. The store dial and the default shelf
-  --     must price identically, for a customer WITH a discount -- otherwise
-  --     switching v2_effective_unit_price over to the store dial (which is
-  --     what MOD-05 built and has deliberately left inert) would move a bill.
-  --     Asserted here as two prices, not two percentages.
+  -- 14. ↺ THE MOD-05 BRIDGE HAS BEEN CROSSED. This row used to require that
+  --     the dial and the default shelf agreed, because the switch-over had not
+  --     happened and a difference would have meant it moved money. 122 made
+  --     the crossing, so the assertion turns around: what must now be true is
+  --     that the INVOICE follows the dial, and the row is written as the dial's
+  --     price against the bill rather than against the shelf.
+  --
+  --     The dial is moved to a number no shelf in this fixture carries (25%),
+  --     so the answer cannot be produced by any shelf: 100.00 less 25+5 = 70.00.
   ---------------------------------------------------------------------------
-  if round(100.00 * (1 - v2_store_discount_pct(w, cliFive)   / 100.0), 2)
-   = round(100.00 * (1 - v2_catalog_discount_pct(cDefault, cliFive) / 100.0), 2)
+  update wholesale_v2.v2_wholesalers set discount_pct = 25.00 where wid = w;
+  o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
+         'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
+         'variant_id', v100, 'qty', 1)), cliFive, null, cCombine, null);
+  select unit_price into n from v2_order_items where order_id = o.id;
+  if n = 70.00 then PASS := PASS+1; else FAIL := FAIL+1;
+    raise warning 'FAIL 14: the dial was moved to 25%% and a 5%% customer was invoiced %, expected 70.00 -- the invoice is not following the dial', n; end if;
+  if round(100.00 * (1 - v2_store_discount_pct(w, cliFive) / 100.0), 2) = n
   then PASS := PASS+1; else FAIL := FAIL+1;
-    raise warning 'FAIL 14: the store dial and the default shelf price a 100.00 shirt differently for the same customer -- the MOD-05 switch-over would move money'; end if;
+    raise warning 'FAIL 14b: the percentage function and the invoice disagree -- the cart will not match the bill'; end if;
+  update wholesale_v2.v2_wholesalers set discount_pct = 10.00 where wid = w;
 
   ---------------------------------------------------------------------------
-  -- 15. ⚠ THE TWO DOORS. TODAY'S TRUTH, AND THE OPEN QUESTION.
-  --     The same customer, the same shirt, the same afternoon:
-  --       through the store screen (the DEFAULT shelf)  ->  95.00
-  --       through the share link for the 10% shelf      ->  85.00
-  --     Since MOD-04 the buyer SEES the whole store but is PRICED through
-  --     one shelf, so a product that the wholesaler put on a 10% shelf is
-  --     billed at the default shelf's rate when reached from the store
-  --     screen. Nothing on screen is wrong -- the screen and the invoice
-  --     agree with each other. What disagrees is the two doors.
+  -- 15. ↺ THE TWO DOORS, INVERTED (122). This row used to record the defect:
+  --     the same customer, the same shirt, the same afternoon, 95.00 through
+  --     the store screen and 85.00 through a share link, because the buyer saw
+  --     the whole store but was PRICED through whichever shelf they arrived on.
+  --     326 (account, variant) pairs on production disagreed that way.
   --
-  --     This is not asserted because it is right. It is asserted because it
-  --     is TRUE, it is money, and it must not change without somebody
-  --     deciding that it should. When that decision is made, INVERT this
-  --     row -- do not delete it.
+  --     Hadi: "They should get the same price. The share link just
+  --     automatically grants them access to the wholesaler that gave them that
+  --     link." Migration 122 did it, and the row is turned around rather than
+  --     deleted: the SAME order is now submitted through both doors and the two
+  --     answers must be equal. 85.00 -- the dial's 10 plus the customer's 5 --
+  --     is what BOTH now read, and 95.00 (the old store-screen answer) is
+  --     forbidden by name, so reinstating the shelf turns this red from either
+  --     direction.
   ---------------------------------------------------------------------------
   o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
          'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
          'variant_id', v100, 'qty', 1)), cliFive, null, cDefault, null);
   select unit_price into n from v2_order_items where order_id = o.id;
-  if n = 95.00 then PASS := PASS+1; else FAIL := FAIL+1;
-    raise warning 'FAIL 15: the same shirt through the default shelf invoiced %, expected 95.00', n; end if;
-  if n <> 85.00 then PASS := PASS+1; else FAIL := FAIL+1;
-    raise warning 'FAIL 15b: the two doors now AGREE at 85.00. That is very likely the fix -- but it is a price change, so invert rows 15 and 15b and record the decision in GATE-EVIDENCE.'; end if;
+  if n = 85.00 then PASS := PASS+1; else FAIL := FAIL+1;
+    raise warning 'FAIL 15: the store screen (default shelf) invoiced %, expected the store dial''s 85.00', n; end if;
+  if n <> 95.00 then PASS := PASS+1; else FAIL := FAIL+1;
+    raise warning 'FAIL 15b: 95.00 -- the default shelf is pricing again and the two doors have gone back to disagreeing. This is the defect migration 122 closed.'; end if;
+
+  -- 15c. And the comparison itself, so the pair stays honest on a day somebody
+  --      changes the fixture's numbers: one order through the DEFAULT shelf and
+  --      one through the DEEPEST shelf in the fixture, and the two unit prices
+  --      must be the same number.
+  declare n2 numeric;
+  begin
+    o := v2_submit_order(w, 'm06', v_loc, jsonb_build_array(jsonb_build_object(
+           'reservation_id', (v2_reserve_stock(v100, v_loc, 1, gen_random_uuid(), null, 15)).id,
+           'variant_id', v100, 'qty', 1)), cliFive, null, cDeep, null);
+    select unit_price into n2 from v2_order_items where order_id = o.id;
+    if n2 = n then PASS := PASS+1; else FAIL := FAIL+1;
+      raise warning 'FAIL 15c: the same buyer, the same shirt -- % through the default shelf and % through the 100%% shelf. The door still decides the price.', n, n2; end if;
+  end;
 
   ---------------------------------------------------------------------------
   -- 16. A SHELF CANNOT BE SET PAST 100%. The floor in assertion 8 is the last
@@ -339,24 +414,60 @@ begin
   end;
 
   ---------------------------------------------------------------------------
-  -- 17. ⚠ THE STORE DIAL HAS NO SUCH BOUND. TODAY'S TRUTH.
-  --     v2_catalogs.discount_pct is checked into -100..100. The dial migration
-  --     117 added to v2_wholesalers constrains only discount_mode -- the
-  --     PERCENTAGE is unbounded, so a store can be set to 500% or -5000%.
-  --     Nothing reads it yet, which is why this has cost nothing so far. The
-  --     moment MOD-05's switch-over happens it becomes the number that prices
-  --     every order in the store, with a fat-fingered keypress and no check
-  --     between it and the invoice.
-  --
-  --     Asserted as it stands, not as it should be. Adding the constraint is
-  --     a one-line migration; when it lands, INVERT this row.
+  -- 17. ↺ THE STORE DIAL IS NOW BOUNDED TOO (123). This row used to assert the
+  --     opposite: v2_catalogs.discount_pct was checked into -100..100 while the
+  --     dial migration 117 added to v2_wholesalers constrained only
+  --     discount_mode, leaving the PERCENTAGE open to 500% or -5000%. That cost
+  --     nothing while nothing read it -- and 122 made it the number that prices
+  --     every order in the store, one keypress from every invoice. Migration
+  --     123 gave it the shelf's own range, on the reasoning that the dial IS
+  --     the shelf's replacement and a different range would be the fix creating
+  --     the hole.
   ---------------------------------------------------------------------------
   begin
     update wholesale_v2.v2_wholesalers set discount_pct = 500 where wid = w;
-    PASS := PASS+1;
-  exception when check_violation then FAIL := FAIL+1;
-    raise warning 'FAIL 17: the store dial is now BOUNDED. That is the right fix -- invert this row and say so in GATE-EVIDENCE.';
+    FAIL := FAIL+1;
+    raise warning 'FAIL 17: the store dial accepted 500%%. Since 122 that number prices every order in the store.';
+  exception when check_violation then PASS := PASS+1;
   end;
+
+  -- 17b. and the same at the other end, because a markup is the direction
+  --      nobody tests: -5000% would bill 51x list.
+  begin
+    update wholesale_v2.v2_wholesalers set discount_pct = -5000 where wid = w;
+    FAIL := FAIL+1;
+    raise warning 'FAIL 17b: the store dial accepted -5000%%, which bills fifty-one times list price.';
+  exception when check_violation then PASS := PASS+1;
+  end;
+
+  -- 17c. and the CUSTOMER's rate, the other half of the sum, which had never
+  --      been checked at all and is bounded by the same migration.
+  begin
+    update wholesale_v2.v2_clients set discount_pct = 500 where id = cliFive;
+    FAIL := FAIL+1;
+    raise warning 'FAIL 17c: a customer rate accepted 500%%.';
+  exception when check_violation then PASS := PASS+1;
+  end;
+
+  -- 17d. ⚠ WHAT 123 DELIBERATELY DID NOT BOUND, asserted as today's truth so
+  --      that the day somebody decides otherwise, this row tells them the
+  --      decision was made on purpose and where it is written down. In
+  --      'combine' mode the total is store + customer, so 100 + 100 = 200 is
+  --      reachable with both halves legal. Migration 123's header explains why
+  --      a sum constraint would be a worse screen than an over-generous total,
+  --      and assertion 8 is why it is survivable: the PRICE floors at 0.00.
+  --      If this row ever goes red, the sum was bounded -- invert it, do not
+  --      delete it.
+  ---------------------------------------------------------------------------
+  begin
+    update wholesale_v2.v2_wholesalers set discount_pct = 100 where wid = w;
+    update wholesale_v2.v2_clients     set discount_pct = 100 where id = cliFive;
+    if v2_store_discount_pct(w, cliFive) = 200 then PASS := PASS+1; else FAIL := FAIL+1;
+      raise warning 'FAIL 17d: two legal halves summed to % rather than 200 -- the arithmetic changed', v2_store_discount_pct(w, cliFive); end if;
+  exception when check_violation then FAIL := FAIL+1;
+    raise warning 'FAIL 17d: the SUM of the two rates is now bounded. That may well be right -- invert this row and say so in GATE-EVIDENCE, and read migration 123''s header first.';
+  end;
+  update wholesale_v2.v2_clients set discount_pct = 5.00 where id = cliFive;
   update wholesale_v2.v2_wholesalers set discount_pct = 0 where wid = w;
 
   raise notice '----------------------------------------';

@@ -375,8 +375,25 @@ echo "   shape=$shape"
 # Migrations 112-118 landed after the previous baseline (the marketplace feed
 # and search, the login doors, then MOD-01/05/04), which is why it had drifted
 # from 162 functions to 166.
-EXP_T=62 EXP_V=4 EXP_F=166 EXP_P=96
-EXP_SHAPE=ba1c3dcdb9c538e85e32e881a2e64b42   # production, 6 Sep 2026, partitions excluded
+# BASELINE MOVED AGAIN 7 Sep 2026, and the order of the two measurements is the
+# whole point. The replay produced 62/4/167/96 shape 2ebab640... and the
+# baseline was NOT touched on that evidence -- a replay agreeing with itself is
+# not a baseline. Production was then measured with the identical query and
+# produced exactly the same five values, and only then was the number below
+# changed. If the two had differed, the correct action would have been to find
+# out why, not to write down whichever one was newer.
+#
+# What moved it: migration 121 added v2_receive_product (166 -> 167 functions).
+# Migrations 122, 123 and 124 landed the same day and moved NOTHING here, which
+# is worth saying out loud rather than leaving to be inferred: 122 rewrote three
+# function BODIES while deliberately keeping every signature (see its header on
+# PGRST203), 123 added two check constraints, and 124 changed grants. This hash
+# covers relation names and function signatures, so all three are invisible to
+# it -- and that is a real limit of this check, not a clean bill of health.
+# check_one_price_per_buyer.sql, check_anon_cannot_write_stock.sql and
+# check_discount_stacking.sql are what actually watch those three.
+EXP_T=62 EXP_V=4 EXP_F=167 EXP_P=96
+EXP_SHAPE=2ebab6400df11d3d526eac52dbbbe953   # production, 7 Sep 2026, partitions excluded
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
@@ -385,9 +402,9 @@ EXP_SHAPE=ba1c3dcdb9c538e85e32e881a2e64b42   # production, 6 Sep 2026, partition
 # and function signatures and not ACLs -- which is exactly why S7
 # (check_anon_grants.sql) has to be run as well, and is what caught 097.
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
-  echo "   MATCHES the 6 Sep 2026 production baseline exactly, shape included."
+  echo "   MATCHES the 7 Sep 2026 production baseline exactly, shape included."
 else
-  echo "   !! differs from the 6 Sep 2026 production baseline"
+  echo "   !! differs from the 7 Sep 2026 production baseline"
   echo "      expected tables=$EXP_T views=$EXP_V functions=$EXP_F policies=$EXP_P"
   echo "      Either a migration was applied to production without a file (check"
   echo "      supabase_migrations.schema_migrations against supabase/migrations/),"

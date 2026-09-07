@@ -16,6 +16,17 @@
 -- The negative one needs NO guessing: a buyer holds their own client id in
 -- their session, so one call tells them they are being marked up.
 --
+-- 122 CHANGED WHAT THESE ROWS MEAN, AND THEY ARE TURNED AROUND RATHER THAN
+-- DELETED. Until 7 Sep 2026 the rate a buyer got was the SHELF's rate plus
+-- their own, so this file asserted a shelf's 20.00 and a shelf's -5.00 reaching
+-- a buyer. Migration 122 makes the STORE dial the only rate, because the same
+-- buyer was being quoted two prices depending on which link they opened. Every
+-- row below that used to read a shelf's number now reads the store's, and says
+-- so in its label -- so putting the shelf back turns this file red instead of
+-- quietly restoring the old behaviour. The store dial is set to 7.00 in the
+-- fixture ON PURPOSE: if it were 0.00, "the shelf contributed nothing" and
+-- "nothing contributed anything" would be the same green.
+--
 -- ROW 2 IS THE STRUCTURAL ONE. It asserts the replacement takes no client id
 -- AT ALL — not that it refuses a bad one. A gate you can pass the wrong
 -- argument to is a gate someone will pass the wrong argument to; the fix is
@@ -31,6 +42,11 @@ insert into public.wholesalers        (wid, name) values ('zzprc','Price Co') on
 insert into wholesale_v2.v2_wholesalers (wid, name) values ('zzprc','Price Co') on conflict (wid) do nothing;
 insert into public.wholesalers        (wid, name) values ('zzriv2','Rival Two') on conflict (wid) do nothing;
 insert into wholesale_v2.v2_wholesalers (wid, name) values ('zzriv2','Rival Two') on conflict (wid) do nothing;
+
+-- THE STORE DIAL (122). Two different numbers, so a rate crossing between the
+-- two stores is a visible wrong answer rather than another zero.
+update wholesale_v2.v2_wholesalers set discount_pct = 7.00, discount_mode = 'combine' where wid = 'zzprc';
+update wholesale_v2.v2_wholesalers set discount_pct = 0.00, discount_mode = 'combine' where wid = 'zzriv2';
 
 -- Two clients with DIFFERENT negotiated terms. The whole point is that one
 -- must never be able to read the other's.
@@ -72,8 +88,9 @@ values ('00000000-0000-4000-8000-0000000d5001', 12, 9.00),
 
 select label, expected, got, case when got = expected then 'PASS' else 'FAIL' end as verdict from (
 
-  -- 1. the buyer gets their OWN terms
-  select 'a buyer gets their own negotiated discount' as label, '10.00' as expected,
+  -- 1. the buyer gets the store's rate PLUS their own (7.00 + 10.00). Before
+  --    122 this read 10.00, because the default shelf contributed 0.00.
+  select 'a buyer gets the store rate plus their own (122)' as label, '17.00' as expected,
          (select to_char(wholesale_v2.v2_buyer_discount_pct(
             '00000000-0000-4000-8000-0000000b5001',
             '00000000-0000-4000-8000-0000000a5001'),'FM990.00')) as got
@@ -88,25 +105,31 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
              and parameter_name ilike '%client%')
 
   -- 3. two buyers of the SAME wholesaler get their own numbers, not each other's
-  union all select 'a different buyer gets their own, lower terms', '0.00',
+  union all select 'a buyer with no terms of their own still gets the store rate', '7.00',
          (select to_char(wholesale_v2.v2_buyer_discount_pct(
             '00000000-0000-4000-8000-0000000b5002',
             '00000000-0000-4000-8000-0000000a5001'),'FM990.00'))
 
-  -- 4. the hidden MARKUP still applies to the buyer who is on that catalogue --
-  --    it is real pricing, and hiding it from the app would make the cart
-  --    disagree with the invoice. What changes is that only THEY can read it.
-  union all select 'the catalogue markup still reaches the right buyer', '-5.00',
+  -- 4. ↺ INVERTED BY 122. This row used to assert that a shelf's hidden -5.00
+  --    MARKUP reached the buyer standing on that shelf. It no longer does: a
+  --    shelf carries no rate at all, so the answer is the store's 7.00. The
+  --    row is kept, and kept pointed at the MARKUP shelf, because 7.00 here is
+  --    a claim about two things at once -- the shelf's -5.00 is gone AND the
+  --    store's 7.00 arrived. Restoring the shelf gives -5.00 and turns it red.
+  union all select 'a shelf''s hidden markup no longer reaches anybody (122)', '7.00',
          (select to_char(wholesale_v2.v2_buyer_discount_pct(
             '00000000-0000-4000-8000-0000000b5002',
             '00000000-0000-4000-8000-0000000a5002'),'FM990.00'))
 
-  -- 5-7. the fence. MOD-07 (D2) removed the tier bar from it. The row below is
-  -- turned around rather than deleted: a catalogue that used to be above the
-  -- buyer's rank now contributes its discount like any other in their store, so
-  -- 20.00 is the new truth and reinstating the gate turns this file red again.
+  -- 5-7. the fence. MOD-07 (D2) removed the tier bar from it; 122 then removed
+  -- the shelf's rate entirely. This row has now been turned around twice and is
+  -- still not deleted, which is the point of the practice: the 20.00 shelf that
+  -- MOD-07 let a tier-1 buyer reach contributes NOTHING to their price, so the
+  -- answer is the store's 7.00 plus their own 10.00. Two different regressions
+  -- turn it red -- putting the tier bar back (0.00) or putting the shelf's rate
+  -- back (27.00) -- and neither can be mistaken for the other.
   -- The DEACTIVATED-account and wrong-wholesaler rows are the fence that stays.
-  union all select 'a catalogue above the buyer''s old tier NOW contributes (MOD-07)', '20.00',
+  union all select 'a shelf the buyer can now reach still adds nothing to their price (MOD-07, 122)', '17.00',
          (select to_char(wholesale_v2.v2_buyer_discount_pct(
             '00000000-0000-4000-8000-0000000b5001',
             '00000000-0000-4000-8000-0000000a5003'),'FM990.00'))
@@ -118,21 +141,36 @@ select label, expected, got, case when got = expected then 'PASS' else 'FAIL' en
          (select to_char(wholesale_v2.v2_buyer_discount_pct(
             '00000000-0000-4000-8000-00000000dead',
             '00000000-0000-4000-8000-0000000a5001'),'FM990.00'))
-  union all select 'a rival''s buyer gets nothing from this catalogue', '0.00',
+  union all select 'a rival''s buyer never picks up this store''s dial (not 7.00)', '0.00',
          (select to_char(wholesale_v2.v2_buyer_discount_pct(
             '00000000-0000-4000-8000-0000000b5099',
             '00000000-0000-4000-8000-0000000a5001'),'FM990.00'))
 
   -- 9. ONE arithmetic rule. The gated function must agree exactly with the
   --    function the server itself uses, or the cart and the invoice drift.
-  union all select 'it agrees exactly with the server''s own pricing rule', 'agree',
+  --    ↺ SINCE 122 THAT FUNCTION IS v2_store_discount_pct, not the shelf's.
+  union all select 'it agrees exactly with the server''s own pricing rule (the STORE dial)', 'agree',
          (select case when wholesale_v2.v2_buyer_discount_pct(
                           '00000000-0000-4000-8000-0000000b5001',
                           '00000000-0000-4000-8000-0000000a5001')
-                       = wholesale_v2.v2_catalog_discount_pct(
-                          '00000000-0000-4000-8000-0000000a5001',
-                          '00000000-0000-4000-8000-0000000c5001')
+                       = wholesale_v2.v2_store_discount_pct(
+                          'zzprc','00000000-0000-4000-8000-0000000c5001')
                      then 'agree' else 'DRIFTED' end)
+
+  -- 9b. ⛔ AND THE SHELF IS NO LONGER THAT RULE. Without this row, row 9 could
+  --     go green again on a day somebody points the store dial back at the
+  --     default shelf -- which is the two-door defect returning by another
+  --     name. The 20.00 shelf is used deliberately: it is the one whose rate
+  --     is furthest from the answer, so agreement here could only mean the
+  --     shelf had started pricing again.
+  union all select 'and a shelf''s own rate is NOT that rule any more (122)', 'the shelf is not the rule',
+         (select case when wholesale_v2.v2_buyer_discount_pct(
+                          '00000000-0000-4000-8000-0000000b5001',
+                          '00000000-0000-4000-8000-0000000a5003')
+                       = wholesale_v2.v2_catalog_discount_pct(
+                          '00000000-0000-4000-8000-0000000a5003',
+                          '00000000-0000-4000-8000-0000000c5001')
+                     then 'THE SHELF IS STILL THE RULE' else 'the shelf is not the rule' end)
 
   -- 10-13. quantity breaks
   union all select 'a link buyer sees the quantity breaks', '2',
