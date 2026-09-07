@@ -2762,3 +2762,135 @@ That is unfixed and is a decision for Hadi: either bring the grants into a
 migration and make the replay reproduce them, or add a privilege check that
 compares production against the repo the way the shape hash compares structure.
 Recorded here rather than guessed at.
+
+---
+
+## LINK-00 — a person on every way in (migration 126)
+
+**The claim.** Both doors that create a buyer now create a marketplace identity:
+a person, a phone channel, a credential and a membership. Before 126 both
+inserted a `v2_portal_accounts` row with `person_id NULL` and stopped there.
+
+**Gate:** `checks/check_person_on_every_way_in.sql` — 16 assertions.
+**Matched pair:** `checks/check_approval_grants_access.sql` 8c (inverted) and 8d (new).
+
+### The control replay — the strongest evidence here, and none of it is invented
+
+A database was built from a replay of **`origin/main`** (127 migrations,
+62/4/167/96, shape `2ebab640…` — the pre-126 production baseline exactly), and
+the NEW gates were run against it unchanged. This is worth more than any
+sabotage I could write, because the "before" state is the product as it actually
+shipped rather than a state I damaged on purpose.
+
+```
+check_person_on_every_way_in.sql vs origin/main .......... 11 of 16 RED
+  and the account it created belongs to a PERSON       yes  → STILL A DEAD END
+  a membership exists, so the store appears in the switcher 1 → 0
+  they can sign in to OGGI with that phone and password true → false
+  and their new store is in the list that session can open 1 → -1
+  and THAT account belongs to a person too             yes  → STILL A DEAD END
+  the one-time password works on the marketplace       true → false
+  the same number written differently reaches the SAME person → A SECOND PERSON WAS CREATED
+  one human, two stores, two memberships                 2  → 0
+  a link can never overwrite an existing marketplace password → (function absent)
+  an applicant with no phone still gets a person and a membership 1 → 0
+  and the wholesaler is TOLD they cannot sign in yet    told → SILENTLY HALF DONE
+
+check_approval_grants_access.sql vs origin/main ........... 2 RED
+  8c  memberships=0 person=NULL   (it required 0 before 126, and 1 after)
+  8d  the new person has 0 phone channel(s), expected exactly 1
+```
+
+Against the 126 database both gates are fully green: **16/16** and **17/17**.
+
+### The five rows the control CANNOT prove, and the sabotages that do
+
+A control replay proves the rows that describe new behaviour. It cannot prove
+the rows that describe things that must **never** happen, because on `main`
+those things are absent rather than forbidden — row 12 reads "none" on `main`
+only because the function it is asking about does not exist yet. Passing
+vacuously is not passing. Each was made to go red on purpose:
+
+```
+=== SABOTAGE: v2_ensure_person stops reading the CHANNEL and reuses any
+              person it finds -- "merge the platform into one human"
+    rows 4, 5, 8 FAIL, and row 10 reads TWO PEOPLE WERE MERGED
+
+=== SABOTAGE: the find-or-create becomes a plain INSERT and
+              v2_person_channels_uq is dropped with it
+    rows 8, 9 FAIL, and row 11 reads 2 phone numbers claimed by two people
+
+=== SABOTAGE: grant execute on v2_ensure_person to anon
+    row 12 FAIL -- got `v2_ensure_person`, expected `none`
+
+=== SABOTAGE: v2_ensure_person_credential grows `on conflict do update`
+    row 13 FAIL -- IT CAN OVERWRITE ONE
+```
+
+**Two of those four had to be rewritten before they were true, and both
+corrections are worth keeping.**
+
+The first attempt at the merge sabotage returned "the first person in the
+table" unconditionally. On the gate's own fixture the table is empty at the
+first call, so it returned NULL and the gate **crashed** on
+`v2_person_memberships.person_id`'s not-null constraint instead of reporting a
+failed row. That is still a red — `run_sql_gates.sh` classifies a gate it
+cannot read as RED, which is rule 3 and the reason that rule exists — but it
+proves the constraint, not the assertion. Rewritten to reuse a person when one
+exists and create one otherwise, it reaches row 10 and fails there, which is
+what was claimed.
+
+The second attempt dropped `v2_person_channels_uq` and nothing went red, and
+for a while that looked like a hole in the gate. It is not: `v2_ensure_person`
+LOOKS UP the channel before inserting, so removing the index alone cannot
+produce a duplicate — the index is the second line of defence, not the first.
+The sabotage that matters is the one a real person would commit: "simplify"
+the find-or-create into a plain insert. With the index still there that raises;
+with the index dropped as well it silently mints a second person for a number
+the platform already knows, and rows 8, 9 and 11 all turn red. **The
+one-sabotage version would have been recorded as a gate weakness that was not
+there.**
+
+**Assertion 4 is the headline and it is deliberately not a row count.** It takes
+the phone the wholesaler typed into the invitation and the password the buyer
+chose at redemption, calls the app's own `v2_marketplace_login`, and requires a
+session back. `person_id is not null` would pass on a person with no channel, no
+credential or no membership — three half-states 126 can produce, each of which
+is a buyer who still cannot log in.
+
+**Assertion 8c was inverted rather than deleted.** It required `0` memberships
+for the anonymous applicant, which was right while that branch minted a null
+person. It now requires exactly one, naming a real person. That is stronger than
+the original in both directions: `0` also passes on a database where the whole
+anonymous branch has been removed.
+
+### Production and the replay were compared before the baseline moved
+
+```
+replay of all 128 migrations, empty Postgres .. 62/4/169/96  5108b500f802f20bad5560488f00e36d
+PRODUCTION, measured with the same query ...... 62/4/169/96  5108b500f802f20bad5560488f00e36d
+```
+
+The shape hash cannot see the half of 126 that matters — `v2_redeem_buyer_invite`
+and `v2_approve_signup_request` keep their signatures exactly — so the four
+function bodies were compared directly, which is the lesson migration 121 left:
+
+```
+v2_ensure_person(text,text,text) .............. 849d86c21a3e9ca9669407459a15fcf9
+v2_ensure_person_credential(uuid,text) ........ 7c7bb26a6e676d7ac452f4996da98994
+v2_redeem_buyer_invite(text,text,text,text) ... 51f8478ce38d7e6914e3928b0dbca5b8
+v2_approve_signup_request(uuid,text) .......... 10c2f1ef427a3b51434765106ebb9202
+```
+
+Identical on both sides.
+
+### The whole SQL suite, on the 126 replay, through the runner
+
+```
+== self-test passed -- the runner can see all four outcomes
+== SQL gates on oggi_link
+   40 proved, 0 red, 9 could not run for want of seed data, of 49
+```
+
+The nine are row 493's: written against production data a clean replay does not
+have. Nothing was proven by them and nothing is broken.

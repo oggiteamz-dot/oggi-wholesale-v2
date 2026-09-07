@@ -48,6 +48,7 @@ declare
   accA uuid; owner_id uuid := '66666666-ffff-4fff-8fff-666666666666';
   reqB uuid; reqAnon uuid; sid uuid; secret text := 'gate-secret-token';
   r record; v_access text; v_acct uuid; v_pass text; v_user text; v_ok boolean; v_msg text;
+  v_person uuid;   -- added by 126: the anonymous applicant now HAS one
 begin
   rep := rep || E'\n 0  ok   SENTINEL — this gate ran. If this line is absent the run is void.';
 
@@ -193,10 +194,49 @@ begin
     rep := rep || E'\n 8b ok   ⭐ ...and that password ACTUALLY WORKS — proven by signing in with it, not by seeing a string come back';
   else fails := fails+1; rep := rep || E'\n 8b FAIL the password the function issued does not log in'; end if;
 
+  -- ------------------------------------------------------------ 8c ------
+  -- ⭐ THIS ASSERTION IS INVERTED, AND THE INVERSION IS THE POINT.
+  --
+  -- Until migration 126 it read: `n = 0` -> "no membership was invented for a
+  -- person who does not exist". That was RIGHT while it stood. The anonymous
+  -- branch of v2_approve_signup_request minted a portal account with
+  -- `person_id NULL`, and a membership needs a person, so the correct
+  -- behaviour was to create none -- the applicant got a login to ONE store and
+  -- no marketplace identity at all. 8c guarded against the half-state where a
+  -- membership row pointed at nobody.
+  --
+  -- HADI, on the share-link model: "either way, they get access and they are
+  -- logged in. They are signed up to the marketplace itself." Migration 126
+  -- makes that true of every door, this one included: the applicant now gets a
+  -- person (from the phone 108 made mandatory), a credential, and therefore a
+  -- membership. So the number this line requires changes from 0 to 1.
+  --
+  -- The row is INVERTED rather than deleted because the old assertion is still
+  -- the thing worth watching -- a membership pointing at nobody is still the
+  -- defect. It is now expressed as `exactly one, and it names a real person`,
+  -- which is a strictly stronger statement than `none`: `none` also passes on
+  -- a database where the whole anonymous branch has been deleted.
   select count(*) into n from wholesale_v2.v2_person_memberships m
    where m.wid = wB and m.client_id = r.client_id;
-  if n = 0 then rep := rep || E'\n 8c ok   ...and no membership was invented for a person who does not exist';
-  else fails := fails+1; rep := rep || E'\n 8c FAIL a membership was created for an applicant with no person'; end if;
+  select a.person_id into v_person from wholesale_v2.v2_portal_accounts a
+   where a.id = r.account_id;
+  if n = 1 and v_person is not null then
+    rep := rep || E'\n 8c ok   ⭐ ...and since 126 that applicant IS a person, with exactly one membership';
+  else fails := fails+1;
+    rep := rep || format(E'\n 8c FAIL memberships=%s person=%s -- 126 promises exactly one membership naming a real person', n, coalesce(v_person::text,'NULL'));
+  end if;
+
+  -- ------------------------------------------------------------ 8d ------
+  -- and the person is the one the applicant TYPED, not a fresh stranger. The
+  -- phone submitted above is '76 543 210'; v2_ensure_person normalises it, so
+  -- this is also the only assertion in this file that would catch 126 storing
+  -- the number in a form nothing else can find again.
+  select count(*) into n from wholesale_v2.v2_person_channels c
+   where c.person_id = v_person and c.kind = 'phone';
+  if n = 1 then
+    rep := rep || E'\n 8d ok   ...and that person is reachable on the number the applicant typed';
+  else fails := fails+1;
+    rep := rep || format(E'\n 8d FAIL the new person has %s phone channel(s), expected exactly 1', n); end if;
 
   -- ---------------------------------------------------------------- 9 -------
   perform set_config('request.jwt.claims',
