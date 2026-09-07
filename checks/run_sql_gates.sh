@@ -42,8 +42,14 @@
 #      gate speaks a dialect this file does not know, the suite goes red and
 #      somebody teaches it the dialect. The alternative is what happened above.
 #
-#   ./checks/run_sql_gates.sh <database>            # e.g. a replay, or production
-#   ./checks/run_sql_gates.sh --self-test <database>
+#   bash checks/run_sql_gates.sh <database>             # a replay, or production
+#   bash checks/run_sql_gates.sh --self-test <database>
+#
+# Invoked with `bash`, not `./`, because every other script in this directory is
+# committed non-executable (100644) and is run that way -- replay_migrations.sh
+# included. This file was written 100755 out of habit; the mismatch showed up as
+# a tree hash that differed from the repo while every blob matched, which is a
+# better reason to notice it than tripping over "Permission denied" later.
 #
 # --self-test proves the runner can see a red: it runs a gate that must pass, a
 # fabricated gate that must fail, and a database that does not exist, and
