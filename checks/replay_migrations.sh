@@ -452,8 +452,34 @@ echo "   shape=$shape"
 # That comparison exists because 127 could not be handed to the apply tool with
 # its comments -- the same step that cost migration 121 its in-body comments and
 # taught this file to compare bodies rather than trust the apply.
-EXP_T=63 EXP_V=4 EXP_F=170 EXP_P=96
-EXP_SHAPE=29ac81e8e81ce2d141024985b99a3827   # production, 8 Sep 2026, after 127, partitions excluded
+# BASELINE MOVED AGAIN 8 Sep 2026, after migration 128 -- LINK-06/03/04/07/08,
+# redeeming a share link. Same order as every legitimate move:
+#
+#   replay of all 130 migrations, empty Postgres .. 63/4/171/96  c7ce0e83bd86731941b17a763e9a643d
+#   PRODUCTION, measured with the identical query .. 63/4/171/96  c7ce0e83bd86731941b17a763e9a643d
+#
+# 170 -> 171 functions: v2_redeem_share_link is new. No new tables, no new
+# policies, and ONE COLUMN this hash cannot see at all
+# (v2_signup_requests.share_link_id).
+#
+# 128 ALSO REWROTE v2_rate_limit_check, AND THIS HASH MOVED NOT ONE DIGIT FOR
+# IT, which is the point worth reading twice. That function was not
+# concurrency-safe -- select-for-update on a row that does not exist yet locks
+# nothing, so two callers racing a NEW key both ran a bare INSERT and one got a
+# raw duplicate-key error out of a public form. Three live anon-callable forms
+# call it. A same-signature body replacement is invisible here, exactly as
+# migration 107's rewrite of v2_approve_signup_request was. The bodies were
+# therefore compared directly on both sides:
+#
+#   v2_rate_limit_check(text,integer,integer) ........ 5d0055fc05182e9550a3b23110d89a8d
+#   v2_redeem_share_link(text,text,text,text,text,text,jsonb)  9148908f6926dc1b8678c50e2eaba7ec
+#
+# -- identical. And what actually watches the behaviour is
+# checks/check_link_cap_under_concurrency.sh, the only gate in this repo that
+# opens more than one connection, which is what found the defect in the first
+# place.
+EXP_T=63 EXP_V=4 EXP_F=171 EXP_P=96
+EXP_SHAPE=c7ce0e83bd86731941b17a763e9a643d   # production, 8 Sep 2026, after 128, partitions excluded
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
