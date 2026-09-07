@@ -191,6 +191,33 @@ export async function receiveStock(variantId, locationId, qty, note) {
   }));
 }
 
+/** CNT-00. A WHOLE DELIVERY, in one call.
+ *
+ *  Not a loop over receiveStock(). Sixteen round trips from a browser is not
+ *  atomic: close the laptop at box nine and the warehouse holds nine boxes of a
+ *  delivery that nothing anywhere records as half-done. js/data/size-ratios.js
+ *  states the same rule for v2_apply_ratio, and stock is worse than packs
+ *  because every other number is derived from it.
+ *
+ *  The count check lives in the RPC, not here and not only on the screen. A
+ *  disabled button is a UI state; the rule has to survive a second screen, a
+ *  phone running yesterday's JavaScript, and the CSV import path that already
+ *  writes stock without going near either.
+ *
+ *  @param {string} locationId
+ *  @param {Array<{variantId:string, qty:number}>} lines
+ *  @param {number} billedPieces  what the vendor's invoice said, in PIECES
+ *  @param {string} [note]
+ */
+export async function receiveProductDelivery(locationId, lines, billedPieces, note) {
+  return sbCall(supabase.rpc("v2_receive_product", {
+    p_location_id: locationId,
+    p_lines: (lines || []).map((l) => ({ variant_id: l.variantId, qty: l.qty })),
+    p_billed_pieces: billedPieces,
+    p_note: note || null,
+  }));
+}
+
 export async function adjustStock(variantId, locationId, qty, note) {
   // A manual count correction can go either direction: positive = receive,
   // negative = decrement. Route to the matching RPC rather than exposing a

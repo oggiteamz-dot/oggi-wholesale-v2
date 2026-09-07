@@ -5,7 +5,18 @@ import { devAuth } from "../lib/dev-auth.js";
 // (import from "../data/catalog.js" removed — every symbol it brought in was only used by renderRatioSection, deleted in CR-0001)
 import { getWholesalerOrders, getWholesalerOrder, advanceOrderStatus, nextStatus, setFulfilNote } from "../data/wholesaler-orders.js";
 import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate, setCatalogOnly, setProductPublic, getStockStates } from "../data/products-admin.js";
-import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, getLocations } from "../data/inventory-admin.js";
+import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, receiveProductDelivery, getLocations } from "../data/inventory-admin.js";
+// CNT-00. The whole-product receive screen. receive-dialog.js stays exactly
+// where it is and keeps doing what it is good at -- ONE variant, one number,
+// with landed cost -- because a correction to a single box is a different job
+// from counting in a delivery, and collapsing the two would make the quick job
+// go through a sixteen-box grid.
+import { renderReceiveProduct } from "../components/receive-product.js";
+// CNT-15. createRatio() has been the only way to CREATE a size curve since
+// 24 August and has had no caller for just as long, so every wholesaler
+// onboarded since sees an empty curve list forever. The "Save this curve"
+// button on the receive screen is its first one.
+import { listRatios, createRatio } from "../data/size-ratios.js";
 import { getProductPricing, setProductMoq, addTier, removeTier, setVariantMoq, setVariantRetailPrice, setVariantReorderSettings, setVariantBarcode, setVariantImages, getOrderMinimums, setOrderMinimums } from "../data/pricing-admin.js";
 // CR-0001, 24 Aug 2026: the ratio imports are gone from THIS file because
 // renderRatioSection was deleted with it. js/data/size-ratios.js itself is
@@ -1497,7 +1508,14 @@ async function stockPane(outlet) {
       // fact, shared with Products, Catalogs and the picker.
       facts: factsFor({ ...p, ...(sales.get(p.productId) || {}) }, cardFacts, { locations }),
       actions: [
-        { label: "Receive & transfer", variant: "btn-primary", onClick: () => openProductDetail(p) },
+        // CNT-00. FIRST, and primary, because it is the job that goes wrong.
+        // "Receive & transfer" opens the per-box breakdown and is still the
+        // right screen for correcting one size; this is the one for counting a
+        // delivery in against an invoice.
+        { label: "Receive delivery", variant: "btn-primary",
+          title: "Count a whole delivery in against the vendor's invoice — every colour and size on one screen",
+          onClick: () => openWholeReceive(p) },
+        { label: "Receive & transfer", onClick: () => openProductDetail(p) },
         { label: "View", onClick: () => openProductView(p.productId, reload) },
         { label: "Edit", onClick: () => openProductEditor(p.productId, reload) },
       ],
@@ -1509,6 +1527,65 @@ async function stockPane(outlet) {
 
   const detailHost = document.createElement("div");
   outlet.appendChild(detailHost);
+
+  /** CNT-00. Count a whole delivery in against the vendor's invoice.
+   *
+   *  Opened UNDER the grid rather than in a modal, for the same reason the
+   *  breakdown and the transfer panel are: on a phone a centred dialog covers
+   *  the very figures the operator is deciding against, and this screen is
+   *  sixteen boxes tall.
+   *
+   *  The product handed over is the STOCK grouping, whose rows already carry
+   *  colour, size, sku and variantId. No second query and no second idea of
+   *  what a variant is. */
+  async function openWholeReceive(p) {
+    if (!locations.length) {
+      toast("There is no stock location set up to receive into. Tell OGGI — every wholesaler should have one.", { type: "danger" });
+      return;
+    }
+    detailHost.innerHTML = "";
+    const panel = document.createElement("div");
+    panel.className = "card inv-detail";
+    detailHost.appendChild(panel);
+    panel.scrollIntoView({ block: "nearest" });
+
+    // The saved curve library. Optional and never a gate: a delivery can be
+    // counted in with nothing saved, which is the wall Hadi hit on the pack
+    // builder and the reason that screen went unused.
+    const savedRatios = await listRatios(wid).catch(() => []);
+
+    panel.appendChild(renderReceiveProduct({
+      product: { id: p.productId, name: p.productName, variants: p.variants },
+      locationName: locations[0] ? locations[0].name : null,
+      locations: locations.map((l) => ({ id: l.id, name: l.name })),
+      savedRatios: (savedRatios || []).map((r) => ({ id: r.id, name: r.name, sizes: r.sizes, weights: r.weights })),
+      onSaveRatio: async ({ name, sizes, weights }) => {
+        // CNT-15, and createRatio()'s first caller since it was written.
+        const { error } = await createRatio(wid, { name, sizes, weights });
+        if (error) return { ok: false, error: "That curve could not be saved." };
+        return { ok: true };
+      },
+      onCancel: () => { detailHost.innerHTML = ""; },
+      onConfirm: async ({ billed, pieces, lines, locationId }) => {
+        const { error } = await receiveProductDelivery(
+          locationId || (locations[0] && locations[0].id),
+          lines.map((l) => ({ variantId: l.variantId, qty: l.qty })),
+          pieces,
+          `Counted in against an invoice of ${billed}`
+        );
+        if (error) {
+          // The server's own words. It names both numbers and the direction,
+          // and repeating them beats a generic "could not save" that sends
+          // somebody back to a grid of sixteen boxes with nowhere to look.
+          return { ok: false, error: error.message || "That delivery could not be saved. Nothing was changed." };
+        }
+        toast(`Received ${pieces} pieces of ${p.productName}`, { type: "success" });
+        detailHost.innerHTML = "";
+        reload();
+        return { ok: true };
+      },
+    }));
+  }
 
   /** The colour/size breakdown, opened under the grid. Inline rather than a
    *  modal for the same reason the transfer panel is: on a phone a centred

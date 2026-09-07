@@ -2231,3 +2231,140 @@ cover every gate the repo has, or it measures its own blind spot instead of the
 change.** The run that found this one was every `.mjs` gate, against a control
 tree built from `main`, and it is the run that should have happened the first
 time.
+
+---
+
+## CNT-00 — the count check, on the screen and in the database (6 Sep 2026)
+
+Two gates, because it is two rules:
+
+- `checks/check_receive_count.mjs` — 42 assertions, driving the real component
+  in a real DOM. Red-proved **9 ways**.
+- `checks/check_receive_count.sql` — 19 assertions against migration 121,
+  every one the database refusing or the database having written exactly what
+  it said. Red-proved **6 ways**.
+
+### What was found in the code, not assumed
+
+`js/components/receive-dialog.js` is 192 lines and takes **one variant and one
+number**. Receiving 250 pieces of a style in 4 colours and 4 sizes means opening
+it sixteen times and typing sixteen numbers — and nothing in the system adds
+them up, and nothing compares the total to the vendor's invoice.
+
+There is no screen on which a wholesaler can see what he has entered against
+what he was billed. The error is not merely possible; **there is no mechanism by
+which it could be caught.**
+
+### Derive, do not reconcile
+
+The reference ERP lets two numbers exist and offers a **Sync** button to argue
+between them: `Invoice Qty 2.999` beside `Selected Qty 3`, and nothing blocks
+Done. That is the wrong shape. Any two numbers a person can type separately will
+eventually disagree. So the quantity is never typed twice: the billed figure is
+typed once, the grid holds pieces, and the total is the sum of the grid.
+
+### Why the rule is in the database as well
+
+CNT-03 says *blocked, not warned*. A disabled button is a UI state; it is not a
+rule. It survives exactly as long as this one screen is the only way in — and
+this codebase already has a CSV import path and a barcode path that write stock
+without going near it.
+
+`v2_receive_product` therefore adds the breakdown up itself and refuses if it
+does not equal the billed figure. It also does the whole delivery in **one
+transaction**: `js/data/size-ratios.js` already states this rule for
+`v2_apply_ratio` — *"not a loop in this file… that would be several round-trips
+that can half-fail"* — and stock is worse than packs, because every other number
+is derived from it.
+
+**Assertion 3b is the one that matters.** Not "it raised an exception" — that is
+easy and proves little. 3b is that after a refused receipt the warehouse holds
+*exactly* what it held before: no nine boxes of a sixteen-box delivery, which is
+worse than a refusal because nothing anywhere records that it happened.
+
+### Red proofs — the database
+
+| Sabotage | Rows that fired |
+|---|---|
+| the count check is deleted | 3, 3b, 4, 5 — and 13, 14, because stock that gets in also breaks the ledger |
+| the tenant boundary is deleted | 7 |
+| the variant-ownership check is deleted | 6 |
+| the duplicate-line check is deleted | 9 |
+| granted to `anon` | 15 |
+| an `p_override` argument is added | 17 |
+
+### Red proofs — the screen
+
+Nine sabotages. Eight went red. **One did not, and that is the finding.**
+
+| Sabotage | Rows that fired |
+|---|---|
+| the button never disables | "Save is BLOCKED at 270" |
+| a generic "Save" label | the CNT-04 row |
+| a missing variant treated as an empty box | 1, 2, and the fixture total |
+| sizes in entry order | 3 |
+| `type="number"` with spinners | 4 |
+| spread evenly drops the remainder | 8 |
+| undo keeps a stack | the one-level row |
+| the carton multiplier is ignored | the pieces row |
+| **the curve fills by POSITION, not by NAME** | **nothing — see below** |
+
+### ⭐ The sabotage that went undetected
+
+Every curve assertion applied a curve whose sizes were the screen's own, where
+matching by name and matching by position agree. A saved curve for **M-L**
+applied to a product with **S-M-L-XL** would have put the 4 on S and the 6 on M:
+the total right, the boxes wrong, and nothing on screen to notice.
+
+The fix was not to add an assertion around the existing code. The by-name path
+was only *defensive* — nothing ever called `applyCurve` with a size list
+different from the screen's — so it was made **reachable and useful**: a "Fill
+now" button beside each saved curve, which is the spec's *"next delivery of that
+style is one tap"*, and which is the only caller that hands the fill a different
+size list. The same sabotage now fires two assertions and prints the 4 landing
+on S and the 6 on M.
+
+**A sabotage that does not go red is a finding about the gate, not a clean bill
+of health.**
+
+### ⚠ v2_receive_stock is granted to anon and checks nothing
+
+`v2_receive_stock` is `SECURITY DEFINER`, granted to `anon`, and takes a variant
+id and a location id from the caller with no tenant check at all. Anyone holding
+the anon key that ships in the bundle can inflate any wholesaler's inventory.
+
+**It is not fixed here.** Revoking a grant that the live CSV-import and barcode
+paths may depend on is not a change to make unattended, and the fix needs
+somebody to establish which callers run signed in. Migration 121 refuses to
+repeat it: `v2_receive_product` is `authenticated` only, and every variant must
+belong to the warehouse's own store. Assertion 15 holds the new door shut.
+Raised for Hadi.
+
+### ⚠ CNT-02 and CNT-10 are not built, and are marked ⚠️ rather than left to look done
+
+CNT-02 stores `billed_qty` on the line; CNT-10 lets a short delivery through
+with a typed reason written to the audit log. Both need a receipt header row
+that does not exist — receiving writes one movement per variant with nothing to
+hang an invoice figure on — and CNT-10 is a decision only Hadi can make. There
+is deliberately **no override argument** on `v2_receive_product`: a parameter
+added "for later" is one somebody uses today, and then the count check is
+advisory.
+
+### Two smaller things, both worth writing down
+
+**A separator nobody can see was load-bearing.** The grid keys cells
+`colour + separator + size`. A space is wrong — a colour "Navy Blue" with size
+"S" collides with a colour "Navy" and a size "Blue S", and the two silently
+share one box. U+0000 is right and cannot be typed into a collision, but it had
+been written as a **literal NUL byte**, which made `grep` report "binary file
+matches" and would have made the file unreadable to git and to review. It is now
+an escape, exported as `cellKey()` so the gate builds keys the way the module
+does. It was found because the four paste assertions failed while the other
+thirty-eight passed.
+
+**Production drifted from the repo by a comment, and that was fixed too.**
+Migration 121 was first applied to production from a copy with the comments
+stripped. The SQL was identical and `md5(prosrc)` was not, which makes the
+repo-rebuilds-production proof quietly false — and the comments are the part a
+future reader needs most. Re-applied as `121a`; production and a database
+replayed from this repo now both hash to `5a226bab8b1177b201709d6e7c84e054`.

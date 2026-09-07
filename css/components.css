@@ -2951,3 +2951,75 @@ textarea.input { height: auto; padding: var(--space-3); min-height: 88px; resize
    record of the decision, because confusing the two is how a wholesaler ends
    up quoting us back to themselves.                                         */
 .prior-app-said { margin-top: 4px; font-style: italic; }
+
+/* ---------------------------------------------------------------------------
+   CNT-00 — RECEIVE A WHOLE PRODUCT
+   One card per colour, sizes WRAP. There is no horizontal scroll anywhere in
+   here on purpose: a grid that scrolls sideways hides the very columns whose
+   totals the person is checking, and on a phone it hides most of them. That
+   is CNT-07, and it is also the fix for GRID-01 on the buyer side.
+--------------------------------------------------------------------------- */
+.rcvp { display: flex; flex-direction: column; gap: var(--space-3); }
+.rcvp-head {
+  display: flex; flex-wrap: wrap; gap: var(--space-3);
+  align-items: flex-end; justify-content: space-between;
+}
+.rcvp-title { font-weight: 700; font-size: var(--text-lg); }
+.rcvp-sub { font-size: var(--text-xs); color: var(--text-tertiary); }
+.rcvp-loc { display: inline-block; width: auto; min-height: 32px; padding: 2px 6px; }
+
+/* The one number that is typed. Bigger than the grid boxes because it is the
+   thing everything else is measured against. */
+.rcvp-billed { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); }
+.rcvp-billed input { width: 7ch; text-align: right; font-variant-numeric: tabular-nums; min-height: 44px; font-size: var(--text-md); }
+.rcvp-billed-unit { color: var(--text-tertiary); }
+
+.rcvp-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rcvp-note { font-size: var(--text-xs); color: var(--text-secondary); min-height: 1.2em; }
+
+.rcvp-panel { border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+.rcvp-panel-title { font-weight: 600; }
+.rcvp-panel-sub { font-size: var(--text-xs); color: var(--text-tertiary); }
+.rcvp-panel-note { font-size: var(--text-xs); color: var(--text-secondary); }
+.rcvp-panel-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.rcvp-saved { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rcvp-curve { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rcvp-w { display: flex; flex-direction: column; gap: 2px; width: 64px; }
+.rcvp-w input { text-align: center; min-height: 44px; font-variant-numeric: tabular-nums; }
+.rcvp-paste { width: 100%; font-family: var(--font-mono); font-size: var(--text-xs); }
+.rcvp-fillqty { width: 8ch; text-align: right; min-height: 44px; }
+
+.rcvp-grid { display: flex; flex-direction: column; gap: var(--space-2); }
+.rcvp-colour { border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-2); }
+.rcvp-colour-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.rcvp-swatch { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border-default); flex: 0 0 auto; }
+.rcvp-colour-name { font-weight: 600; }
+/* The row total sits at the END of the colour's own header, so a wrong number
+   is read next to the colour it belongs to rather than in a footer. */
+.rcvp-rowtotal { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
+.rcvp-fillrow { flex: 0 0 auto; }
+
+.rcvp-cells { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rcvp-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 64px; }
+.rcvp-size { font-size: var(--text-xs); color: var(--text-tertiary); }
+.rcvp-q { width: 100%; text-align: center; min-height: 44px; font-variant-numeric: tabular-nums; }
+/* A box the wholesaler does not make is SHOWN, not hidden: an absent size in
+   the middle of a run is information, and hiding it makes the columns stop
+   lining up between one colour and the next. */
+.rcvp-cell.is-absent { opacity: 0.45; }
+.rcvp-na { min-height: 44px; display: flex; align-items: center; }
+
+.rcvp-coltotals { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-top: var(--space-2); }
+.rcvp-coltotals-label { font-size: var(--text-xs); color: var(--text-tertiary); }
+.rcvp-coltotals-cells { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rcvp-coltotal { display: flex; flex-direction: column; align-items: center; width: 64px; font-variant-numeric: tabular-nums; }
+
+.rcvp-foot { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; }
+.rcvp-tally { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.rcvp-t-lab { color: var(--text-tertiary); }
+.rcvp-t-sep { color: var(--text-tertiary); margin: 0 var(--space-2); }
+/* Difference is the number the whole screen exists for, so it is the only
+   thing here allowed to use colour to say something. */
+.rcvp-tally .is-ok  { color: var(--brand-emerald); }
+.rcvp-tally .is-off { color: var(--danger-700); }
+.rcvp-actions { display: flex; gap: var(--space-2); }
