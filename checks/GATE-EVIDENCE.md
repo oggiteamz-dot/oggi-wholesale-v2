@@ -3297,3 +3297,112 @@ All four bodies identical on both sides.
 76 JS gates pass
 check_link_cap_under_concurrency.sh green, and red under SABOTAGE=1
 ```
+
+---
+
+## LINK-05 — the stranger's screen, and two dead ends that had been live for weeks
+
+**Gate:** `checks/check_join_screen.mjs` — 34 assertions, jsdom.
+
+### The rule the screen is arranged around
+
+> **Nobody who opens a real link is ever turned away from OGGI.**
+
+So the interesting assertions are not the happy path. All three hints —
+`immediate`, `phone_must_match`, `needs_approval` — must render **the same
+form**. A used-up link is not a dead end; it is the same form with a different
+ending. Red-proved by adding a wall on `needs_approval`.
+
+### ⭐ It never greets them by name
+
+The database will not return `invitee_name` (migration 129), and this gate
+proves the browser does not invent a substitute — on the **rendered HTML** and
+on the **source**. A one-person link is sent to one number on WhatsApp and
+WhatsApp messages get forwarded; *"Hi Rita"* on a forwarded link publishes, to
+whoever it reaches, a fact the wholesaler told exactly one person.
+
+The source assertion strips comments first. Without that, a file **explaining**
+why it must not read the invitee fails the check for reading it — which would
+push the next person to delete the explanation to make the gate pass, and the
+explanation is the more valuable half.
+
+### Two dead ends found while wiring this, both live for weeks
+
+**1. `sessionStorage["v2:after-login"]` had been written since 29 August and
+never read.** `js/views/buyer.js:1020` writes it when somebody clicks "Sign in"
+on a catalogue link that needs one, under this comment:
+
+```js
+// Come back here afterwards rather than dumping them on a dashboard --
+// they clicked a link to see a catalog, not to arrive somewhere.
+```
+
+The comment described the intention. Nothing implemented it. Every one of those
+clicks did exactly what the comment says not to do. `app.js` now reads it, uses
+it only if it still resolves to a real route, and clears it either way — a stale
+destination that survives a session is a link that reopens itself days later,
+long after the person who set it forgot clicking anything.
+
+**2. A route registered without `isPublicPath` is a route nobody signed out can
+reach.** That is the bug that left `/c/:token` unreachable for three weeks:
+`app.js` renders the login screen and RETURNS before a single route is
+registered. The gate therefore checks the **pairing** — every registered public
+route must also appear in `isPublicPath` — rather than the two facts separately.
+Red-proved by registering `/j/` and leaving it out.
+
+### Red proofs
+
+```
+=== the screen greets them by name ................. 2 red
+=== a used-up link shows a wall .................... 2 red
+=== a network failure is called a dead link ........ 2 red
+=== redemption stops adopting the session .......... 1 red
+=== /j/ registered but NOT public .................. 2 red
+=== app.js stops reading the return destination .... 1 red
+```
+
+**Two of those sabotages were rewritten before they proved anything**, and both
+corrections are the same shape: the first attempt did not actually remove the
+thing under test. `if (false) adoptMarketplaceSession({…})` leaves the call text
+in the file, so a source-level assertion still passes — the sabotage had to
+delete the call. And the `isPublicPath` edit had to be made with an exact-string
+replacement that asserts its own anchor, because a regex that silently matches
+nothing is a sabotage that never happened.
+
+### ⚠️ A trap inside the gate, recorded because the next person will hit it
+
+`import()` of a `data:` URL is **cached by URL**. Two `loadView` calls built
+from identical source returned the SAME module — with the first test's stubs
+still bound:
+
+```js
+const peekShareLink = globalThis.__peek;   // binds ONCE, at module evaluation
+```
+
+The symptom was baffling rather than obvious: the refusal test reported *"cannot
+read properties of null"* on the message slot, because it had silently re-run
+the previous test's success path and replaced the outlet. Fixed by forwarding
+through a function so the stub is read on every call. Busting the cache with a
+unique comment per load would also work and is worse — it hides the sharp edge
+instead of removing it, and the next person writes the binding version again.
+
+### `ALLOW_DELETIONS=1`, and exactly what it covered
+
+`check_no_feature_loss.sh` flagged one removed line in
+`js/views/public-order.js`. It is not a removal:
+
+```diff
+-      || /^\/i\/[^/]+$/.test(path || "");  // an invitation to join a store
++      || /^\/i\/[^/]+$/.test(path || "")   // an invitation to join a store
++      || /^\/j\/[^/]+$/.test(path || "");  // a share link: joining a store
+```
+
+The `/i/` clause is unchanged except that its terminating `;` moved to the new
+last clause. **No feature was removed**, and the whole diff for that file is
+four added lines plus one import. The flag is named here and in the commit
+message per the standing rule.
+
+### Suite
+
+76 JS gates pass, 6 of 8 shell gates (the other two want a database or a
+`wtest` fixture and say so), 43 SQL gates proved / 0 red on the 129 replay.
