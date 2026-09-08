@@ -14,6 +14,19 @@
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { devAuth } from "../lib/dev-auth.js";
 
+// ⭐ THE FIRST-PARTY LABEL, ON THIS SURFACE TOO                   OWN-05, 9 Sep
+//
+// Cross-store search puts OGGI's products in one list with every supplier's,
+// sorted by the same rules -- which is exactly the arrangement the badge exists
+// for. Search already carries isPromoted "so the screen CANNOT render a
+// promoted result as an ordinary one by omission"; whose product it is deserves
+// the same treatment and for the same reason.
+//
+// firstPartyWid() is imported from marketplace-feed.js rather than copied: one
+// module owns the question, so there is ONE cache and one call per session
+// across every surface.
+import { firstPartyWid } from "./marketplace-feed.js";
+
 /** Products across the stores this buyer belongs to. [] when signed out. */
 export async function searchProducts(q, { limit = 30, offset = 0 } = {}) {
   const accountId = devAuth.getSession()?.accountId;
@@ -27,6 +40,9 @@ export async function searchProducts(q, { limit = 30, offset = 0 } = {}) {
     })
   );
   if (error) return [];
+
+  const fp = await firstPartyWid();
+
   // Mapped onto a fixed shape. Anything the server starts returning by
   // accident stops here rather than reaching the page — the lesson of the
   // directory's DR-05 pass (see checks/check_wholesaler_directory.mjs).
@@ -36,6 +52,9 @@ export async function searchProducts(q, { limit = 30, offset = 0 } = {}) {
     category: r.category,
     wid: r.wid,
     wholesalerName: r.wholesaler_name,
+    // OWN-05. The server's answer (migration 131), never inferred from the
+    // store's NAME -- "OGGI Textiles" could be anybody's shop.
+    isFirstParty: !!fp && r.wid === fp,
     imageUrl: r.image_url,
     priceFrom: r.price_from == null ? null : Number(r.price_from),
     currency: r.currency || "$",

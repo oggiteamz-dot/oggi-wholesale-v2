@@ -31,6 +31,23 @@
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { devAuth } from "../lib/dev-auth.js";
 
+// ⭐ OGGI'S OWN STORE, MARKED IN THE DIRECTORY                    OWN-05, 9 Sep
+//
+// Hadi's decision of 8 Sep: OGGI appears in the buyer directory like any other
+// wholesaler, MARKED AS OGGI'S OWN. So it is found the ordinary way, asked for
+// access the ordinary way -- and a buyer is never in the position of having
+// browsed to it without knowing whose it is.
+//
+// The mark is not on v2_directory_list's return table. Changing that return
+// table means DROP+CREATE on a SECURITY DEFINER function that every buyer's
+// directory depends on, to add one boolean for a badge; migrations 113/114 are
+// this repo's record of what a careless change to a live PostgREST signature
+// costs. So the browser asks the one cheap question instead -- the same
+// v2_first_party_wid (migration 131) the feed asks, through the same cached
+// helper, so the directory and the product cards can never disagree about which
+// store is ours.
+import { firstPartyWid } from "./marketplace-feed.js";
+
 /** Every active wholesaler, with this person's access state for each.
  *  Returns [] when there is no session — never throws at a render path. */
 export async function listDirectory({ search = "", limit = 50, offset = 0 } = {}) {
@@ -45,11 +62,17 @@ export async function listDirectory({ search = "", limit = 50, offset = 0 } = {}
     })
   );
   if (error) return [];
+
+  const fp = await firstPartyWid();
+
   return (data || []).map((r) => ({
     wid: r.wid,
     name: r.name,
     brand: r.brand,
     logo: r.logo,
+    // OWN-05. The server's answer (migration 131), never inferred from the
+    // store's NAME -- "OGGI Textiles" could be anybody's shop.
+    isFirstParty: !!fp && r.wid === fp,
     // Defensive: the function returns text[], but a null here would blow up
     // every .map() downstream, and a directory that throws is a blank screen.
     categories: Array.isArray(r.categories) ? r.categories : [],
