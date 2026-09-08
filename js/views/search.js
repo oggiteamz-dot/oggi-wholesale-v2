@@ -14,6 +14,7 @@
 import { pageHeader } from "../lib/utils.js";
 import { emptyState } from "../components/empty-state.js";
 import { searchProducts } from "../data/search.js";
+import { firstPartyBadge } from "../components/first-party-badge.js";
 
 function money(n, currency) {
   if (n == null) return "";
@@ -51,6 +52,19 @@ function resultCard(r) {
   const from = document.createElement("p");
   from.className = "sr-from";
   from.textContent = r.wholesalerName;
+
+  // ⭐ OGGI'S OWN.                                              OWN-05, 9 Sep
+  // Search is the surface where this matters most: it puts OGGI's products in
+  // ONE list with every supplier's, sorted by the same rules, and the store
+  // name above is the only thing that says whose is whose. "OGGI Textiles"
+  // read as a name proves nothing -- so the flag comes from the server
+  // (v2_first_party_wid, migration 131) and this only draws it.
+  //
+  // Appended to the store line rather than the title, so it reads as a fact
+  // about the SELLER, which is what it is.
+  const ownMark = firstPartyBadge(r.isFirstParty);
+  if (ownMark) from.appendChild(ownMark);
+
   body.appendChild(from);
 
   if (r.category) {
