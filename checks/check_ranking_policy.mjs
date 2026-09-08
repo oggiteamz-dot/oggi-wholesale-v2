@@ -72,6 +72,22 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 const src = (p) => readFile(new URL(p, import.meta.url), "utf8");
 
 const view = await src("../js/views/ranking-policy.js");
+
+// ⚠️ Comments stripped, for the assertions about WHAT THE PAGE SAYS TO A READER.
+//
+// Section 4's header comment quotes the sentence this page used to carry --
+// "OGGI does not sell any products on this platform" -- because the record of
+// what changed is the most valuable thing in that file. Asserted against raw
+// source, the "the old claim is genuinely gone" check went red on the
+// explanation of its own removal.
+//
+// check_join_screen.mjs hit this exact shape on 8 Sep and settled it the same
+// way: a file explaining why it must not do X should not fail the check for
+// doing X, because the alternative pushes the next person to delete the
+// explanation to go green. The reader never sees a comment; these assertions
+// are about the reader.
+const prose = view.replace(/\/\*[\s\S]*?\*\//g, "")
+  .split("\n").map((l) => l.replace(/(^|\s)\/\/.*$/, "")).join("\n");
 const search093 = await src("../supabase/migrations/093_v2_promoted_slot.sql");
 const search092 = await src("../supabase/migrations/092_v2_cross_store_search.sql");
 const popular099 = await src("../supabase/migrations/099_v2_popular_now.sql");
@@ -173,8 +189,28 @@ ok(/\bname\b[\s\S]{0,160}\bcategory\b[\s\S]{0,160}(item code|sku)/i.test(view),
 // ============================================= 6. THE HONEST NEGATIVE CLAIMS
 ok(/exclusivity|minimum volume|subscription tier|additional obligation/i.test(view),
    "the page answers the INDIRECT question too — what you cannot trade for position — which is the half that usually goes unanswered");
-ok(/does not sell any products/i.test(view),
-   "the page states plainly that OGGI sells nothing here, rather than hedging a question it can currently answer cleanly");
+// ⭐ INVERTED 8 Sep 2026, NOT DELETED. Until today this asserted the page SAID
+// "does not sell any products". Hadi: "we do sell" -- so the rule changed, and
+// the matched-pair rule says invert rather than drop. Dropping it would leave
+// the most consequential sentence on the page ungated at exactly the moment it
+// became consequential.
+//
+// ⚠️ NOTE WHAT THIS ASSERTS AND WHAT IT DOES NOT.
+//
+// It does NOT require the page to announce that OGGI sells. Whether this page
+// addresses the question at all is Hadi's decision and he has made it: it does
+// not. Silence is allowed and this assertion is satisfied by silence.
+//
+// It requires only that the page not CLAIM THE OPPOSITE. A page that declines
+// to answer a question has declined to answer it; a page that goes on telling
+// suppliers "OGGI does not sell any products on this platform" while OGGI sells
+// in the ordinary results is a false statement in writing to the people it was
+// written to reassure. The first is a choice. The second is not a thing a
+// choice can produce.
+ok(!/does not sell any products/i.test(prose),
+   "⭐ the page does not claim OGGI sells nothing here — it may say nothing on the subject, but it may not assert the opposite of what is true");
+ok(!/never inside the ordinary results/i.test(prose),
+   "⭐ nor does it still promise own-brand products would stay out of the ordinary results, which is exactly where they now are");
 ok(/sales (figures|data) will not be used|never used against you|not an input/i.test(view),
    "the page commits to the data wall in writing");
 

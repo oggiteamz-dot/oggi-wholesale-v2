@@ -124,7 +124,11 @@ export function renderProductRail({ title, items, paidLabel, subtitle, onOpen, t
         <div class="rail-store" data-store="1"
              style="font-size:11px;color:var(--text-tertiary);margin-top:3px;
                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-          ${esc(it.wholesalerName || it.wid || "")}
+          ${esc(it.wholesalerName || it.wid || "")}${it.isFirstParty ? `
+          <span class="badge" data-first-party="1"
+                style="font-size:9px;margin-left:4px;padding:1px 5px;border-radius:999px;
+                       background:var(--accent-50);color:var(--accent-700,var(--text-secondary));
+                       border:1px solid var(--accent-500);">OGGI's own</span>` : ""}
         </div>
         <div style="display:flex;align-items:baseline;gap:6px;margin-top:5px;">
           ${money ? `<span class="rail-price" style="font-size:13px;font-weight:650;">${money}</span>` : ""}

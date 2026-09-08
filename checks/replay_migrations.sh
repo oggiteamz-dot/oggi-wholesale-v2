@@ -496,8 +496,15 @@ echo "   shape=$shape"
 #   v2_my_share_links ...... 90d2dfc9a70699739c800964b2847660
 #   v2_revoke_share_link ... 9039f993d6d3646bc023c57168730eca
 #   v2_share_link_peek ..... 6c3c3c9f9875b6d5fdeddc0231071ced
-EXP_T=63 EXP_V=4 EXP_F=175 EXP_P=96
-EXP_SHAPE=14ddb0643bc17d4eb1a94440458860d1   # production, 8 Sep 2026, after 129, partitions excluded
+# MOVED 8 Sep 2026, after 130 + 131, and only after BOTH sides were measured:
+#   the replay produced   63 4 176 96 835052422d2ba98a01fd5aadd8c2960f
+#   production measured   63 4 176 96 835052422d2ba98a01fd5aadd8c2960f
+# The one new function is v2_first_party_wid(). 130 adds a COLUMN and an INDEX,
+# and this hash is blind to both -- it moved only because 131 added a signature.
+# So the column and the index were verified directly on production rather than
+# inferred from a hash that could not have seen them.
+EXP_T=63 EXP_V=4 EXP_F=176 EXP_P=96
+EXP_SHAPE=835052422d2ba98a01fd5aadd8c2960f   # production, 8 Sep 2026, after 131, partitions excluded
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the

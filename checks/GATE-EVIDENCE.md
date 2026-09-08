@@ -3596,3 +3596,150 @@ cross-store catalogue key   present
 `bash checks/run_sql_gates.sh oggi_link13` on a clean replay of all 131
 migrations (shape `14ddb0643bc17d4eb1a94440458860d1`, matching production):
 **44 proved, 0 red, 9 could not run for want of seed data, of 53.**
+
+---
+
+## OWN — OGGI sells here (8 Sep 2026)
+
+Hadi: **"we do sell"** — and, separately, **do not disclose it on the ranking
+policy page**. This is the first change in the record that touches a claim
+already published to every wholesaler on the platform.
+
+### ⭐ Removed, not rewritten — and the distinction is the whole thing
+
+The page said, in bold: *"OGGI does not sell any products on this platform"*, and
+promised own-brand would appear *"never inside the ordinary results"*. Both
+become false.
+
+What a page **chooses to address** is a decision, and Hadi made it: it addresses
+nothing. What a page **chooses to assert while the opposite is true** is not a
+decision anything can produce. So the section is gone and nothing replaces it.
+
+> Silence is allowed. The contradiction is not.
+
+That sentence is the rule both gates now encode.
+
+**One claim survives that OGGI selling could falsify** — section 7's *"your sales
+data is never used against you."* It stays true only because of the separate-staff
+wall. If that wall goes, that sentence is the next false claim on the page. Said
+so, in the file, next to the removal.
+
+### The two gates, and why neither could be one gate
+
+`check_ranking_policy.mjs` asserts the **absence** of both claims (comment-stripped,
+so the file may keep the record of what it used to say).
+
+`check_oggi_sells_in_order.sh` spans **git and Postgres**: the page is in the repo,
+the mark is in the database, and the state that must never exist is a *combination*.
+
+| Sabotage | Result |
+|---|---|
+| First-party store selling + the old sentence restored | 🔴 *"THE CONTRADICTION IS LIVE…"* |
+| The sentence back with nothing marked yet | 🔴 — a primed trap; whoever marks a store later will not be reading that file |
+| Only the *"never inside the ordinary results"* half returns | 🔴 |
+| Database unreachable | 🔴 (rule 2 of `run_sql_gates.sh`, on day one) |
+| Selling + silent page | 🟢 — the allowed state |
+
+### ⭐⭐ OWN-03 — the ranking is blind, and it is proved behaviourally
+
+> Mark a store as OGGI's own and every product must come back in exactly the
+> same order.
+
+093's assertion turned around. 11 assertions, across **all three** ordering
+surfaces — `v2_search_products`, `v2_marketplace_search`, `v2_marketplace_feed` —
+because covering one leaves two side doors, which is the `/c/:token` shape.
+**Order and SET both**, since a change that ranked identically but made rivals
+vanish would pass an order-only check.
+
+| Sabotage | Red |
+|---|---|
+| S1 in-store search favours the house brand | behavioural + source |
+| S2 marketplace search favours the house brand | behavioural + source |
+| S3 feed favours the house brand (organic CTE) | behavioural + source |
+| S4 rivals quietly disappear (filtering, not boosting) | order **and** SET |
+| S5 the feed stops weaving so the house store owns the top | behavioural |
+
+#### ⚠️ The gate was weaker than it looked, and a sabotage found it — not a reading
+
+The first fixture named the stores *Indie Textiles* and *House Brand*.
+`v2_marketplace_search` orders by `wholesaler_name`, and **"House Brand" sorts
+before "Indie Textiles"** — the house store was *already* top, a boost had
+nowhere to move it, and **the gate reported green on a rigged ranking**. Renamed
+so the house store sorts last on every key, and assertion 8 now checks that a
+boost would have somewhere to show up rather than assuming it.
+
+#### ⚠️ And one "failure" was the gate being right and the sabotage being wrong
+
+The feed has two CTEs — `ads` (promoted) and `organic`. The first S3 patched
+`ads`, which holds no rows in that fixture: a no-op, reported as *"the gate did
+not catch it"*. **A sabotage that changes nothing proves nothing**, and telling
+that apart from a real hole is the difference between fixing a gate and breaking
+a working one.
+
+#### The feed weaves, so it gets a different assertion
+
+`partition by s.wid` puts each store in rotation so no shop owns the page —
+by construction nothing is ever last there. Demanding "house store last" on the
+feed would have been **a gate insisting the product be worse**. It asserts *not
+already leading* instead.
+
+### ⭐ OWN-04 — the wall, asserted on the email
+
+`v2_user_profiles` has a single-valued role per auth user, so *"no user is both"*
+is true **by construction** and would prove nothing. The real risk is one
+**human** with two logins, so the assertion is on the **email**, case-folded —
+red-proved with `hadi@` and `HADI@`.
+
+Its status line **says it is a status line**. With nothing marked, assertions 1–3
+return "none" because their subquery is empty. My first attempt dressed that as
+an assertion and failed on its own text; a row that always passes is only
+dishonest if it pretends otherwise.
+
+### ⭐ OWN-02 — the label is the only protection there is
+
+Products sit in the ordinary results, so placement does no work: a first-party
+product sits between two suppliers', ranked identically, and **only the badge
+says whose it is**.
+
+`check_oggi_label.mjs` — 17 assertions — asserts the **pairing** (the data layer
+sets it *and* every renderer draws it) and finishes **in the real DOM**, rendering
+the actual rail with one first-party row among two and requiring exactly one
+badge. A flag that is set, passed and branched on can still be invisible.
+
+| Sabotage | Red |
+|---|---|
+| `.map(mapRow)` restored — the wid becomes the **array index** | 2 |
+| A failed lookup gets cached, un-labelling everything until reload | 2 |
+| The label inferred from the store **name** | 1 |
+| The rail stops drawing it | 3 (incl. the DOM check) |
+| The card stops drawing it | 1 |
+
+**A failed lookup is never cached** — the quiet one. Caching a null means one
+network blip un-labels every first-party product for the session, silently, and
+in precisely the direction that flatters us.
+
+### Migration 131 — the trade, written down
+
+A one-column RPC rather than a column on three live functions. A return-table
+change cannot use `CREATE OR REPLACE`; it means **dropping three functions that
+serve every buyer screen** to add a badge column, and 113/114 are the record of
+what a careless live PostgREST signature change costs. The flag rides along next
+time one of them is opened for a reason that already needs it. The cost — a
+surface can forget to look — is exactly what the label gate turns into a failing
+build. And `anon` may call it, so signed-out buyers see the label too.
+
+The browser cannot read the flag off the table: 042 revoked browser access to
+`v2_wholesalers` and `check_anon_scope.sh` keeps it revoked.
+
+### Baseline
+
+Moved only after **both sides were measured**: replay produced
+`63 4 176 96 835052422d2ba98a01fd5aadd8c2960f`, production measured the same.
+**130 adds a column and an index and the shape hash is blind to both** — it moved
+only because 131 added a signature — so the column and index were verified on
+production directly rather than inferred from a hash that could not see them.
+
+### Suite
+
+133 migrations no errors; 72 JS gates pass; 44 SQL gates proved / 0 red;
+`check_anon_scope.sh` unchanged.
