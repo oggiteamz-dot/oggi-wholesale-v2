@@ -80,6 +80,35 @@ export const RAILS = [
  *  @returns {Promise<Array>} [] on any failure — a home page that renders one
  *    fewer shelf is better than a home page that renders an error.
  */
+/** ⭐ WHICH STORE IS OGGI'S OWN — asked once, answered for every row.
+ *
+ *  Since 8 Sep 2026 OGGI sells on this platform and its products sit in the
+ *  ORDINARY RESULTS rather than a shelf of their own (migration 130). In that
+ *  arrangement the label on the card is the only thing distinguishing the
+ *  platform's own goods from its suppliers' — so it is not decoration, and a
+ *  row that loses it is the whole problem.
+ *
+ *  The flag is NOT on the feed rows. v2_marketplace_feed and
+ *  v2_marketplace_search would each need their return table changed, which
+ *  Postgres cannot do with CREATE OR REPLACE — it means dropping two functions
+ *  that serve every buyer screen, to add a column used for a badge. Migrations
+ *  113/114 are this repo's record of what a careless change to a live
+ *  PostgREST signature costs. So the browser asks one cheap question instead.
+ *
+ *  ⚠️ A FAILED LOOKUP IS NEVER CACHED, and that is the important line here.
+ *  Caching a null would mean one transient network blip un-labels every
+ *  first-party product for the rest of the session — silently, and in exactly
+ *  the direction that flatters us. Only a real answer is remembered.
+ */
+let _fpWid;                       // cached ANSWER, never a cached failure
+export async function firstPartyWid() {
+  if (_fpWid !== undefined) return _fpWid;
+  const { data, error } = await sbCall(supabase.rpc("v2_first_party_wid"));
+  if (error) return null;         // deliberately not cached — try again next time
+  _fpWid = data ?? null;
+  return _fpWid;
+}
+
 export async function feedPage({ sort = "woven", limit = 40, offset = 0, category = null } = {}) {
   const accountId = devAuth.getSession()?.accountId || null;
   const { data, error } = await sbCall(
@@ -92,7 +121,8 @@ export async function feedPage({ sort = "woven", limit = 40, offset = 0, categor
     })
   );
   if (error) return [];
-  return (data || []).map(mapRow);
+  const fp = await firstPartyWid();
+  return (data || []).map((r) => mapRow(r, fp));
 }
 
 /** The one row -> tile shape. Both the feed and the search return the SAME
@@ -104,7 +134,7 @@ export async function feedPage({ sort = "woven", limit = 40, offset = 0, categor
  *  reaching the page — the DR-05 lesson, and the reason `commission_pct`
  *  cannot leak into a buyer's browser even if someone adds it to a return
  *  type by mistake. */
-function mapRow(r) {
+function mapRow(r, fpWid) {
   return {
     productId: r.product_id,
     name: r.product_name,
@@ -122,6 +152,9 @@ function mapRow(r) {
     access: r.access === "member" ? "member" : "none",
     isPromoted: r.is_promoted === true,
     slot: r.slot === "promoted" ? "promoted" : "organic",
+    // ⭐ OGGI's own. Compared against the server's answer, never guessed from
+    // the name — "OGGI Textiles" could be anybody's shop.
+    isFirstParty: !!fpWid && r.wid === fpWid,
   };
 }
 
@@ -163,7 +196,8 @@ export async function searchProducts({ query = "", limit = 40, offset = 0 } = {}
     })
   );
   if (error) return [];
-  return (data || []).map(mapRow);
+  const fp = await firstPartyWid();
+  return (data || []).map((r) => mapRow(r, fp));
 }
 
 /** Every rail that actually has something in it, fetched together.
