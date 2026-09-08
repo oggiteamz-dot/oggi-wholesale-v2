@@ -3701,22 +3701,79 @@ Products sit in the ordinary results, so placement does no work: a first-party
 product sits between two suppliers', ranked identically, and **only the badge
 says whose it is**.
 
-`check_oggi_label.mjs` — 17 assertions — asserts the **pairing** (the data layer
-sets it *and* every renderer draws it) and finishes **in the real DOM**, rendering
-the actual rail with one first-party row among two and requiring exactly one
-badge. A flag that is set, passed and branched on can still be invisible.
+`check_oggi_label.mjs` — **55 assertions** — asserts the **pairing** (the data
+layer sets it *and* every renderer draws it) and finishes **in the real DOM**.
 
-| Sabotage | Red |
+### ⚠️ 9 Sep 2026 — this gate was rewritten the day after it was written, because it was green and wrong
+
+The 8 Sep version asserted the pairing across the two surfaces it knew about:
+the marketplace card and the product rail. Both were correct. **It was green.**
+
+A census of `js/data` the next morning found **four more** buyer-facing lists
+that show a product and a store name — *Buy it again*, *Popular now*, *More like
+this* and cross-store search — and **not one of them set the flag**. The first
+three render through `renderProductRail`, **which already drew the badge**. The
+renderer was right. The data layer never gave it anything to draw. Every file
+was individually correct, and OGGI's products would have shipped unlabelled on
+four screens.
+
+That is the `/c/:token` failure a third time: two halves, each fine alone.
+
+⭐ **So the gate no longer contains a list of surfaces.** It takes a census of
+`js/data` and applies a rule — *wherever a buyer sees OGGI's store alongside
+other stores, it is marked* — and **anything it cannot classify is RED**, the
+same rule 4 `run_sql_gates.sh` is built on. Modules that carry a store identity
+and legitimately do not label sit in `EXEMPT` with the reason written out, and
+an exemption of fewer than 40 characters fails. A rail added next month is
+covered on the day it is written.
+
+### Two blind spots the sabotage run found, in the rewrite itself
+
+The first pass of the rewrite was green and had two holes. **Both were found by
+sabotage, not by reading**, which is the whole argument for the practice:
+
+1. **A declaration is not a value.** The census tested `/isFirstParty/` and
+   counted `popular.js` as labelled on the strength of `"isFirstParty"` sitting
+   in its exported `POPULAR_FIELDS` list — with the mapper setting nothing. Now
+   it requires the key to be *emitted*: `/^\s+isFirstParty:/m`.
+2. **Counting markup does not measure reach.** The "both surfaces" assertion
+   counted `data-first-party` in the directory source. Changing
+   `if (r.isFirstParty)` to `if (false && r.isFirstParty)` left every character
+   of that markup in place and the gate green. Both sites now go through one
+   **rendered** helper, `js/components/first-party-badge.js`, and what is
+   asserted is that each is handed *the row's own flag* — `firstPartyBadge(false)`
+   is a visible edit rather than an invisible one.
+
+The helper exists for that reason as much as for de-duplication: a badge written
+inline can only be checked by reading the source. One that returns an element or
+`null` is a fact a gate can **measure**.
+
+### Proven to go red — 15 sabotages, each named its own reason
+
+| Sabotage | Caught by |
 |---|---|
-| `.map(mapRow)` restored — the wid becomes the **array index** | 2 |
-| A failed lookup gets cached, un-labelling everything until reload | 2 |
-| The label inferred from the store **name** | 1 |
-| The rail stops drawing it | 3 (incl. the DOM check) |
-| The card stops drawing it | 1 |
+| A **new** unlabelled store-bearing module appears in `js/data` | the census — `UNCLASSIFIED` |
+| `popular.js` stops *setting* the flag but still *declares* it in `POPULAR_FIELDS` | the census (blind spot 1) |
+| `reorder.js` sets `isFirstParty: false` — present, labels nothing | the per-module comparison |
+| The directory **card** is handed a constant instead of the store's flag | the card assertion |
+| The **requests row** is handed a constant while the card stays correct | the row assertion (blind spot 2) |
+| The search result labels **every** result | "nobody calls the helper with a constant" |
+| A second module opens its **own** lookup instead of sharing the cache | "exactly ONE module asks the server" |
+| An exemption is reduced to a single word | the 40-character floor |
+| A stale name is left behind in `EXEMPT` | `STALE:` |
+| `search.js` forgets to `await` the lookup, so every row gets a Promise | "awaits BEFORE mapping" |
+| The helper stops returning `null` for an ordinary store | the rendered helper |
+| The badge renders with no words, only a colour | the rendered helper |
+| The badge loses the `data-first-party` hook | the rendered helper |
+| The marketplace card stops drawing the badge | the renderer assertions |
+| A failed lookup gets cached, un-labelling everything until reload | the never-cache-a-failure block |
+| `.map(mapRow)` restored — the wid becomes the **array index** | (8 Sep) 2 assertions |
+| The label inferred from the store **name** | (8 Sep) 1 assertion |
 
-**A failed lookup is never cached** — the quiet one. Caching a null means one
-network blip un-labels every first-party product for the session, silently, and
-in precisely the direction that flatters us.
+**A failed lookup is never cached** — the quiet one, and it matters six times
+more now than on 8 Sep, because **seven surfaces share one cache**. Caching a
+null means one network blip un-labels every first-party product for the session,
+silently, and in precisely the direction that flatters us.
 
 ### Migration 131 — the trade, written down
 
@@ -3741,5 +3798,6 @@ production directly rather than inferred from a hash that could not see them.
 
 ### Suite
 
-133 migrations no errors; 72 JS gates pass; 44 SQL gates proved / 0 red;
+133 migrations no errors; 72 JS gates pass (55 of the assertions in the label
+gate alone, 15 of them proven red); 46 SQL gates proved / 0 red; 9 seed-missing;
 `check_anon_scope.sh` unchanged.

@@ -162,13 +162,19 @@ async function render(rows, query = "denim") {
   }], error: null };
   const rows = await searchProducts("x");
   const keys = Object.keys(rows[0] || {}).sort();
-  // Ten named fields since 093 added isPromoted and slot (SR-03). Still an
-  // EXACT list rather than a minimum: a field the server starts returning
-  // by accident must fail here, and adding one deliberately must be a
-  // visible edit to this line.
-  const expected = ["category","currency","imageUrl","isPromoted","name","priceFrom","productId","slot","wholesalerName","wid"].sort();
+  // ELEVEN named fields: ten since 093 added isPromoted and slot (SR-03), plus
+  // isFirstParty since 9 Sep 2026 (OWN-05). Still an EXACT list rather than a
+  // minimum: a field the server starts returning by accident must fail here,
+  // and adding one deliberately must be a visible edit to this line.
+  //
+  // isFirstParty belongs here for the SAME reason isPromoted does. Search puts
+  // OGGI's products in one list with every supplier's, ranked by the same
+  // rules; carrying the flag explicitly is what stops the screen rendering a
+  // first-party result as an ordinary one BY OMISSION. It says nothing about
+  // any wholesaler's business -- it is a fact about the platform.
+  const expected = ["category","currency","imageUrl","isFirstParty","isPromoted","name","priceFrom","productId","slot","wholesalerName","wid"].sort();
   ok(JSON.stringify(keys) === JSON.stringify(expected),
-     `the mapper keeps exactly the eight search fields and drops everything else (got: ${keys.join(",")})`);
+     `the mapper keeps exactly the eleven search fields and drops everything else (got: ${keys.join(",")})`);
   const blob = JSON.stringify(rows);
   ok(!/SENTINEL-SUPPLIER/.test(blob) && !/SENTINEL-NOTE/.test(blob) && !/SENTINEL-PHONE/.test(blob),
      "cost, supplier, the wholesaler's internal note and phone do not survive the mapper even if the server sends them");

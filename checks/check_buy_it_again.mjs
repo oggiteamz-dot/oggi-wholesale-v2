@@ -157,7 +157,12 @@ ok(opened?.productId === "p-zeta" && opened?.wid === "beta",
 // The mapper's contract, asserted against its own exported list rather than a
 // copy of it: a duplicated expectation drifts, and then the check passes while
 // agreeing with itself about the wrong thing.
-ok(REORDER_FIELDS.length === 9, `the mapper returns exactly 9 fields — it declares ${REORDER_FIELDS.length}`);
+// TEN since 9 Sep 2026: OWN-05 added `isFirstParty`. This rail renders through
+// renderProductRail, which already drew the badge -- and until that date this
+// mapper never set the flag for it to draw, so an OGGI product appeared here
+// with no label at all. The number is edited by hand on purpose: growing this
+// shape has to be somebody's decision, not a side effect.
+ok(REORDER_FIELDS.length === 10, `the mapper returns exactly 10 fields — it declares ${REORDER_FIELDS.length}`);
 const src = read(new URL("../js/data/reorder.js", import.meta.url).pathname);
 const mapBody = src.slice(src.indexOf("return (data || []).map"), src.indexOf("export const REORDER_FIELDS"));
 const emitted = [...mapBody.matchAll(/^\s{4}([a-zA-Z]+):/gm)].map((m) => m[1]);

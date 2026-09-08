@@ -79,7 +79,14 @@ const ROW = (over = {}) => ({
 // the row, so a column added for one screen cannot surface on another because
 // nobody was looking. Widening it deliberately, with the new names written out,
 // is how that property is kept -- deleting the assertion is how it is lost.
-const FIELDS = ["requestId","wid","wholesalerName","brand","status","requestedAt",
+// NINETEEN since 9 Sep 2026: OWN-05 added `isFirstParty`. "Your requests"
+// renders on the same screen as the directory cards, and a store marked on the
+// card and unmarked a few hundred pixels below it would teach a buyer that the
+// badge is decorative -- which, in the ordinary results, is the only protection
+// there is. It is a fact about OGGI, disclosed by OGGI, about OGGI's own store;
+// it says nothing about any wholesaler, so it does not weaken what this list is
+// FOR, which is keeping a column added for one screen off another.
+const FIELDS = ["requestId","wid","wholesalerName","isFirstParty","brand","status","requestedAt",
                 "decidedAt","slaHours","hoursWaiting","overdue","declineWording",
                 "attempt","superseded","reapplyState","canReapply","reapplyAt",
                 "reapplyNoteRequired","reapplyAdvice"];
@@ -87,7 +94,7 @@ RPC = { v2_my_access_requests: async () => ({ data: [ROW()], error: null }) };
 let rows = await listMyAccessRequests();
 ok(rows.length === 1, "a request comes through the mapper");
 ok(JSON.stringify(Object.keys(rows[0])) === JSON.stringify(FIELDS),
-   `the mapper returns exactly the eighteen declared fields (got: ${Object.keys(rows[0]).join(",")})`);
+   `the mapper returns exactly the nineteen declared fields (got: ${Object.keys(rows[0]).join(",")})`);
 ok(!("reason_code" in rows[0]) && !("reasonCode" in rows[0]),
    "⭐ the internal reason CODE does not reach the view at all — only the wording does");
 
