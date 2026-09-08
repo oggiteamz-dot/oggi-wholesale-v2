@@ -37,6 +37,27 @@
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { devAuth } from "../lib/dev-auth.js";
 
+// ⭐ THE FIRST-PARTY LABEL, ON THIS SURFACE TOO                   OWN-05, 9 Sep
+//
+// Since 8 Sep 2026 OGGI sells here, and its products sit in the ORDINARY
+// results rather than a shelf of their own. In that arrangement the badge is
+// the only thing that distinguishes the platform's own goods from the
+// suppliers' goods ranked beside them -- so every surface that shows a buyer a
+// product AND a store name has to carry it, not just the two that were built
+// first.
+//
+// On 9 Sep this rail was one of FOUR that rendered a first-party product with
+// no label at all: renderProductRail already drew the badge, and nothing here
+// ever set the flag for it to draw. Each half looked correct on its own. That
+// is the /c/:token failure again, and it is why the gate now asserts the
+// PAIRING across every surface rather than per-file.
+//
+// firstPartyWid() is imported from marketplace-feed.js rather than moved into a
+// module of its own, deliberately: one module owns the question, so there is
+// ONE cache and one call per session across every surface. A second copy would
+// mean a second cache that can disagree with the first.
+import { firstPartyWid } from "./marketplace-feed.js";
+
 /** Products many different shops are buying, most widely bought first.
  *
  *  Returns [] when there is no session and [] on error — never throws and never
@@ -63,12 +84,17 @@ export async function listPopularNow({ categoryKey = null, limit = 12 } = {}) {
   );
   if (error) return [];
 
+  const fp = await firstPartyWid();
+
   return (data || []).map((r) => ({
     productId: r.product_id,
     productName: r.product_name,
     wid: r.wid,
     wholesalerName: r.wholesaler_name || r.wid,
     imageUrl: r.image_url || null,
+    // OWN-05. From the server's answer (migration 131), never inferred from
+    // the store's NAME -- "OGGI Textiles" could be anybody's shop.
+    isFirstParty: !!fp && r.wid === fp,
     // Number(null) is 0, and a product priced at zero is a real thing that must
     // not be rendered as "from $0.00" when the truth is "we do not know".
     priceFrom: r.price_from == null ? null : Number(r.price_from),
@@ -83,7 +109,7 @@ export async function listPopularNow({ categoryKey = null, limit = 12 } = {}) {
   }));
 }
 
-/** The ten keys listPopularNow returns, in order. Exported so the gate asserts
+/** The eleven keys listPopularNow returns, in order. Exported so the gate asserts
  *  the shape against ONE list rather than a copy of it — a duplicated
  *  expectation drifts, and then the check passes while agreeing with itself
  *  about the wrong thing. */
@@ -93,6 +119,7 @@ export const POPULAR_FIELDS = Object.freeze([
   "wid",
   "wholesalerName",
   "imageUrl",
+  "isFirstParty",
   "priceFrom",
   "currency",
   "buyerCount",

@@ -24,6 +24,19 @@
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
 import { devAuth } from "../lib/dev-auth.js";
+
+// ⭐ OGGI'S OWN, IN EVERY LIST WHERE OGGI SITS BESIDE SOMEBODY ELSE  OWN-05, 9 Sep
+//
+// The rule this file now obeys, stated once and enforced by
+// checks/check_oggi_label.mjs: wherever a buyer sees OGGI's store ALONGSIDE
+// other stores, it is marked. Ranked product lists, the directory, the
+// requests list, the store switcher. Not marked on a single-store page the
+// buyer walked into deliberately -- there is no comparison there and no doubt
+// about whose shop it is.
+//
+// firstPartyWid() is imported rather than copied so there is ONE cache and one
+// call per session across every surface; two caches can disagree.
+import { firstPartyWid } from "./marketplace-feed.js";
 import { declineWordingForBuyer } from "./decline-reasons.js";
 
 /** Every access request this person has made, newest first.
@@ -40,6 +53,8 @@ export async function listMyAccessRequests() {
   );
   if (error || !Array.isArray(data)) return [];
 
+  const fp = await firstPartyWid();
+
   // Fixed field list, matching the function's twelve output columns. No row
   // spread: a column added for one screen must not surface on another because
   // nobody was looking.
@@ -47,6 +62,9 @@ export async function listMyAccessRequests() {
     requestId: r.request_id,
     wid: r.wid,
     wholesalerName: r.wholesaler_name,
+    // OWN-05. The server's answer (migration 131), never inferred from the
+    // store's NAME -- "OGGI Textiles" could be anybody's shop.
+    isFirstParty: !!fp && r.wid === fp,
     brand: r.brand,
     status: r.status,                      // pending | approved | rejected
     requestedAt: r.requested_at,

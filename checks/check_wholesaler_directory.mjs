@@ -164,14 +164,26 @@ async function render(rows = ROWS) {
 
   const rows = await listDirectory({});
   const keys = Object.keys(rows[0] || {}).sort();
-  // SEVEN since 30 Aug 2026: AC-11 added `accessSlaHours`, how long this
-  // wholesaler says they take to answer an access request. It is a promise
-  // about response TIME, not about the catalogue, so it does not weaken DR-05 —
-  // and the list stays an EXACT set precisely so that adding it could not be
-  // used as cover for a price or a product count slipping in beside it.
-  const expected = ["access", "accessSlaHours", "brand", "categories", "logo", "name", "wid"].sort();
+  // EIGHT since 9 Sep 2026: OWN-05 added `isFirstParty`, marking OGGI's own
+  // store in the directory the way Hadi decided on 8 Sep.
+  //
+  // ⚠️ IT IS WORTH SAYING WHY THIS DOES NOT WEAKEN DR-05, because "the list grew
+  // again" is exactly the shape of the change DR-05 exists to catch. DR-05
+  // keeps a WHOLESALER'S BUSINESS off this screen -- their prices, their
+  // products, how many they have, how to phone them. isFirstParty is not a
+  // fact about a wholesaler at all: it is a fact about OGGI, disclosed by
+  // OGGI, about OGGI's own store. It reveals nothing about anybody else's,
+  // and every other row carries it as false.
+  //
+  // (SEVEN since 30 Aug 2026: AC-11 added `accessSlaHours`, how long this
+  // wholesaler says they take to answer an access request. A promise about
+  // response TIME, not about the catalogue.)
+  //
+  // The list stays an EXACT set precisely so that adding either of these could
+  // not be used as cover for a price or a product count slipping in beside it.
+  const expected = ["access", "accessSlaHours", "brand", "categories", "isFirstParty", "logo", "name", "wid"].sort();
   ok(JSON.stringify(keys) === JSON.stringify(expected),
-     `DR-05 the mapper keeps exactly the seven directory fields and drops everything else (got: ${keys.join(",")})`);
+     `DR-05 the mapper keeps exactly the eight directory fields and drops everything else (got: ${keys.join(",")})`);
   ok(!keys.some((k) => /price|product|stock|count|phone/i.test(k)),
      "DR-05 and specifically: nothing about prices, products, stock or contact details survived the mapper");
 

@@ -28,6 +28,7 @@ import { listMyAccessRequests, requestStanding, reapplyStanding, humanHours }
 // and `ask` is the same prompt the wholesaler declines through. One modal for
 // the product, not one per screen.
 import { ask } from "../components/ask.js";
+import { firstPartyBadge } from "../components/first-party-badge.js";
 
 const ACCESS_LABEL = {
   member:  "You have access",
@@ -70,6 +71,18 @@ function card(w, onRequest) {
     b.textContent = w.brand;
     titles.appendChild(b);
   }
+
+  // ⭐ OGGI'S OWN STORE.                                        OWN-05, 9 Sep
+  // Hadi's decision of 8 Sep: OGGI appears here like any other wholesaler,
+  // MARKED. The directory is where a buyer decides who to ask for access, so
+  // this is the first moment they can be told whose store it is -- and telling
+  // them here rather than after they are inside is the whole point of it.
+  //
+  // Through the shared helper, so this and the requests row below cannot drift
+  // apart -- and so the gate can RENDER the mark rather than read the source.
+  const ownMark = firstPartyBadge(w.isFirstParty, { inline: false });
+  if (ownMark) titles.appendChild(ownMark);
+
   head.appendChild(titles);
 
   if (w.access !== "none") {
@@ -212,6 +225,15 @@ export async function directoryView(outlet) {
 
       const name = document.createElement("strong");
       name.textContent = r.wholesalerName;
+
+      // ⭐ OGGI'S OWN, HERE TOO.                                 OWN-05, 9 Sep
+      // "Your requests" renders on the SAME screen as the cards above, a few
+      // hundred pixels down. A store marked on the card and unmarked in this
+      // list would teach a buyer that the badge is decorative -- which is the
+      // one thing it cannot afford to be, since in the ordinary results it is
+      // the only protection there is.
+      const rowMark = firstPartyBadge(r.isFirstParty);
+      if (rowMark) name.appendChild(rowMark);
 
       const state = document.createElement("span");
       state.className = "dir-mine-state";

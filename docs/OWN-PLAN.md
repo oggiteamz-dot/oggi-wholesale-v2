@@ -145,18 +145,18 @@ Rewrite section 4 to say plainly that OGGI sells, where its products appear, tha
 they carry a label, that ranking is blind, and what changed and when.
 </details>
 
-Section 4 rewritten to say plainly:
-
-- OGGI sells on this platform
-- its products appear **in the ordinary results, alongside yours**
-- they carry a visible label wherever they appear
-- ranking **cannot see** who owns a store — and that this is gated, not promised
-- the people who run the OGGI store **cannot reach your sales data**
-- what changed, and on what date
-
-`check_ranking_policy.mjs:176` currently asserts the page says *"does not sell any
-products"*. That assertion is **inverted, not deleted** — the matched-pair rule.
-It becomes: the page states that OGGI sells, names the label, and names the wall.
+> ⚠️ **Removed 9 Sep 2026.** Six bullet points describing the rewritten section
+> were still sitting here, below the `<details>` that says the rewrite was
+> superseded — so this document asserted, three paragraphs apart, both that
+> section 4 was deleted and that it now says six specific things.
+>
+> That is the same defect the page itself was fixed for, in the document that
+> records the fix. A plan that contradicts itself is not a plan; the reader has
+> to guess which half is current, and half of them will guess wrong.
+>
+> What actually happened: `check_ranking_policy.mjs` asserts the **absence** of
+> the old claim rather than the presence of a new one — the matched-pair rule,
+> inverted rather than deleted.
 
 ### OWN-07 — ⭐ the sequence gate
 
@@ -178,8 +178,43 @@ This is what makes the written promise self-enforcing instead of remembered.
 2. ✅ **OWN-03** — the blindness gate, across all three ordering surfaces.
 3. ✅ **OWN-02** — the label, server-sourced, through the data layer and both renderers.
 4. ✅ **OWN-04** — the wall, asserted on the email.
-5. ⬜ **OWN-05** — the directory badge. The server-side fact (`v2_first_party_wid`) is shipped; the directory screen does not yet draw it.
+5. ✅ **OWN-05** — the mark on every surface where a buyer sees OGGI beside somebody else.
+
+   Scoped as "the directory badge" and finished wider, because a census of
+   `js/data` on 9 Sep found the flag was set on **two** surfaces and needed on
+   **seven**. "Buy it again", "Popular now" and "More like this" all render
+   through `renderProductRail`, **which already drew the badge** — and no mapper
+   ever set the flag for it to draw. Cross-store search, the directory and the
+   directory's own "Your requests" list were unmarked too.
+
+   Every one of those files was individually correct. That is the `/c/:token`
+   failure for the third time in this repo, so the fix is not six edits: the
+   badge is now ONE rendered helper (`js/components/first-party-badge.js`), and
+   `check_oggi_label.mjs` no longer holds a list of surfaces — it takes a census
+   of `js/data` and applies the rule below, with anything it cannot classify
+   counted RED. A rail added next month is covered on the day it is written, by
+   somebody not thinking about first-party labelling at all.
+
 6. ⬜ Only then: create the OGGI store and mark it.
+
+---
+
+## The rule, stated once
+
+> **Wherever a buyer sees OGGI's store ALONGSIDE other stores, it is marked.**
+
+Ranked product lists, the directory, the requests list. **Not** marked on a
+single-store page the buyer walked into deliberately — a share link, an
+invitation, an order they have just placed — because there is no comparison
+there and no doubt whose shop they are in.
+
+Modules that carry a store identity and do not label are listed in `EXEMPT` in
+`checks/check_oggi_label.mjs`, each with its reason written out. The one real
+judgement call is the **store switcher**: chips for stores this buyer has
+already joined, each met and marked in the directory first, and whose own label
+is rewritten to "Opening…" and back while entering a store — so a child badge
+there would be destroyed and restored wrong. Worth revisiting the day the
+switcher stops rewriting its own text.
 
 ## Still open
 
@@ -188,5 +223,8 @@ This is what makes the written promise self-enforcing instead of remembered.
   the wholesaler feature set? (Assumption: yes, it is a wholesaler row like any
   other — every tenant-isolation gate then covers it with no exceptions, and
   exceptions are where leaks live.)
-- **D-14** — wording sign-off on the rewritten page. It is a statement to third
-  parties; Hadi should read it before it ships.
+- ~~**D-14** — wording sign-off on the rewritten page.~~ **Closed 9 Sep**: there
+  is no rewritten page. Section 4 was removed and nothing replaced it, so there
+  is no new statement to third parties to sign off. What remains to sign off is
+  §7's surviving *"your sales data is never used against you"*, which is now
+  load-bearing on OWN-04's wall rather than on wording.
