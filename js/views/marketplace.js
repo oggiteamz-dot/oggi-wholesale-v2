@@ -125,6 +125,31 @@ function tile(item, { wide = false } = {}) {
   sn.textContent = item.wholesalerName;
   sn.style.cssText = "font-size:11px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
   store.appendChild(sn);
+
+  // ⭐ OGGI'S OWN. Since 8 Sep 2026 OGGI sells here, and its products sit in
+  // the ORDINARY RESULTS rather than a shelf of their own -- so this badge is
+  // the ONLY thing on the card distinguishing the platform's own goods from the
+  // suppliers it ranks them against. It is not decoration and it is not
+  // optional: a first-party product rendered without it is OGGI competing
+  // invisibly with the shops whose products sit beside it.
+  //
+  // Drawn from the server's answer (v2_first_party_wid, migration 131) and
+  // never inferred from the name -- "OGGI Textiles" could be anybody's shop.
+  //
+  // checks/check_oggi_label.mjs asserts the PAIRING: the data layer sets the
+  // flag AND every renderer draws it. Checking those two facts separately is
+  // how /c/:token stayed unreachable for three weeks.
+  if (item.isFirstParty) {
+    const own = document.createElement("span");
+    own.className = "badge";
+    own.setAttribute("data-first-party", "1");
+    own.textContent = "OGGI's own";
+    own.style.cssText = "font-size:9.5px;flex:none;padding:1px 6px;border-radius:999px;"
+      + "background:var(--accent-50);color:var(--accent-700,var(--text-secondary));"
+      + "border:1px solid var(--accent-500);letter-spacing:.01em;";
+    store.appendChild(own);
+  }
+
   body.appendChild(store);
 
   // ---- what you can do about it ---------------------------------------

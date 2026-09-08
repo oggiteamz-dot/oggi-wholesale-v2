@@ -143,20 +143,46 @@ async function rankingPolicyView(outlet) {
     on this page.</p>
   `));
 
-  // ---- 4. does OGGI compete with you? -------------------------------------
-  outlet.appendChild(section("Does OGGI rank its own products first?", `
-    <p style="margin:0 0 10px;"><strong>OGGI does not sell any products on this platform.</strong> There is
-    no OGGI-owned brand here, and nothing in the system that could mark one — so today the question has
-    nothing to attach to.</p>
-    <p style="margin:0 0 10px;">If that ever changes, it will not change quietly, and it will not change the
-    answer above. Own-brand products would appear in their own labelled, capped shelf — the same treatment
-    as paid placement — and never inside the ordinary results. This page will say so before it happens,
-    not afterwards.</p>
-    <p style="margin:0;"><strong>And your sales figures will not be used to decide it.</strong> What sells
-    in your shop is not an input to anything OGGI would stock or price. That rule is the single most
-    consistently penalised failure in the whole record of marketplace regulation, and we would rather be
-    held to it in writing.</p>
-  `));
+  // ---- 4. REMOVED 8 Sep 2026 ----------------------------------------------
+  //
+  // This section used to answer "does OGGI rank its own products first?" with
+  // "OGGI does not sell any products on this platform", and promised that if
+  // that ever changed, own-brand products would sit in their own labelled
+  // capped shelf and never in the ordinary results.
+  //
+  // ⭐ IT IS REMOVED RATHER THAN REWRITTEN, AND THE DISTINCTION IS THE WHOLE
+  // POINT OF THIS COMMENT.
+  //
+  // Hadi, 8 Sep 2026: "we do sell", and separately: do not disclose it here.
+  // That is his decision to make about what this page CHOOSES TO ADDRESS.
+  //
+  // What it is not is a decision that can be carried out by leaving the old
+  // paragraph in place. A page that stays SILENT on whether OGGI sells is a
+  // page that has declined to answer a question. A page that goes on ASSERTING
+  // "OGGI does not sell any products on this platform" while OGGI sells in the
+  // ordinary results is a false statement, in writing, to the suppliers it was
+  // written to reassure -- and this file's own header is the reason that
+  // matters:
+  //
+  //     a published ranking policy that has drifted from the code is not a
+  //     stale document, it is a false statement made in writing to a supplier
+  //
+  // So the claim is gone. Nothing replaces it. The page no longer raises the
+  // question in either direction, which is what "do not disclose" can honestly
+  // mean here and is the most it can mean.
+  //
+  // WHAT SURVIVES ELSEWHERE, AND IS STILL TRUE:
+  //   - section 2's "nothing else on this platform can be bought" -- unaffected,
+  //     it is about paid placement, which is a separate mechanism
+  //   - section 7's "your sales data is never used against you" -- still true,
+  //     and for the first time technically enforced rather than promised, by
+  //     the separate-staff wall (OWN-04). If that wall is ever removed, that
+  //     sentence becomes the next false claim on this page and has to go too.
+  //
+  // ⚠️ checks/check_ranking_policy.mjs now asserts the ABSENCE of the old claim,
+  // and checks/check_oggi_sells_in_order.sh fails if a first-party store is
+  // ever selling while this page has the sentence back. Silence is allowed.
+  // The contradiction is not.
 
   // ---- 5. THE LIVE NUMBERS -------------------------------------------------
   const nums = document.createElement("div");
