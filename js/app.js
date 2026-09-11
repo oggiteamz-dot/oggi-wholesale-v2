@@ -17,6 +17,8 @@ import { registerBuyerRoutes } from "./views/buyer.js";
 import { registerMobileOpsRoutes } from "./views/mobile-ops.js";
 import { registerImportRoutes } from "./views/import-catalog.js";
 import { registerIntegrationsRoutes } from "./views/integrations.js";
+import { registerWarehouseRoutes } from "./views/warehouse.js";
+import { registerFinanceRoutes } from "./views/finance.js";
 
 import { registerPublicRoutes, isPublicPath } from "./views/public-order.js";
 
@@ -101,6 +103,8 @@ function mountShell() {
   registerMobileOpsRoutes(router);
   registerImportRoutes(router);
   registerIntegrationsRoutes(router);
+  registerWarehouseRoutes(router);
+  registerFinanceRoutes(router);
   router.notFound((outlet) => {
     outlet.innerHTML = `<div class="empty-state card"><h4>Page not found</h4><p>That route doesn't exist in v2 yet.</p></div>`;
   });
@@ -145,7 +149,8 @@ function mountShell() {
   // Read once and REMOVED whether or not it is used. A stale destination that
   // survives a session is a link that reopens itself days later, and the
   // person who set it has long since forgotten clicking anything.
-  const homeByRole = { owner: "/owner", wholesaler: "/wholesaler", sales: "/sales", buyer: "/buyer" };
+  const homeByRole = { owner: "/owner", wholesaler: "/wholesaler", sales: "/sales", buyer: "/buyer",
+                       warehouse: "/warehouse", finance: "/finance" };
   if (!router.matches(router.currentPath())) {
     let back = null;
     try {
