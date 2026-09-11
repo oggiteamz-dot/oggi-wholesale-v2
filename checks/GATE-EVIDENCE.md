@@ -3801,3 +3801,120 @@ production directly rather than inferred from a hash that could not see them.
 133 migrations no errors; 72 JS gates pass (55 of the assertions in the label
 gate alone, 15 of them proven red); 46 SQL gates proved / 0 red; 9 seed-missing;
 `check_anon_scope.sh` unchanged.
+
+---
+
+# Block 7 — THE TWO DESKS                                  11 September 2026
+
+Hadi asked for a warehouse manager view and a finance manager view. Two things
+already in the repo said this was overdue rather than new:
+
+- **Migration `087`** created `fulfil_note` on 28 August — *"the wholesaler's
+  instruction to their own warehouse"* — and **nothing has ever read it**,
+  because there was no warehouse account. A fortnight of orders carried an
+  instruction to a department that could not open it.
+- **Migration `088`** opens by naming the two people the product could not
+  serve: *"the **warehouse**, who need a picking sheet on paper; … **an
+  accountant**, who wants a PDF. Today that handoff happens by screenshot."*
+
+## ⭐ The decision the block rests on: neither existing tier could hold them
+
+| | Why not |
+|---|---|
+| **`v2_user_profiles`** (owner / wholesaler) | `v2_my_wid()` is the tenant predicate at **201 policy and function sites across 61 migrations, and it carries no role.** A warehouse manager with a profile row would be **indistinguishable from the owner of the business** at every one of them — prices, deletions, cost, bans, share links. Not a bug; the design working as written. |
+| **`v2_portal_accounts`** (buyer / sales) | `check_person_identity.sql:135` requires every portal account to have a `person_id`, making a warehouse login a **marketplace person** — and `v2_person_channels` carries `unique (kind, normalised)`, *"THE join key of the whole marketplace"* (090). A warehouse manager who also owns a shop would have had **their staff login and their buyer account merged on their phone number**, against 090's own invariant: *normalisation may split a person, it must never merge two.* |
+
+So: a third tier, `v2_staff_accounts`, running as `anon` with **no grant on
+anything**. Every capability is an explicit `SECURITY DEFINER` function, and
+every one of them passes `v2_staff_wid(staff_id, desk)` — one gate, one place.
+
+## The two column walls, asserted mechanically
+
+`check_desk_walls.sql` — **12 assertions, and it builds its own world**: two
+stores, four desks, three orders, all rolled back. Nine of this repo's SQL gates
+cannot run on a clean replay because they were written against production data;
+this one takes the other road, because *"a warehouse manager at store A cannot
+see store B"* is not a statement about the schema — it is a statement about what
+happens when somebody tries.
+
+| Wall | How it is asserted |
+|---|---|
+| **The warehouse sees no money** | The functions' own OUT parameters are read and any money-shaped name fails — in the migration's self-test **and** in the gate. Then the **rendered DOM** is checked too (below). |
+| **Finance sees no floor** | Same mechanism, on `fulfil|pick|bin|on_hand|reserved|barcode`. `fulfil_note` especially: one department's instruction to another, and finance is a third. |
+| **Cross-store** | A's warehouse queue returns only A; A cannot open B's order *by its id*; A's finance likewise. |
+| **Cross-desk** | A warehouse id passed to a finance function returns zero rows, and the reverse. |
+| **Never-sent** | An order at your own store that was never sent to your desk is invisible to it. |
+| **Suspension** | The same call, before and after, in one transaction. A gate that only checks the "after" proves nothing about whether it ever worked. |
+
+## ⭐ The money wall, proved on the rendered DOM
+
+`check_warehouse_sees_no_money.mjs` — **17 assertions.** It compiles the real
+`js/views/warehouse.js` and renders it in jsdom against fixture rows that
+**deliberately carry prices the server would never send**:
+
+```
+unitPrice: 9.5   lineTotal: 57.00   subtotal: 380.00   unitCost: 3.25
+```
+
+…then asserts that not one currency symbol and not one money-shaped number
+reaches the HTML. A signature with no price is worth nothing if the view fetches
+it from somewhere else.
+
+### Proven to go red — 6 sabotages
+
+| Sabotage | Caught by |
+|---|---|
+| The order total added to the warehouse header | no currency symbol in the DOM |
+| A unit price on the line **with no currency symbol at all** | no money-shaped number in the DOM |
+| `money()` imported but never called | the import-braces check *(see the defect below)* |
+| The data layer starts mapping `unit_price` | the data-layer source check |
+| 087's note stops reaching the screen again | the note is asserted present |
+| The two notes lose their author marking | `data-note-from` on both |
+
+### ⚠️ Two defects in this gate, found by sabotage rather than by reading
+
+1. **The import check read the wrong half of the statement.** It looked for
+   `money` *after* the `from` clause — but in `import { esc, money } from "…"`
+   the name is in the braces. Importing it without calling it stayed green.
+   The braces are now read.
+2. **It cried wolf on `line-height:1.45`.** A CSS value is not a price and never
+   will be. *A gate that cries wolf is a gate somebody switches off* —
+   `check_no_payment_path.mjs` says exactly this, having been narrowed for the
+   same reason. Style attributes and colour hexes are stripped; the claim itself
+   is not weakened.
+
+## 🛑 The finance line: recording money is not taking it
+
+`check_finance_records_not_charges.mjs` — **13 assertions.** The strongest walks
+the buyer's **entire import graph** — 52 modules from 7 entry points, including
+the two public token routes that render with no session at all — and asserts the
+money path is not in it. Grepping the buyer's own file would not have found an
+import two modules deep, and reachability is what matters.
+
+It also **narrowed itself on the first run, correctly**: `data/staff-auth.js`
+started in the forbidden list and the gate went red naming `login.js`, which
+imports `staffLogin` because the login screen is where a desk signs in. The door
+is not the money. The claim was made precise rather than loosened, and the
+hiring functions got their own tighter assertion.
+
+**6 sabotages, all red**: importing the money path into a buyer view; the button
+relabelled "Take payment"; a null cost rendered as `0.00`; the data layer
+`|| 0`-ing the nulls away; a buyer view reaching the hiring functions; and the
+screen no longer telling the user this is not a payment.
+
+## ⭐ The posture that is deliberately backwards
+
+`check_desk_routing.sql` — **12 assertions.** Everywhere else in this repo, *a
+check that cannot run is RED*. The auto-routing trigger does the opposite: it
+swallows its own failure and lets the order through, because **an order arriving
+is the customer's act and routing it is ours, and ours must never cost theirs.**
+
+The gate proves both halves by breaking the assignment table with a constraint
+the trigger must violate, inserting a real order, and asserting **the order
+survived** *and* **the failure was written down**. A defensive trigger that
+failed silently would be the worse of the two bugs.
+
+## Suite
+
+140 migrations, no errors; **74 JS gates pass**; **49 SQL gates proved / 0 red**;
+9 seed-missing; `check_anon_scope.sh` unchanged and still green.

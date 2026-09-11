@@ -503,8 +503,19 @@ echo "   shape=$shape"
 # and this hash is blind to both -- it moved only because 131 added a signature.
 # So the column and the index were verified directly on production rather than
 # inferred from a hash that could not have seen them.
-EXP_T=63 EXP_V=4 EXP_F=176 EXP_P=96
-EXP_SHAPE=835052422d2ba98a01fd5aadd8c2960f   # production, 8 Sep 2026, after 131, partitions excluded
+EXP_T=68 EXP_V=4 EXP_F=198 EXP_P=101
+EXP_SHAPE=29e2633203d20477fb2894743a8e36a6   # production, 11 Sep 2026, after 139, partitions excluded
+#
+# Moved 11 Sep 2026, and ONLY after both sides were measured to the same value:
+# the replay produced `68 4 198 101 29e2633...` and production, queried with this
+# same statement after 132-139 were applied, answered identically.
+#
+# ⚠️ AND ONE THING THE HASH COULD NOT SEE, so it was checked by hand.
+# Migration 139 adds nothing but a COLUMN GRANT, and this hash is blind to
+# grants exactly as it is blind to columns and indexes (which is why 130 was
+# verified the same way on 8 Sep). 139's own assertions ran ON PRODUCTION and
+# passed: `authenticated` holds SELECT and UPDATE on v2_product_variants.cost,
+# and anon holds neither. A green hash would have said nothing about that.
 # 097 added: v2_attribute_aliases (+1 table) and four functions --
 # v2_normalise_attribute, v2_size_shape, and the two trigger functions.
 # 098 then took back the anon/authenticated grant 097 handed out and dropped the
@@ -513,9 +524,9 @@ EXP_SHAPE=835052422d2ba98a01fd5aadd8c2960f   # production, 8 Sep 2026, after 131
 # and function signatures and not ACLs -- which is exactly why S7
 # (check_anon_grants.sql) has to be run as well, and is what caught 097.
 if [ "$t" = "$EXP_T" ] && [ "$v" = "$EXP_V" ] && [ "$fn" = "$EXP_F" ] && [ "$pol" = "$EXP_P" ] && [ "$shape" = "$EXP_SHAPE" ]; then
-  echo "   MATCHES the 8 Sep 2026 production baseline exactly, shape included."
+  echo "   MATCHES the 11 Sep 2026 production baseline exactly, shape included."
 else
-  echo "   !! differs from the 8 Sep 2026 production baseline"
+  echo "   !! differs from the 11 Sep 2026 production baseline"
   echo "      expected tables=$EXP_T views=$EXP_V functions=$EXP_F policies=$EXP_P"
   echo "      Either a migration was applied to production without a file (check"
   echo "      supabase_migrations.schema_migrations against supabase/migrations/),"

@@ -35,10 +35,29 @@
 // =============================================================================
 
 import { doorFromHash, DOORS } from "../js/lib/login-doors.js";
+import { readFileSync } from "node:fs";
 
 // The tabs login.js actually renders. Hard-coded on purpose: if someone
 // renames a tab there and not here, that is exactly the drift worth failing on.
-const REAL_TABS = new Set(["admin", "sales", "buyer"]);
+// ⚠️ READ FROM login.js RATHER THAN COPIED FROM IT.
+//
+// This was a hard-coded Set for three weeks, and on 11 Sep 2026 Block 7 added a
+// fourth tab and four doors pointing at it -- and this gate went red saying the
+// tab did not exist, while the tab plainly did. The gate was wrong, not the
+// code. A duplicated expectation drifts, and then the check fails while
+// agreeing with itself about the wrong thing (this repo's own phrase, in three
+// other gates).
+//
+// login.js cannot be imported here -- it pulls in the Supabase client -- so the
+// list is parsed out of its source, which is still ONE source of truth rather
+// than two.
+const loginSrc = readFileSync(new URL("../js/views/login.js", import.meta.url), "utf8");
+const tabsBlock = loginSrc.slice(loginSrc.indexOf("const TABS = ["), loginSrc.indexOf("];", loginSrc.indexOf("const TABS = [")));
+const REAL_TABS = new Set([...tabsBlock.matchAll(/key:\s*"([a-z]+)"/g)].map((m) => m[1]));
+if (REAL_TABS.size < 3) {
+  console.log("  \u2717 could not read TABS out of js/views/login.js — this gate would prove nothing");
+  process.exit(1);
+}
 
 let assertions = 0;
 const failures = [];
