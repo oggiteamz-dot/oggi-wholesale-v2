@@ -76,6 +76,7 @@ const EXEMPT = {
   "products-admin.js":    "the wholesaler's product admin, on their own console",
   "suppliers.js":         "the wholesaler's supplier list, on their own console",
   "wholesaler-admin.js":  "the wholesaler's own settings, on their own console",
+  "staff-auth.js":        "the wholesaler hiring their own warehouse and finance staff, on their own Team screen. No buyer ever sees it, and a desk cannot read it at all -- 132 grants anon nothing on v2_staff_accounts.",
   "share-links.js":       "wholesaler admin, plus /c/:token — ONE store, reached by a link that store sent. No comparison, no doubt whose shop it is.",
 
   // --- a buyer, but looking at ONE store they arrived at deliberately --------

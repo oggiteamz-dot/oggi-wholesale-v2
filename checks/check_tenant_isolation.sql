@@ -262,6 +262,36 @@ begin
   end loop;
 
   ------------------------------------------------------------------
+  -- ⭐ THE MATCHED PAIR, added 11 Sep 2026 (migration 139).
+  --
+  -- Every other assertion in this file says a browser role must NOT hold
+  -- something. This one says `authenticated` MUST hold cost, and it is here
+  -- because the absence of it cost the repo four weeks of being unable to
+  -- rebuild its own product editor without anybody noticing.
+  --
+  -- Migration 031 revoked `select (cost)` from `authenticated` and offered
+  -- v2_my_variant_costs() instead. The app never moved: js/data/products-admin.js
+  -- still reads cost off the table and writes it in three places. Somebody
+  -- re-granted it on production so the editor kept working and wrote no
+  -- migration, so replay_migrations.sh has been proving a claim -- "this repo
+  -- can rebuild the product" -- that was false for this column.
+  --
+  -- A tidy-up that revokes it again would break a live screen SILENTLY: an empty
+  -- buying price looks like a product nobody costed. So the revoke now fails
+  -- here instead.
+  --
+  -- ⚠️ This is NOT a relaxation of the anon rule above. anon holds nothing, the
+  -- read policy on that table admits anon to every row, and the column grant is
+  -- the only thing standing in the way (032). Both halves are asserted.
+  if not exists (
+    select 1 from information_schema.column_privileges
+     where table_schema='wholesale_v2' and table_name='v2_product_variants'
+       and column_name='cost' and grantee='authenticated' and privilege_type='SELECT'
+  ) then
+    fails := fails || 'MISSING GRANT: `authenticated` cannot read v2_product_variants.cost -- the product editor shows an empty buying price and never says why. See migration 139.';
+  end if;
+
+  ------------------------------------------------------------------
   if array_length(fails,1) is null then
     raise notice 'check_tenant_isolation: ALL ASSERTIONS HELD';
   else

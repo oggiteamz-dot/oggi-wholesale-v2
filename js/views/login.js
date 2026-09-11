@@ -15,10 +15,19 @@ import { marketplaceLogin, enterStore } from "../data/marketplace.js";
 // 31 Aug 2026 — which front door was linked. Kept in its own import-free
 // module so a Node gate can exercise it; see js/lib/login-doors.js.
 import { doorFromHash } from "../lib/login-doors.js";
+// Block 7 — the store-staff door. Its own module because the tier is its own
+// table; see js/data/staff-auth.js for why it is neither of the other two.
+import { staffLogin } from "../data/staff-auth.js";
 
 const TABS = [
   { key: "admin", label: "Owner / Wholesaler" },
   { key: "sales", label: "Sales team" },
+  // Block 7, 11 Sep 2026. The two desks share ONE tab because they share one
+  // form: a store code, a username and a password. Which desk you land on is
+  // decided by the SERVER from the account (v2_staff_login returns the desk),
+  // never by which button you pressed -- a person who picks the wrong one
+  // should still get their own screen rather than a refusal they cannot explain.
+  { key: "staff", label: "Warehouse / Finance" },
   { key: "buyer", label: "Buyer" },
 ];
 
@@ -93,6 +102,7 @@ export function renderLogin(outlet, onLoggedIn) {
     const panel = document.createElement("div");
     if (activeTab === "admin") renderAdminPanel(panel);
     else if (activeTab === "sales") renderSalesPanel(panel);
+    else if (activeTab === "staff") renderStaffPanel(panel);
     else renderBuyerPanel(panel);
     card.appendChild(panel);
 
@@ -199,6 +209,53 @@ export function renderLogin(outlet, onLoggedIn) {
       btn.disabled = false;
       if (!result.ok) { status(statusEl, result.error, "error"); return; }
       onLoggedIn(devAuth.getSession());
+    });
+  }
+
+  // -------------------------------------------------------------- Block 7 ----
+  // The warehouse and finance desks. Migrations 132/133.
+  //
+  // It asks for the STORE as well as the username, unlike the sales door. A
+  // desk always belongs to one store, so there is no global username space --
+  // which means two wholesalers can both have a login called "warehouse"
+  // without either of them discovering that the other took the name.
+  function renderStaffPanel(panel) {
+    panel.innerHTML = `
+      <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">
+        For the warehouse and finance desks. Your manager gives you these.
+      </p>
+      <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Store code</label>
+      <input class="input" id="staff-wid" autocomplete="organization"
+             style="width:100%;margin-bottom:10px;" placeholder="e.g. demo-loom" />
+      <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Username</label>
+      <input class="input" id="staff-user" autocomplete="username" style="width:100%;margin-bottom:10px;" />
+      <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Password</label>
+      <input class="input" id="staff-pass" type="password" autocomplete="current-password"
+             style="width:100%;margin-bottom:14px;" />
+      <button class="btn btn-primary" id="staff-btn" style="width:100%;min-height:48px;">Sign in</button>
+      <div id="staff-status"></div>
+      <p style="font-size:11px;color:var(--text-tertiary);margin-top:12px;">
+        These logins are created by the wholesaler from their Team screen. They open
+        only the picking or finance screens — not the rest of the store.
+      </p>
+    `;
+    const statusEl = panel.querySelector("#staff-status");
+    const go = async () => {
+      const wid = panel.querySelector("#staff-wid").value.trim();
+      const user = panel.querySelector("#staff-user").value.trim();
+      const pass = panel.querySelector("#staff-pass").value;
+      if (!wid || !user || !pass) { status(statusEl, "Enter the store code, your username and your password", "error"); return; }
+      const btn = panel.querySelector("#staff-btn"); btn.disabled = true;
+      const result = await staffLogin(wid, user, pass);
+      btn.disabled = false;
+      if (!result.ok) { status(statusEl, result.error, "error"); return; }
+      // The session was written by staffLogin; devAuth re-resolves it on the
+      // next bootstrap, but the shell needs it NOW, so hand the shape over.
+      onLoggedIn(result.session);
+    };
+    panel.querySelector("#staff-btn").addEventListener("click", go);
+    panel.querySelector("#staff-pass").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") go();
     });
   }
 

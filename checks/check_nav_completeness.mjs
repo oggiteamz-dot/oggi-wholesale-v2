@@ -154,7 +154,15 @@ if (!existsSync(COMPONENT_PATH)) {
   const code = src
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
-  const hardcoded = [...code.matchAll(/["'`](\/(?:owner|wholesaler|sales|buyer)(?:\/[a-z-]+)?)["'`]/g)]
+  // ⚠️ THE PREFIXES ARE DERIVED, NOT LISTED.
+  //
+  // This regex spelled out `owner|wholesaler|sales|buyer` for three weeks. On
+  // 11 Sep 2026 Block 7 added /warehouse and /finance, and this scan would have
+  // gone on reporting "0 hard-coded found" while cheerfully ignoring both --
+  // silently weaker, which is the worst way for a gate to change. A duplicated
+  // expectation drifts; reading the roles out of NAV_BY_ROLE cannot.
+  const ROLE_PREFIXES = Object.keys(NAV_BY_ROLE).join("|");
+  const hardcoded = [...code.matchAll(new RegExp(`["'\`](\\/(?:${ROLE_PREFIXES})(?:\\/[a-z-]+)?)["'\`]`, "g"))]
     .map((m) => m[1]);
   const unique = [...new Set(hardcoded)];
   assert(unique.length === 0,

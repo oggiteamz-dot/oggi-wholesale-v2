@@ -59,6 +59,11 @@ const result = await page.evaluate(async () => {
     import("/js/views/salesperson.js"), import("/js/views/buyer.js"),
     import("/js/views/mobile-ops.js"), import("/js/views/import-catalog.js"),
     import("/js/views/integrations.js"),
+    // Block 7 — the two desks. Listed here because this gate builds a router by
+    // hand; a module missing from this list is a module whose routes this gate
+    // silently does not test.
+    import("/js/views/warehouse.js"),
+    import("/js/views/finance.js"),
   ]);
   mods[0].registerOwnerRoutes(router);
   mods[1].registerWholesalerRoutes(router);
@@ -67,8 +72,11 @@ const result = await page.evaluate(async () => {
   mods[4].registerMobileOpsRoutes(router);
   mods[5].registerImportRoutes(router);
   mods[6].registerIntegrationsRoutes(router);
+  mods[7].registerWarehouseRoutes(router);
+  mods[8].registerFinanceRoutes(router);
 
-  const homeByRole = { owner: "/owner", wholesaler: "/wholesaler", sales: "/sales", buyer: "/buyer" };
+  const homeByRole = { owner: "/owner", wholesaler: "/wholesaler", sales: "/sales", buyer: "/buyer",
+                       warehouse: "/warehouse", finance: "/finance" };
   return {
     hasMatches: typeof router.matches === "function",
     // The path the hash actually holds at the moment of a successful sign-in.

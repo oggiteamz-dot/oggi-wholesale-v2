@@ -76,6 +76,21 @@ export const NAV_BY_ROLE = {
     { icon: "🔌", label: "Integrations", path: "/wholesaler/integrations" },
     { icon: "⚙️", label: "Settings", path: "/wholesaler/settings" },
   ],
+  // ------------------------------------------------------------ Block 7 ----
+  // The two desks. Deliberately TINY: a warehouse manager has one job and a
+  // picker on a tablet should not be choosing between eight destinations.
+  // Both stay well under MAX_BAR_ITEMS so neither needs a "More" hub at all.
+  //
+  // Note these are their OWN keys rather than entries added to `wholesaler`
+  // below -- that list is capped at nine by Hadi's own instruction and
+  // checks/check_inventory_module.mjs asserts the number.
+  warehouse: [
+    { icon: "📦", label: "Picking", path: "/warehouse" },
+  ],
+  finance: [
+    { icon: "🧾", label: "Orders", path: "/finance" },
+    { icon: "⏳", label: "Who owes what", path: "/finance/aging" },
+  ],
   sales: [
     { icon: "◆", label: "Dashboard", path: "/sales" },
     { icon: "👥", label: "My Clients", path: "/sales/clients" },
@@ -132,6 +147,11 @@ export const ROLE_LABEL = {
   wholesaler: "Wholesaler",
   sales: "Salesperson",
   buyer: "Buyer",
+  // Block 7. The person, not the department: whoever reads the topbar is
+  // standing in the warehouse, and "Warehouse" tells them nothing they do not
+  // already know. "Warehouse desk" says which set of screens they are in.
+  warehouse: "Warehouse desk",
+  finance: "Finance desk",
 };
 
 // =============================================================================
@@ -190,6 +210,11 @@ export const SHORT_LABEL = {
   "/owner": "Home",
   "/wholesaler": "Home",
   "/sales": "Home",
+  // Block 7. "Who owes what" is 13 characters and will not survive a 5-slot bar
+  // at 375px -- measured the same way as the three above it.
+  "/finance/aging": "Owed",
+  "/finance": "Orders",
+  "/warehouse": "Picking",
 };
 
 /** The label to show in the bottom bar. Full labels are always used in the
