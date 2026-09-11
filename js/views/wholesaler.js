@@ -4,6 +4,11 @@ import { toast } from "../components/toast.js";
 import { devAuth } from "../lib/dev-auth.js";
 // (import from "../data/catalog.js" removed — every symbol it brought in was only used by renderRatioSection, deleted in CR-0001)
 import { getWholesalerOrders, getWholesalerOrder, advanceOrderStatus, nextStatus, setFulfilNote } from "../data/wholesaler-orders.js";
+// Block 7, 11 Sep 2026 — the two desks. Hadi: "any order that comes in, the
+// owner could automatically send it to the warehouse manager."
+import { DESKS, AUTO_LABEL, deskStatesForOrder, sendOrderToDesk,
+         getDeskRouting, setDeskRouting, recentRoutingFailures } from "../data/desk-admin.js";
+import { listStaffAccounts, createStaffAccount, setStaffActive } from "../data/staff-auth.js";
 import { listProductsForAdmin, toggleArchived, bulkUpdatePrice, duplicateAsTemplate, setCatalogOnly, setProductPublic, getStockStates } from "../data/products-admin.js";
 import { getStockTable, getStockByProduct, getSalesByProduct, receiveStock, receiveProductDelivery, getLocations } from "../data/inventory-admin.js";
 // CNT-00. The whole-product receive screen. receive-dialog.js stays exactly
@@ -764,6 +769,83 @@ async function orderDetailView(outlet, orderId) {
     list.appendChild(row);
   });
   outlet.appendChild(list);
+
+  // ---------------------------------------------------------------- Block 7 --
+  // THE DESKS. This is the thing 088's header said the product could not do:
+  // "there is no way to hand the order to anyone who is not signed in to this
+  // app: the warehouse, who need a picking sheet on paper; ... an accountant".
+  // Now there is, and it is an account rather than a screenshot.
+  //
+  // ⭐ THE ORDER'S OWN STATUS IS NOT TOUCHED BY ANY OF THIS. What a desk reports
+  // and what the buyer is told are two state machines (migration 134), and the
+  // wholesaler stays the only one who moves the second.
+  const deskCard = document.createElement("div");
+  deskCard.className = "card no-print";
+  deskCard.setAttribute("data-testid", "order-desks");
+  deskCard.style.cssText = "padding:14px;margin:14px 0;";
+  deskCard.innerHTML = `<div style="font-weight:650;margin-bottom:10px;">Desks</div>`;
+  outlet.appendChild(deskCard);
+
+  (async () => {
+    const states = await deskStatesForOrder(order.id);
+    const rows = document.createElement("div");
+    rows.style.cssText = "display:flex;flex-direction:column;gap:10px;";
+
+    DESKS.forEach((d) => {
+      const st = states[d.key];
+      const row = document.createElement("div");
+      row.setAttribute("data-desk", d.key);
+      row.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+
+      const label = document.createElement("div");
+      label.style.cssText = "min-width:120px;font-size:14px;";
+      label.innerHTML = `${d.icon} ${esc(d.label)}`;
+      row.appendChild(label);
+
+      const state = document.createElement("div");
+      state.style.cssText = "font-size:12px;color:var(--text-secondary);flex:1;min-width:160px;";
+      if (!st) {
+        state.textContent = "Not sent";
+      } else if (st.state === "returned") {
+        // The reason is shown in full and not truncated. A hand-back the office
+        // cannot read is the dead end PB-01 removed, one department over.
+        state.innerHTML = `<span class="badge badge-danger">Handed back</span>
+          <div style="margin-top:4px;white-space:pre-wrap;color:var(--text-primary);">${esc(st.returnReason || "")}</div>`;
+      } else {
+        const lbl = st.state === "done" ? "Done" : st.state === "accepted" ? "In progress" : "Waiting";
+        const cls = st.state === "done" ? "badge-success" : st.state === "accepted" ? "badge-warning" : "badge-info";
+        state.innerHTML = `<span class="badge ${cls}">${esc(lbl)}</span>`
+          + (st.auto ? ` <span style="font-size:11px;color:var(--text-tertiary);">sent automatically</span>` : "");
+      }
+      if (st && st.deskNote) {
+        const n = document.createElement("div");
+        n.style.cssText = "font-size:12px;margin-top:4px;border-left:3px solid var(--border-default,#ddd);padding-left:8px;white-space:pre-wrap;";
+        n.textContent = st.deskNote;
+        state.appendChild(n);
+      }
+      row.appendChild(state);
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn btn-secondary btn-sm";
+      btn.style.minHeight = "44px";
+      btn.textContent = !st ? `Send to ${d.label.toLowerCase()}`
+                      : st.state === "returned" ? "Send again"
+                      : st.state === "done" ? "Send again" : "Resend";
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        const r = await sendOrderToDesk(order.id, d.key);
+        btn.disabled = false;
+        if (!r.ok) { toast(r.error, { type: "danger" }); return; }
+        toast(r.msg || "Sent", { type: "success" });
+        outlet.innerHTML = "";
+        orderDetailView(outlet, orderId);
+      });
+      row.appendChild(btn);
+      rows.appendChild(row);
+    });
+    deskCard.appendChild(rows);
+  })();
 
   // ---- actions, unchanged from the list view -------------------------------
   const actions = document.createElement("div");
@@ -3448,6 +3530,140 @@ async function teamView(outlet) {
     list.appendChild(row);
   });
   outlet.appendChild(list);
+
+  // ---------------------------------------------------------------- Block 7 --
+  // The two desks live HERE rather than in the sidebar, and that is deliberate:
+  // the wholesaler nav is capped at nine entries by Hadi's own instruction
+  // (nav-config.js:31-44) and checks/check_inventory_module.mjs asserts the
+  // number. Folding six things into Inventory to get there was not an
+  // invitation to add a tenth.
+  await renderDeskAdmin(outlet, wid);
+}
+
+/** Warehouse and finance logins, and the standing rule that sends orders to
+ *  them. Rendered inside Team & Buyers. */
+async function renderDeskAdmin(outlet, wid) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.setAttribute("data-testid", "desk-admin");
+  card.style.cssText = "padding:16px;margin-top:24px;";
+  card.innerHTML = `
+    <div style="font-weight:650;margin-bottom:4px;">Warehouse &amp; finance desks</div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+      These logins open only the picking or finance screens — not your products,
+      prices or clients. The warehouse never sees a price.
+    </div>`;
+  outlet.appendChild(card);
+
+  // ------------------------------------------------------------ the routing
+  const routing = await getDeskRouting(wid);
+  const routeBox = document.createElement("div");
+  routeBox.style.cssText = "margin-bottom:16px;display:flex;flex-direction:column;gap:10px;";
+  DESKS.forEach((d) => {
+    const row = document.createElement("div");
+    row.setAttribute("data-routing", d.key);
+    row.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+    const sel = document.createElement("select");
+    sel.className = "input";
+    sel.style.cssText = "width:230px;min-height:44px;";
+    Object.entries(AUTO_LABEL).forEach(([value, label]) => {
+      const o = document.createElement("option");
+      o.value = value; o.textContent = label;
+      if (routing[d.key] === value) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", async () => {
+      const r = await setDeskRouting(wid, d.key, sel.value);
+      toast(r.ok ? "Saved" : r.error, { type: r.ok ? "success" : "danger" });
+    });
+    const lbl = document.createElement("div");
+    lbl.style.cssText = "min-width:120px;font-size:14px;";
+    lbl.innerHTML = `${d.icon} ${esc(d.label)}`;
+    row.append(lbl, sel);
+    routeBox.appendChild(row);
+  });
+  card.appendChild(routeBox);
+
+  // ⚠️ Routing that FAILED. Empty is the expected state: the trigger swallows
+  // its own errors so that a broken rule can never cost a sale (134), which
+  // means the only way anybody finds out is if somebody shows them. This is
+  // that somebody.
+  const fails = await recentRoutingFailures(wid);
+  if (fails.length) {
+    const warn = document.createElement("div");
+    warn.setAttribute("data-testid", "routing-failures");
+    warn.style.cssText = "border-left:4px solid var(--danger,#b42318);padding:8px 12px;margin-bottom:16px;font-size:12px;";
+    warn.innerHTML = `<strong>${esc(String(fails.length))} order${fails.length === 1 ? "" : "s"} could not be sent automatically.</strong>
+      The order${fails.length === 1 ? "" : "s"} went through fine — only the routing failed — but you will need to send
+      ${fails.length === 1 ? "it" : "them"} by hand.`;
+    card.appendChild(warn);
+  }
+
+  // ------------------------------------------------------------- the logins
+  const formRow = document.createElement("div");
+  formRow.style.cssText = "display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;";
+  formRow.innerHTML = `
+    <div><label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Desk</label>
+      <select class="input" id="desk-role" style="width:140px;min-height:44px;">
+        <option value="warehouse">Warehouse</option>
+        <option value="finance">Finance</option>
+      </select></div>
+    <div><label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Their name</label>
+      <input class="input" id="desk-label" style="width:170px;min-height:44px;" placeholder="shown on the order" /></div>
+    <div><label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Username</label>
+      <input class="input" id="desk-user" style="width:150px;min-height:44px;" /></div>
+    <div><label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Password</label>
+      <input class="input" id="desk-pass" type="password" style="width:150px;min-height:44px;" placeholder="8+ characters" /></div>
+    <button class="btn btn-primary" id="desk-create" style="min-height:44px;">Create login</button>`;
+  card.appendChild(formRow);
+
+  formRow.querySelector("#desk-create").addEventListener("click", async () => {
+    const desk = formRow.querySelector("#desk-role").value;
+    const actorLabel = formRow.querySelector("#desk-label").value.trim();
+    const username = formRow.querySelector("#desk-user").value.trim();
+    const password = formRow.querySelector("#desk-pass").value;
+    if (!username || !password) { toast("A username and password are needed", { type: "danger" }); return; }
+    const btn = formRow.querySelector("#desk-create");
+    btn.disabled = true;
+    const r = await createStaffAccount({ wid, desk, username, password, actorLabel });
+    btn.disabled = false;
+    if (!r.ok) { toast(r.error, { type: "danger" }); return; }
+    toast("Login created", { type: "success" });
+    outlet.innerHTML = "";
+    teamView(outlet);
+  });
+
+  const staff = await listStaffAccounts(wid);
+  if (!staff.length) {
+    const none = document.createElement("div");
+    none.style.cssText = "font-size:12px;color:var(--text-tertiary);";
+    none.textContent = "No desk logins yet. Orders will stay with you until you create one.";
+    card.appendChild(none);
+    return;
+  }
+  staff.forEach((a) => {
+    const row = document.createElement("div");
+    row.setAttribute("data-staff-id", a.id);
+    row.style.cssText = "display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border-default,#eee);flex-wrap:wrap;";
+    row.innerHTML = `
+      <div style="min-width:110px;font-size:13px;">${esc(a.desk === "warehouse" ? "📦 Warehouse" : "🧾 Finance")}</div>
+      <div style="flex:1;min-width:140px;">
+        <div style="font-weight:600;font-size:14px;">${esc(a.actorLabel || a.username)}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);">${esc(a.username)}</div>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:${a.active ? "var(--success-700,#027A48)" : "var(--text-tertiary)"};">${a.active ? "Active" : "Suspended"}</div>
+      <button class="btn btn-ghost btn-sm" data-action="toggle" style="min-height:44px;">${a.active ? "Suspend" : "Reinstate"}</button>`;
+    row.querySelector('[data-action="toggle"]').addEventListener("click", async () => {
+      const r = await setStaffActive(a.id, !a.active);
+      if (!r.ok) { toast(r.error, { type: "danger" }); return; }
+      // Suspension bites at their NEXT page load, not at the end of some cached
+      // session -- v2_staff_wid checks `active` on every single call (133).
+      toast(r.msg, { type: "default" });
+      outlet.innerHTML = "";
+      teamView(outlet);
+    });
+    card.appendChild(row);
+  });
 }
 
 // ---------- Deferred (not this batch) ----------
