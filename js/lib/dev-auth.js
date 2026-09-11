@@ -26,9 +26,18 @@
 // first render. After that, getSession() just returns an in-memory cache.
 
 import { supabase } from "./supabase-client.js";
+import { resumeDeskSession, clearDeskSession } from "../data/staff-auth.js";
 
 const STORAGE_KEY = "oggi-v2-dev-session"; // unchanged since Batch 0
-const ROLES = ["owner", "wholesaler", "sales", "buyer"];
+// Block 7 widened this by two. The store-staff tier (migrations 132/133) lives
+// in its OWN table for reasons written out at length in js/data/staff-auth.js --
+// but to the app shell a signed-in person has a role, and for a desk that role
+// IS the desk. So the router, the nav and the topbar need no special case.
+const ROLES = ["owner", "wholesaler", "sales", "buyer", "warehouse", "finance"];
+/** The two that are store STAFF rather than owner/wholesaler or buyer/sales.
+ *  A separate list rather than a scattered `=== "warehouse" || === "finance"`,
+ *  so a third desk is one edit. */
+export const DESK_ROLES = ["warehouse", "finance"];
 
 let cachedSession = null;
 let bootstrapped = false;
@@ -88,6 +97,16 @@ async function resolveSession() {
   }
   const local = readLocalSession();
   if (local && (local.role === "buyer" || local.role === "sales")) return local;
+
+  // A desk keeps its session under its own key, and is RE-VALIDATED against the
+  // server on every load rather than trusted from localStorage -- a suspended
+  // picker must stop working at the next page load, not whenever a cached
+  // session happens to lapse. resumeDeskSession returns null for suspended,
+  // deleted, closed-store and hand-edited values, and returns what it had on a
+  // network error (a dropped wifi is not a revocation).
+  const desk = await resumeDeskSession();
+  if (desk && DESK_ROLES.includes(desk.role)) return desk;
+
   return null;
 }
 
@@ -293,6 +312,9 @@ export const devAuth = {
     // -- the actual network sign-out call trails behind harmlessly.
     const wasOwnerWholesaler = cachedSession?.role === "owner" || cachedSession?.role === "wholesaler";
     clearLocalSession();
+    // Block 7: a desk lives under a different key, so clearing the old one
+    // would have left a picker signed in after pressing sign out.
+    clearDeskSession();
     cachedSession = null;
 
     // ID-02, 30 Aug 2026. A marketplace session must be REVOKED SERVER-SIDE on

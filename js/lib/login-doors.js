@@ -35,6 +35,12 @@ export const DOORS = {
   wholesaler: { tab: "admin", label: "Wholesaler sign-in" },
   seller:     { tab: "admin", label: "Wholesaler sign-in" },
   sales:      { tab: "sales", label: "Sales team sign-in" },
+  // Block 7. Four spellings of the same door, because the person following the
+  // link was told one of four words by whoever sent it.
+  staff:      { tab: "staff", label: "Warehouse / finance sign-in" },
+  warehouse:  { tab: "staff", label: "Warehouse sign-in" },
+  picking:    { tab: "staff", label: "Warehouse sign-in" },
+  finance:    { tab: "staff", label: "Finance sign-in" },
   buyer:      { tab: "buyer", label: "Buyer sign-in" },
   client:     { tab: "buyer", label: "Buyer sign-in" },
 };
