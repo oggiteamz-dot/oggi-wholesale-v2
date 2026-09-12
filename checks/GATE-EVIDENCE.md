@@ -3914,7 +3914,46 @@ the trigger must violate, inserting a real order, and asserting **the order
 survived** *and* **the failure was written down**. A defensive trigger that
 failed silently would be the worse of the two bugs.
 
+## ⭐ The gate that was red before it had a sabotage — 12 Sep 2026
+
+`check_amber_rows_are_still_open.mjs` — **4 assertions.**
+
+Most gates here are red-proved by breaking something on purpose. This one did
+not need to be. It was written, run once, and **turned red immediately on two
+real rows of `FEATURE-MANIFEST.md` that had been lying for five days**:
+
+```
+FAIL  manifest row 465 is still marked OPEN and cites
+      check_discount_stacking.sql assertions 15, 15b as its evidence --
+      but those assertions have been INVERTED, which means they now prove
+      the defect is CLOSED. Either the row should be resolved, or the
+      inversion is wrong. It cannot be both.
+FAIL  manifest row 466 ... assertion 17 ...
+```
+
+Row 465 announced *"the same buyer is charged two prices for the same shirt"*;
+migration 122 closed it on 7 Sep on Hadi's own instruction. Row 466 announced
+that the store pricing dial was *"bounded by nothing"*; migration 123 bounded it
+the same day. `check_manifest_is_honest.mjs` could not see either, because it
+checks that named files exist and that the counts add up — never whether a
+sentence is still true.
+
+**This cost a night's work before it was caught.** A migration 140 was written
+against row 466, red-proved through seven sabotages, and then deleted unapplied
+when production was finally checked and the constraint was already there. Its
+self-test had passed for the worst possible reason: the migration guarded with
+`if not exists`, so it was a silent no-op, and the test then asserted a STATE
+that migration 123 had created weeks earlier. **That is the 116/119 rule —
+assert about the CHANGE, never the state you find — broken by someone who could
+quote it.**
+
+**3 sabotages, all red**, for the assertions the real defect did not exercise:
+stripping the inversion convention out of every gate; emptying the manifest of
+open rows; and removing the gate citations that make an open claim checkable at
+all — the cheapest way to make this gate pass forever, and therefore the one it
+has to refuse.
+
 ## Suite
 
-140 migrations, no errors; **74 JS gates pass**; **49 SQL gates proved / 0 red**;
+141 migrations, no errors; **75 JS gates pass**; **49 SQL gates proved / 0 red**;
 9 seed-missing; `check_anon_scope.sh` unchanged and still green.
