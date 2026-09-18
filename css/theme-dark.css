@@ -1,0 +1,243 @@
+/* OGGI Wholesale v2 — DARK THEME
+   ============================================================================
+   SPLIT OUT OF tokens.css ON 18 Sep 2026, and it has to stay split.
+
+   checks/check_contrast.mjs parses css/tokens.css with a flat regex over the
+   WHOLE FILE and keeps the last value it sees for each name. Put a second
+   theme in there and the gate starts measuring this theme's text against the
+   other theme's ground: it reported "white on brand dark 1.16:1" for a pair
+   that is actually 16:1, because it had taken --text-inverse from here and
+   --brand-ink from there. Six false failures, none of them real.
+
+   So: tokens.css holds ONE theme (light, the default and the working canvas).
+   Every other theme lives in its own file and is checked separately — see the
+   DARK PAIRS block at the bottom of check_contrast.mjs. Same rule that keeps
+   palettes.css out of tokens.css.
+
+   LOAD ORDER: after tokens.css, before palettes.css. index.html enforces it.
+
+   DEFINED TWICE ON PURPOSE. Once for a viewer whose system is dark and who has
+   made no explicit choice, once for an explicit toggle. A token defined in only
+   one of these renders one theme's text on the other theme's ground.
+
+   BOTH TOKEN LAYERS ARE REDEFINED. Overriding only the v3 names (--fg, --r)
+   would leave every existing component, which reads the v2 names
+   (--text-primary, --radius-md), on a light-mode colour over an ink ground.
+   ============================================================================ */
+
+/* ==========================================================================
+   DARK — the futuristic variant. Same tokens, ink ground, mint permitted as a
+   text colour because it measures 10.15:1 on #07140E.
+
+   DEFINED TWICE ON PURPOSE. Once for a viewer whose system is dark and who has
+   made no explicit choice, once for an explicit toggle. A token defined in only
+   one of these renders one theme's text on the other theme's ground — the
+   classic half-painted-dark-mode bug.
+
+   BOTH LAYER 2 AND LAYER 3 ARE REDEFINED HERE. Overriding only the v3 names
+   would leave every existing component reading a light-mode colour.
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-page:       #0A0C0B;
+    --bg-surface:    #141716;
+    --bg-raised:     #1D1E1E;
+    --bg-sunken:     #0F1211;
+    --bg-tint:       #0A211A;
+    --bg-inset:      #101312;
+    --bg-overlay:    rgba(3, 9, 7, .66);
+    --bg-chrome:     #081310;
+    --bg-chrome-2:   #040A08;
+    --chrome-grad:   linear-gradient(152deg, #10302A 0%, #081310 52%, #040A08 100%);
+    --chrome-line:   rgba(190, 243, 218, .14);
+    --chrome-lift:   rgba(255, 255, 255, .07);
+    --chrome-fill:   rgba(255, 255, 255, .05);
+    --chrome-fill-2: rgba(255, 255, 255, .10);
+    --line-hair:     #1D201F;
+    --line-soft:     #2A2B2B;
+    --line-firm:     #3A3B3B;
+    --line-strong:   #787878;
+    --fg:            #EEF6F2;
+    --fg-2:          rgba(238, 246, 242, .76);
+    --fg-3:          rgba(238, 246, 242, .56);
+    --fg-4:          rgba(238, 246, 242, .36);
+    --fg-link:       #54E5A0;
+    --accent:        #00A176;
+    --accent-hover:  #12BD8C;
+    --accent-press:  #00845F;
+    --accent-fg:     #041410;
+    --accent-tint:   #0B2A21;
+    --accent-tint-2: #103528;
+    --accent-ring:   rgba(84, 229, 160, .34);
+    --accent-glow:   0 10px 34px -10px rgba(84, 229, 160, .32);
+    --ok:            #54E5A0;
+    --ok-tint:       #0C2A1F;
+    --warn:          #E3B45C;
+    --warn-tint:     #2B2212;
+    --danger:        #FF8A7A;
+    --danger-tint:   #2E1512;
+    --info:          #7FC4EC;
+    --info-tint:     #10242E;
+    --paid:          #BBA6EE;
+    --paid-tint:     #1C1730;
+    --d-1: 0 1px 2px rgba(0, 0, 0, .40);
+    --d-2: 0 2px 4px rgba(0, 0, 0, .34), 0 8px 24px -12px rgba(0, 0, 0, .55);
+    --d-3: 0 4px 8px rgba(0, 0, 0, .36), 0 20px 48px -20px rgba(0, 0, 0, .62);
+    --d-4: 0 8px 16px rgba(0, 0, 0, .40), 0 36px 80px -32px rgba(0, 0, 0, .72);
+    --d-inset: inset 0 1px 0 rgba(255, 255, 255, .07);
+    /* layer 3 */
+    --bg-surface-2:   #101312;
+    --border-subtle:  #1D201F;
+    --border-default: #2A2B2B;
+    --border-strong:  #787878;
+    --text-primary:   #EEF6F2;
+    --text-secondary: rgba(238, 246, 242, .76);
+    --text-tertiary:  rgba(238, 246, 242, .56);
+    --text-inverse:   #FFFFFF;  /* NOT #041410. All four uses in the app put this
+                              on a DARK surface -- brand-ink, the brand gradient
+                              band -- never on the accent button. Dark ink here
+                              measured 1.00:1 on the dark chrome: invisible. The
+                              button's own colour is --accent-fg. */
+    --text-link:      #54E5A0;
+    --accent-50:  #0B2A21;
+    --accent-100: #103528;
+    --accent-300: #54E5A0;
+    --accent-500: #12BD8C;
+    --accent-600: #00A176;
+    --accent-700: #12BD8C;
+    --success-50:  #0C2A1F;
+    --success-700: #54E5A0;
+    --warning-50:  #2B2212;
+    --warning-700: #E3B45C;
+    --danger-50:   #2E1512;
+    --danger-700:  #FF8A7A;
+    --info-50:     #10242E;
+    --info-700:    #7FC4EC;
+  /* THE RAW BRAND TOKENS ARE DELIBERATELY NOT OVERRIDDEN HERE.
+     Tried on 18 Sep 2026 and reverted the same hour, because --brand-ink is
+     used two ways that pull in opposite directions:
+       components.css:1544  background: var(--brand-ink)   the update BAR
+       components.css:1572  color: var(--brand-ink)        on a MINT button
+     Both want it to stay dark. Darkening --brand-tint fails the same way: the
+     chips at components.css:2766 / 2881 / 2909 pair it with
+     --brand-emerald-deep, which is dark, so a dark tint behind it is
+     unreadable.
+     Three chips therefore keep a near-white tint in dark mode. That is a
+     COMPONENT problem, not a token problem, and the fix is to repoint those
+     three rules at --bg-tint / --accent-tint in Batch 2 -- not to bend a brand
+     constant and break two other things to avoid editing three lines. */
+    /* the eleven inline legacy tokens */
+    --danger-600:     #FF8A7A;
+    --danger-bg:      #2E1512;
+    --success:        #54E5A0;
+    --success-600:    #54E5A0;
+    --warning:        #E3B45C;
+    --warning-600:    #E3B45C;
+    --info-600:       #7FC4EC;
+    --surface:        #141716;
+    --surface-2:      #101312;
+    --surface-subtle: #1D201F;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg-page:       #0A0C0B;
+  --bg-surface:    #141716;
+  --bg-raised:     #1D1E1E;
+  --bg-sunken:     #0F1211;
+  --bg-tint:       #0A211A;
+  --bg-inset:      #101312;
+  --bg-overlay:    rgba(3, 9, 7, .66);
+  --bg-chrome:     #081310;
+  --bg-chrome-2:   #040A08;
+  --chrome-grad:   linear-gradient(152deg, #10302A 0%, #081310 52%, #040A08 100%);
+  --chrome-line:   rgba(190, 243, 218, .14);
+  --chrome-lift:   rgba(255, 255, 255, .07);
+  --chrome-fill:   rgba(255, 255, 255, .05);
+  --chrome-fill-2: rgba(255, 255, 255, .10);
+  --line-hair:     #1D201F;
+  --line-soft:     #2A2B2B;
+  --line-firm:     #3A3B3B;
+  --line-strong:   #787878;
+  --fg:            #EEF6F2;
+  --fg-2:          rgba(238, 246, 242, .76);
+  --fg-3:          rgba(238, 246, 242, .56);
+  --fg-4:          rgba(238, 246, 242, .36);
+  --fg-link:       #54E5A0;
+  --accent:        #00A176;
+  --accent-hover:  #12BD8C;
+  --accent-press:  #00845F;
+  --accent-fg:     #041410;
+  --accent-tint:   #0B2A21;
+  --accent-tint-2: #103528;
+  --accent-ring:   rgba(84, 229, 160, .34);
+  --accent-glow:   0 10px 34px -10px rgba(84, 229, 160, .32);
+  --ok:            #54E5A0;
+  --ok-tint:       #0C2A1F;
+  --warn:          #E3B45C;
+  --warn-tint:     #2B2212;
+  --danger:        #FF8A7A;
+  --danger-tint:   #2E1512;
+  --info:          #7FC4EC;
+  --info-tint:     #10242E;
+  --paid:          #BBA6EE;
+  --paid-tint:     #1C1730;
+  --d-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --d-2: 0 2px 4px rgba(0, 0, 0, .34), 0 8px 24px -12px rgba(0, 0, 0, .55);
+  --d-3: 0 4px 8px rgba(0, 0, 0, .36), 0 20px 48px -20px rgba(0, 0, 0, .62);
+  --d-4: 0 8px 16px rgba(0, 0, 0, .40), 0 36px 80px -32px rgba(0, 0, 0, .72);
+  --d-inset: inset 0 1px 0 rgba(255, 255, 255, .07);
+  /* layer 3 */
+  --bg-surface-2:   #101312;
+  --border-subtle:  #1D201F;
+  --border-default: #2A2B2B;
+  --border-strong:  #787878;
+  --text-primary:   #EEF6F2;
+  --text-secondary: rgba(238, 246, 242, .76);
+  --text-tertiary:  rgba(238, 246, 242, .56);
+  --text-inverse:   #FFFFFF;  /* NOT #041410. All four uses in the app put this
+                              on a DARK surface -- brand-ink, the brand gradient
+                              band -- never on the accent button. Dark ink here
+                              measured 1.00:1 on the dark chrome: invisible. The
+                              button's own colour is --accent-fg. */
+  --text-link:      #54E5A0;
+  --accent-50:  #0B2A21;
+  --accent-100: #103528;
+  --accent-300: #54E5A0;
+  --accent-500: #12BD8C;
+  --accent-600: #00A176;
+  --accent-700: #12BD8C;
+  --success-50:  #0C2A1F;
+  --success-700: #54E5A0;
+  --warning-50:  #2B2212;
+  --warning-700: #E3B45C;
+  --danger-50:   #2E1512;
+  --danger-700:  #FF8A7A;
+  --info-50:     #10242E;
+  --info-700:    #7FC4EC;
+  /* THE RAW BRAND TOKENS ARE DELIBERATELY NOT OVERRIDDEN HERE.
+     Tried on 18 Sep 2026 and reverted the same hour, because --brand-ink is
+     used two ways that pull in opposite directions:
+       components.css:1544  background: var(--brand-ink)   the update BAR
+       components.css:1572  color: var(--brand-ink)        on a MINT button
+     Both want it to stay dark. Darkening --brand-tint fails the same way: the
+     chips at components.css:2766 / 2881 / 2909 pair it with
+     --brand-emerald-deep, which is dark, so a dark tint behind it is
+     unreadable.
+     Three chips therefore keep a near-white tint in dark mode. That is a
+     COMPONENT problem, not a token problem, and the fix is to repoint those
+     three rules at --bg-tint / --accent-tint in Batch 2 -- not to bend a brand
+     constant and break two other things to avoid editing three lines. */
+  /* the eleven inline legacy tokens */
+  --danger-600:     #FF8A7A;
+  --danger-bg:      #2E1512;
+  --success:        #54E5A0;
+  --success-600:    #54E5A0;
+  --warning:        #E3B45C;
+  --warning-600:    #E3B45C;
+  --info-600:       #7FC4EC;
+  --surface:        #141716;
+  --surface-2:      #101312;
+  --surface-subtle: #1D201F;
+}

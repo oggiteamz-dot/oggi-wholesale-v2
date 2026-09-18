@@ -79,3 +79,135 @@
                  U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
                  U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+
+/* ===========================================================================
+   ADDED 18 Sep 2026 — the v3 art direction's type system.
+
+   THE NOTE ABOVE SAID EXACTLY HOW TO DO THIS, AND WHEN
+   ----------------------------------------------------
+   "If that trade is ever judged wrong: npm i @fontsource/inter, copy the latin
+   woff2 files into fonts/, add the @font-face blocks here, and point
+   --font-sans at Inter. Nothing else in the app needs to change."
+   That is precisely what happened, from the same @fontsource source the
+   Poppins files came from (the filenames are fontsource's own).
+
+   WHY THE TRADE CHANGED
+   ---------------------
+   The old reasoning — "at 14.5px Inter is indistinguishable from the system
+   UI font" — was about a body face alone, and it was fair. The v3 direction
+   is not about the body face. It is about FIGURES: order totals, minimums,
+   piece counts, stock. Those are set large and tight, and the system UI face
+   (Segoe UI on Windows, Roboto on Android, SF on iOS) has a different width,
+   a different digit shape and different tabular behaviour on each of them, so
+   a column of numbers cannot be made to line up across the devices the buyers
+   actually hold. Inter and Inter Tight have real tabular figures and render
+   identically everywhere.
+
+   THREE FAMILIES, EIGHT FILES, 180 KB
+   -----------------------------------
+     Inter        400/500/600/700  — --font-ui,      body and controls
+     Inter Tight  600/700/800      — --font-display, headings and figures
+     IBM Plex Mono 500             — --font-mono,    references, SKUs, tokens
+   Weights below 600 are deliberately absent from Inter Tight: it is only ever
+   used for headings and big numerals, and a 400-weight display face would be
+   180 KB nobody renders.
+
+   Poppins stays, unchanged, as --font-brand: the wordmark and the ink band.
+   It is the OGGI face and it is not being replaced — it is being narrowed to
+   the job it is good at.
+
+   STILL SELF-HOSTED, FOR THE SAME TWO REASONS AS ABOVE. The prototype loaded
+   these from fonts.googleapis.com; that <link> would be blocked outright by
+   this app's `font-src 'self'` CSP and would have produced no Inter at all,
+   which — as the note above says — is the worst failure mode, because it
+   looks almost right.
+   =========================================================================== */
+
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/inter-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/inter-latin-500-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/inter-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/inter-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/inter-tight-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/inter-tight-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../fonts/inter-tight-latin-800-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+                 U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}

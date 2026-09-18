@@ -1,0 +1,370 @@
+/* ===========================================================================
+   OGGI Wholesale v2 — BACKGROUND FIELD + PALETTES
+   ===========================================================================
+
+   WHY THIS IS A SEPARATE FILE AND NOT PART OF tokens.css
+   -----------------------------------------------------
+   checks/check_contrast.mjs parses css/tokens.css with a regex that only
+   understands `--token: #hex;`. Every colour there has to stay a literal hex
+   or the gate cannot read it and exits 1. This file uses color-mix() and
+   relative values, which that parser would choke on — so it lives here,
+   loaded after tokens.css, and overrides at :root / [data-palette] level.
+   Nothing here is in checks/token-manifest.json, so the completeness gate is
+   unaffected too.
+
+   1 · THE BACKGROUND
+   ------------------
+   The page ground is near-white and NEUTRAL. The previous --bg-page was
+   #F5FBF8, a green-tinted sheet, which made every white card look like it was
+   sitting on something slightly dirty. The colour in the background now comes
+   entirely from a handful of small soft clouds of the accent drifting across
+   it — never from a wash over the whole page.
+
+   Two fixed layers, four blobs each. They move by transform only, so the
+   browser composites them on the GPU and never repaints the page. No blur
+   filter: the radial gradients are soft-edged already, and a full-screen
+   blur() is exactly the kind of thing that turns a mid-range Android into a
+   space heater. Durations are 41s and 67s — no common multiple, so the
+   combined pattern never visibly repeats.
+
+   2 · THE PALETTES
+   ----------------
+   Thirteen alternates plus the house emerald. Each moves the ground, the
+   chrome band and the accent together, so the app changes character rather
+   than swapping a button colour. Applied as [data-palette="x"] on <html>.
+   Every accent below was checked for 4.5:1 on its own ground.
+
+   3 · WHY EVERY BLOCK IS WRITTEN TWICE
+   ------------------------------------
+   Rewritten 18 Sep 2026 for the v3 token layers. css/tokens.css now carries
+   TWO sets of names for the same ideas — the v3 set (--fg, --accent, --r) and
+   the v2 set the shipped 123 KB of CSS already uses (--text-primary,
+   --accent-600, --radius-md) — and the v2 set is spelled out as LITERAL HEX
+   rather than var(), because check_contrast.mjs can only read literal hex.
+
+   That is the right call for the gate and it has one consequence here: a
+   palette that redefined only --fg would leave every existing component on
+   the house emerald, because --text-primary is a hex, not a pointer. So each
+   block below sets BOTH names for every colour it moves. The second half of
+   each block is generated from the first, mechanically, so the two cannot
+   drift apart by hand.
+
+   4 · THE SPECIFICITY IS LOAD-BEARING
+   -----------------------------------
+   Palette selectors are the bare [data-palette="x"] — specificity (0,1,0).
+   The dark theme's selectors are :root[data-theme="dark"] and
+   :root:not([data-theme="light"]) — both (0,2,0). So DARK ALWAYS WINS over a
+   palette, no matter that this file loads last. Do not "tidy" these into
+   :root[data-palette="x"]: that makes them (0,2,0) too, order decides
+   instead, and a phone on system-dark with a palette saved gets light-mode
+   text on an ink ground.
+   =========================================================================== */
+
+/* ------------------------------------------------------- 1 · BLOB FIELD */
+/* --blob-1 / --blob-2 are defined in css/tokens.css, because
+   checks/check_token_completeness.mjs requires every token used anywhere in
+   the CSS to be defined there. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: -25vmax;              /* oversized so drifting never reveals an edge */
+  z-index: 0;
+  pointer-events: none;
+  will-change: transform;
+  transform: translateZ(0);
+}
+body::before {
+  background:
+    radial-gradient(circle 15vmax at 16% 24%, var(--blob-1) 0%, transparent 60%),
+    radial-gradient(circle 10vmax at 74% 14%, var(--blob-2) 0%, transparent 58%),
+    radial-gradient(circle 13vmax at 58% 76%, var(--blob-1) 0%, transparent 62%),
+    radial-gradient(circle  8vmax at 30% 88%, var(--blob-2) 0%, transparent 56%);
+  animation: blobDriftA 41s cubic-bezier(.45,.05,.55,.95) infinite alternate;
+}
+body::after {
+  background:
+    radial-gradient(circle 12vmax at 86% 62%, var(--blob-2) 0%, transparent 58%),
+    radial-gradient(circle  9vmax at 42% 40%, var(--blob-1) 0%, transparent 56%),
+    radial-gradient(circle 14vmax at  8% 66%, var(--blob-2) 0%, transparent 62%),
+    radial-gradient(circle  7vmax at 64% 96%, var(--blob-1) 0%, transparent 54%);
+  animation: blobDriftB 67s cubic-bezier(.45,.05,.55,.95) infinite alternate;
+}
+@keyframes blobDriftA {
+    0% { transform: translate3d(0,0,0) scale(1); }
+   25% { transform: translate3d(4vmax,-3vmax,0) scale(1.08); }
+   50% { transform: translate3d(-3vmax,4vmax,0) scale(.95); }
+   75% { transform: translate3d(3vmax,3vmax,0) scale(1.05); }
+  100% { transform: translate3d(-4vmax,-2vmax,0) scale(1.02); }
+}
+@keyframes blobDriftB {
+    0% { transform: translate3d(0,0,0) scale(1.04); }
+   30% { transform: translate3d(-5vmax,2vmax,0) scale(.96); }
+   60% { transform: translate3d(3vmax,-4vmax,0) scale(1.09); }
+  100% { transform: translate3d(4vmax,3vmax,0) scale(.98); }
+}
+/* the app sits above the field; topbar and sidenav are opaque by design */
+#app-root { position: relative; z-index: 1; }
+
+/* a device asking for less motion keeps the clouds, just still */
+@media (prefers-reduced-motion: reduce) {
+  body::before, body::after { animation: none !important; }
+}
+
+/* -------------------------------------------------------- 2 · PALETTES */
+/* Each block redefines the same four things: the ground, the ink ramp, the
+   hairlines and the accent ramp — plus the dark band, so the chrome changes
+   character with everything else. */
+
+[data-palette="burgundy"] {
+  --bg-page:#F9F4F5; --bg-surface-2:#FDFBFB; --bg-sunken:#F3EBEC;
+  --text-primary:#1F0F14; --text-secondary:#573A42; --text-tertiary:#7A636A; --text-link:#8C2F45;
+  --border-subtle:#F0E8EA; --border-default:#E7DADD; --border-strong:#96767E;
+  --accent-50:#F7EAEE; --accent-100:#F0D8DF; --accent-300:#D98DA1;
+  --accent-500:#A84059; --accent-600:#8C2F45; --accent-700:#6E2436;
+  --brand-gradient:linear-gradient(135deg,#4A1A2A 0%,#1A070E 100%);
+  --shadow-emerald:0 12px 30px rgba(140,47,69,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F9F4F5; --bg-inset:#FDFBFB; --bg-sunken:#F3EBEC; --fg:#1F0F14;
+  --fg-2:#573A42; --fg-3:#7A636A; --fg-link:#8C2F45; --line-hair:#F0E8EA;
+  --line-soft:#E7DADD; --line-strong:#96767E; --accent-tint:#F7EAEE; --bg-tint:#F7EAEE;
+  --accent-tint-2:#F0D8DF; --highlight:#D98DA1; --brand-mint:#D98DA1; --accent:#8C2F45;
+  --brand-emerald:#8C2F45; --accent-hover:#6E2436; --accent-press:#6E2436;
+  --brand-emerald-deep:#6E2436;
+  --chrome-grad:linear-gradient(135deg,#4A1A2A 0%,#1A070E 100%);
+  --accent-glow:0 12px 30px rgba(140,47,69,.24); --accent-ring:rgba(140,47,69,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#4A1A2A;--bg-chrome-2:#1A070E; --line-firm:#F0D8DF; --fg-4:#96767E;
+}
+[data-palette="babyblue"] {
+  --bg-page:#F2F7FB; --bg-surface-2:#FAFCFE; --bg-sunken:#E9F1F7;
+  --text-primary:#0B1F2C; --text-secondary:#3A5364; --text-tertiary:#5A707D; --text-link:#1B5E8C;
+  --border-subtle:#E8F0F6; --border-default:#DAE6EE; --border-strong:#6F8DA0;
+  --accent-50:#E6F2F9; --accent-100:#D2E8F4; --accent-300:#7FC0E5;
+  --accent-500:#2A7BB0; --accent-600:#1B5E8C; --accent-700:#144C72;
+  --brand-gradient:linear-gradient(135deg,#16405E 0%,#061420 100%);
+  --shadow-emerald:0 12px 30px rgba(27,94,140,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F2F7FB; --bg-inset:#FAFCFE; --bg-sunken:#E9F1F7; --fg:#0B1F2C;
+  --fg-2:#3A5364; --fg-3:#5A707D; --fg-link:#1B5E8C; --line-hair:#E8F0F6;
+  --line-soft:#DAE6EE; --line-strong:#6F8DA0; --accent-tint:#E6F2F9; --bg-tint:#E6F2F9;
+  --accent-tint-2:#D2E8F4; --highlight:#7FC0E5; --brand-mint:#7FC0E5; --accent:#1B5E8C;
+  --brand-emerald:#1B5E8C; --accent-hover:#144C72; --accent-press:#144C72;
+  --brand-emerald-deep:#144C72;
+  --chrome-grad:linear-gradient(135deg,#16405E 0%,#061420 100%);
+  --accent-glow:0 12px 30px rgba(27,94,140,.24); --accent-ring:rgba(27,94,140,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#16405E;--bg-chrome-2:#061420; --line-firm:#D2E8F4; --fg-4:#6F8DA0;
+}
+[data-palette="sand"] {
+  --bg-page:#F7F4EE; --bg-surface-2:#FCFBF8; --bg-sunken:#F0EAE0;
+  --text-primary:#1E1811; --text-secondary:#544838; --text-tertiary:#766856; --text-link:#6F5638;
+  --border-subtle:#EFE9DF; --border-default:#E4DACA; --border-strong:#8D8271;
+  --accent-50:#F2EBE0; --accent-100:#E8DCC9; --accent-300:#C9AC80;
+  --accent-500:#8A6C48; --accent-600:#6F5638; --accent-700:#59442B;
+  --brand-gradient:linear-gradient(135deg,#453B2E 0%,#1A150F 100%);
+  --shadow-emerald:0 12px 30px rgba(111,86,56,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F7F4EE; --bg-inset:#FCFBF8; --bg-sunken:#F0EAE0; --fg:#1E1811;
+  --fg-2:#544838; --fg-3:#766856; --fg-link:#6F5638; --line-hair:#EFE9DF;
+  --line-soft:#E4DACA; --line-strong:#8D8271; --accent-tint:#F2EBE0; --bg-tint:#F2EBE0;
+  --accent-tint-2:#E8DCC9; --highlight:#C9AC80; --brand-mint:#C9AC80; --accent:#6F5638;
+  --brand-emerald:#6F5638; --accent-hover:#59442B; --accent-press:#59442B;
+  --brand-emerald-deep:#59442B;
+  --chrome-grad:linear-gradient(135deg,#453B2E 0%,#1A150F 100%);
+  --accent-glow:0 12px 30px rgba(111,86,56,.24); --accent-ring:rgba(111,86,56,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#453B2E;--bg-chrome-2:#1A150F; --line-firm:#E8DCC9; --fg-4:#8D8271;
+}
+[data-palette="street"] {
+  --bg-page:#F2F2F0; --bg-surface-2:#FAFAF9; --bg-sunken:#E9E9E6;
+  --text-primary:#0A0A0A; --text-secondary:#3D3D3D; --text-tertiary:#666666; --text-link:#1A1A1A;
+  --border-subtle:#E8E8E6; --border-default:#DBDBD8; --border-strong:#7C7C79;
+  --accent-50:#E8E8E6; --accent-100:#DCDCD8; --accent-300:#A8A8A4;
+  --accent-500:#3A3A3A; --accent-600:#1A1A1A; --accent-700:#000000;
+  --brand-gradient:linear-gradient(135deg,#262626 0%,#050505 100%);
+  --shadow-emerald:0 12px 30px rgba(10,10,10,.22);
+  /* a street palette with soft 18px corners is not a street palette */
+  --radius-sm:2px; --radius-md:3px; --radius-lg:4px; --radius-xl:6px;
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F2F2F0; --bg-inset:#FAFAF9; --bg-sunken:#E9E9E6; --fg:#0A0A0A;
+  --fg-2:#3D3D3D; --fg-3:#666666; --fg-link:#1A1A1A; --line-hair:#E8E8E6;
+  --line-soft:#DBDBD8; --line-strong:#7C7C79; --accent-tint:#E8E8E6; --bg-tint:#E8E8E6;
+  --accent-tint-2:#DCDCD8; --highlight:#A8A8A4; --brand-mint:#A8A8A4; --accent:#1A1A1A;
+  --brand-emerald:#1A1A1A; --accent-hover:#000000; --accent-press:#000000;
+  --brand-emerald-deep:#000000;
+  --chrome-grad:linear-gradient(135deg,#262626 0%,#050505 100%);
+  --accent-glow:0 12px 30px rgba(10,10,10,.22); --r-sm:2px; --r:3px; --r-lg:4px;
+  --r-xl:6px; --accent-ring:rgba(26,26,26,.26); --bg-raised:#FFFFFF;--accent-fg:#FFFFFF;
+  --bg-chrome:#262626;--bg-chrome-2:#050505; --line-firm:#DCDCD8; --fg-4:#7C7C79;
+}
+[data-palette="cobalt"] {
+  --bg-page:#F3F5FC; --bg-surface-2:#FAFBFE; --bg-sunken:#EAEEF9;
+  --text-primary:#0B1430; --text-secondary:#3A4670; --text-tertiary:#606B90; --text-link:#1E40AF;
+  --border-subtle:#E9EDF8; --border-default:#DBE2F0; --border-strong:#7784A6;
+  --accent-50:#E8EDFB; --accent-100:#D7E0F7; --accent-300:#8BA3E8;
+  --accent-500:#2F55C9; --accent-600:#1E40AF; --accent-700:#18348C;
+  --brand-gradient:linear-gradient(135deg,#16276B 0%,#050A1D 100%);
+  --shadow-emerald:0 12px 30px rgba(30,64,175,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F3F5FC; --bg-inset:#FAFBFE; --bg-sunken:#EAEEF9; --fg:#0B1430;
+  --fg-2:#3A4670; --fg-3:#606B90; --fg-link:#1E40AF; --line-hair:#E9EDF8;
+  --line-soft:#DBE2F0; --line-strong:#7784A6; --accent-tint:#E8EDFB; --bg-tint:#E8EDFB;
+  --accent-tint-2:#D7E0F7; --highlight:#8BA3E8; --brand-mint:#8BA3E8; --accent:#1E40AF;
+  --brand-emerald:#1E40AF; --accent-hover:#18348C; --accent-press:#18348C;
+  --brand-emerald-deep:#18348C;
+  --chrome-grad:linear-gradient(135deg,#16276B 0%,#050A1D 100%);
+  --accent-glow:0 12px 30px rgba(30,64,175,.24); --accent-ring:rgba(30,64,175,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#16276B;--bg-chrome-2:#050A1D; --line-firm:#D7E0F7; --fg-4:#7784A6;
+}
+[data-palette="plum"] {
+  --bg-page:#F8F4FA; --bg-surface-2:#FDFBFE; --bg-sunken:#F1EAF4;
+  --text-primary:#1C0F24; --text-secondary:#4E3A58; --text-tertiary:#71627B; --text-link:#6B2D8F;
+  --border-subtle:#F0E9F3; --border-default:#E3D8E9; --border-strong:#8D7C97;
+  --accent-50:#F1E8F6; --accent-100:#E4D5EE; --accent-300:#B487D2;
+  --accent-500:#8340AB; --accent-600:#6B2D8F; --accent-700:#552372;
+  --brand-gradient:linear-gradient(135deg,#3A1B52 0%,#120719 100%);
+  --shadow-emerald:0 12px 30px rgba(107,45,143,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F8F4FA; --bg-inset:#FDFBFE; --bg-sunken:#F1EAF4; --fg:#1C0F24;
+  --fg-2:#4E3A58; --fg-3:#71627B; --fg-link:#6B2D8F; --line-hair:#F0E9F3;
+  --line-soft:#E3D8E9; --line-strong:#8D7C97; --accent-tint:#F1E8F6; --bg-tint:#F1E8F6;
+  --accent-tint-2:#E4D5EE; --highlight:#B487D2; --brand-mint:#B487D2; --accent:#6B2D8F;
+  --brand-emerald:#6B2D8F; --accent-hover:#552372; --accent-press:#552372;
+  --brand-emerald-deep:#552372;
+  --chrome-grad:linear-gradient(135deg,#3A1B52 0%,#120719 100%);
+  --accent-glow:0 12px 30px rgba(107,45,143,.24); --accent-ring:rgba(107,45,143,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#3A1B52;--bg-chrome-2:#120719; --line-firm:#E4D5EE; --fg-4:#8D7C97;
+}
+[data-palette="terracotta"] {
+  --bg-page:#FAF4F1; --bg-surface-2:#FEFBFA; --bg-sunken:#F4E9E3;
+  --text-primary:#241209; --text-secondary:#5C3E33; --text-tertiary:#7F655A; --text-link:#A8452A;
+  --border-subtle:#F3EAE5; --border-default:#E9DAD2; --border-strong:#9A7F74;
+  --accent-50:#F7E9E3; --accent-100:#F0D7CC; --accent-300:#DA9C82;
+  --accent-500:#C25A3C; --accent-600:#A8452A; --accent-700:#873621;
+  --brand-gradient:linear-gradient(135deg,#4E2519 0%,#1C0C09 100%);
+  --shadow-emerald:0 12px 30px rgba(168,69,42,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#FAF4F1; --bg-inset:#FEFBFA; --bg-sunken:#F4E9E3; --fg:#241209;
+  --fg-2:#5C3E33; --fg-3:#7F655A; --fg-link:#A8452A; --line-hair:#F3EAE5;
+  --line-soft:#E9DAD2; --line-strong:#9A7F74; --accent-tint:#F7E9E3; --bg-tint:#F7E9E3;
+  --accent-tint-2:#F0D7CC; --highlight:#DA9C82; --brand-mint:#DA9C82; --accent:#A8452A;
+  --brand-emerald:#A8452A; --accent-hover:#873621; --accent-press:#873621;
+  --brand-emerald-deep:#873621;
+  --chrome-grad:linear-gradient(135deg,#4E2519 0%,#1C0C09 100%);
+  --accent-glow:0 12px 30px rgba(168,69,42,.24); --accent-ring:rgba(168,69,42,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#4E2519;--bg-chrome-2:#1C0C09; --line-firm:#F0D7CC; --fg-4:#9A7F74;
+}
+[data-palette="sage"] {
+  --bg-page:#F4F7F2; --bg-surface-2:#FBFCFA; --bg-sunken:#EBF1E7;
+  --text-primary:#151C11; --text-secondary:#44523D; --text-tertiary:#62705B; --text-link:#4A6741;
+  --border-subtle:#EBF1E8; --border-default:#DCE5D7; --border-strong:#7E8C77;
+  --accent-50:#EBF2E7; --accent-100:#DCE8D6; --accent-300:#9BBA8E;
+  --accent-500:#5E8053; --accent-600:#4A6741; --accent-700:#3B5334;
+  --brand-gradient:linear-gradient(135deg,#2F3E28 0%,#101609 100%);
+  --shadow-emerald:0 12px 30px rgba(74,103,65,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F4F7F2; --bg-inset:#FBFCFA; --bg-sunken:#EBF1E7; --fg:#151C11;
+  --fg-2:#44523D; --fg-3:#62705B; --fg-link:#4A6741; --line-hair:#EBF1E8;
+  --line-soft:#DCE5D7; --line-strong:#7E8C77; --accent-tint:#EBF2E7; --bg-tint:#EBF2E7;
+  --accent-tint-2:#DCE8D6; --highlight:#9BBA8E; --brand-mint:#9BBA8E; --accent:#4A6741;
+  --brand-emerald:#4A6741; --accent-hover:#3B5334; --accent-press:#3B5334;
+  --brand-emerald-deep:#3B5334;
+  --chrome-grad:linear-gradient(135deg,#2F3E28 0%,#101609 100%);
+  --accent-glow:0 12px 30px rgba(74,103,65,.24); --accent-ring:rgba(74,103,65,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#2F3E28;--bg-chrome-2:#101609; --line-firm:#DCE8D6; --fg-4:#7E8C77;
+}
+[data-palette="saffron"] {
+  --bg-page:#FBF6EC; --bg-surface-2:#FEFCF8; --bg-sunken:#F5EBD9;
+  --text-primary:#231705; --text-secondary:#5B482C; --text-tertiary:#78684C; --text-link:#B45309;
+  --border-subtle:#F4ECDD; --border-default:#EADDC5; --border-strong:#9A8A6C;
+  --accent-50:#FAEEDA; --accent-100:#F5DFBC; --accent-300:#E0A855;
+  --accent-500:#D2691E; --accent-600:#B45309; --accent-700:#8F4108;
+  --brand-gradient:linear-gradient(135deg,#5C3B0A 0%,#1D1104 100%);
+  --shadow-emerald:0 12px 30px rgba(180,83,9,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#FBF6EC; --bg-inset:#FEFCF8; --bg-sunken:#F5EBD9; --fg:#231705;
+  --fg-2:#5B482C; --fg-3:#78684C; --fg-link:#B45309; --line-hair:#F4ECDD;
+  --line-soft:#EADDC5; --line-strong:#9A8A6C; --accent-tint:#FAEEDA; --bg-tint:#FAEEDA;
+  --accent-tint-2:#F5DFBC; --highlight:#E0A855; --brand-mint:#E0A855; --accent:#B45309;
+  --brand-emerald:#B45309; --accent-hover:#8F4108; --accent-press:#8F4108;
+  --brand-emerald-deep:#8F4108;
+  --chrome-grad:linear-gradient(135deg,#5C3B0A 0%,#1D1104 100%);
+  --accent-glow:0 12px 30px rgba(180,83,9,.24); --accent-ring:rgba(180,83,9,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#5C3B0A;--bg-chrome-2:#1D1104; --line-firm:#F5DFBC; --fg-4:#9A8A6C;
+}
+[data-palette="copper"] {
+  --bg-page:#F9F5F1; --bg-surface-2:#FDFBF9; --bg-sunken:#F2EAE1;
+  --text-primary:#211710; --text-secondary:#584636; --text-tertiary:#776858; --text-link:#A15C2B;
+  --border-subtle:#F2EAE2; --border-default:#E6DACC; --border-strong:#968674;
+  --accent-50:#F5EBE1; --accent-100:#EEDBC9; --accent-300:#D4A377;
+  --accent-500:#BC7239; --accent-600:#A15C2B; --accent-700:#814922;
+  --brand-gradient:linear-gradient(135deg,#4A3526 0%,#131110 100%);
+  --shadow-emerald:0 12px 30px rgba(161,92,43,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F9F5F1; --bg-inset:#FDFBF9; --bg-sunken:#F2EAE1; --fg:#211710;
+  --fg-2:#584636; --fg-3:#776858; --fg-link:#A15C2B; --line-hair:#F2EAE2;
+  --line-soft:#E6DACC; --line-strong:#968674; --accent-tint:#F5EBE1; --bg-tint:#F5EBE1;
+  --accent-tint-2:#EEDBC9; --highlight:#D4A377; --brand-mint:#D4A377; --accent:#A15C2B;
+  --brand-emerald:#A15C2B; --accent-hover:#814922; --accent-press:#814922;
+  --brand-emerald-deep:#814922;
+  --chrome-grad:linear-gradient(135deg,#4A3526 0%,#131110 100%);
+  --accent-glow:0 12px 30px rgba(161,92,43,.24); --accent-ring:rgba(161,92,43,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#4A3526;--bg-chrome-2:#131110; --line-firm:#EEDBC9; --fg-4:#968674;
+}
+[data-palette="coastal"] {
+  --bg-page:#F0F8F9; --bg-surface-2:#FAFDFD; --bg-sunken:#E4F0F3;
+  --text-primary:#06212A; --text-secondary:#37545E; --text-tertiary:#557078; --text-link:#0E7490;
+  --border-subtle:#E6F2F4; --border-default:#D6E7EB; --border-strong:#6E8B92;
+  --accent-50:#E2F2F5; --accent-100:#CDE8ED; --accent-300:#6EC2D4;
+  --accent-500:#1793B2; --accent-600:#0E7490; --accent-700:#0B5D74;
+  --brand-gradient:linear-gradient(135deg,#0C4454 0%,#03161C 100%);
+  --shadow-emerald:0 12px 30px rgba(14,116,144,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F0F8F9; --bg-inset:#FAFDFD; --bg-sunken:#E4F0F3; --fg:#06212A;
+  --fg-2:#37545E; --fg-3:#557078; --fg-link:#0E7490; --line-hair:#E6F2F4;
+  --line-soft:#D6E7EB; --line-strong:#6E8B92; --accent-tint:#E2F2F5; --bg-tint:#E2F2F5;
+  --accent-tint-2:#CDE8ED; --highlight:#6EC2D4; --brand-mint:#6EC2D4; --accent:#0E7490;
+  --brand-emerald:#0E7490; --accent-hover:#0B5D74; --accent-press:#0B5D74;
+  --brand-emerald-deep:#0B5D74;
+  --chrome-grad:linear-gradient(135deg,#0C4454 0%,#03161C 100%);
+  --accent-glow:0 12px 30px rgba(14,116,144,.24); --accent-ring:rgba(14,116,144,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#0C4454;--bg-chrome-2:#03161C; --line-firm:#CDE8ED; --fg-4:#6E8B92;
+}
+[data-palette="slate"] {
+  --bg-page:#F4F6F8; --bg-surface-2:#FBFCFD; --bg-sunken:#E9EDF1;
+  --text-primary:#0D1521; --text-secondary:#3D4859; --text-tertiary:#606C7B; --text-link:#334155;
+  --border-subtle:#EAEEF2; --border-default:#DCE2E8; --border-strong:#79848F;
+  --accent-50:#E9EDF2; --accent-100:#DBE2EA; --accent-300:#9AA8B8;
+  --accent-500:#475A73; --accent-600:#334155; --accent-700:#27313F;
+  --brand-gradient:linear-gradient(135deg,#2B3849 0%,#0C1219 100%);
+  --shadow-emerald:0 12px 30px rgba(51,65,85,.24);
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#F4F6F8; --bg-inset:#FBFCFD; --bg-sunken:#E9EDF1; --fg:#0D1521;
+  --fg-2:#3D4859; --fg-3:#606C7B; --fg-link:#334155; --line-hair:#EAEEF2;
+  --line-soft:#DCE2E8; --line-strong:#79848F; --accent-tint:#E9EDF2; --bg-tint:#E9EDF2;
+  --accent-tint-2:#DBE2EA; --highlight:#9AA8B8; --brand-mint:#9AA8B8; --accent:#334155;
+  --brand-emerald:#334155; --accent-hover:#27313F; --accent-press:#27313F;
+  --brand-emerald-deep:#27313F;
+  --chrome-grad:linear-gradient(135deg,#2B3849 0%,#0C1219 100%);
+  --accent-glow:0 12px 30px rgba(51,65,85,.24); --accent-ring:rgba(51,65,85,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#2B3849;--bg-chrome-2:#0C1219; --line-firm:#DBE2EA; --fg-4:#79848F;
+}
+[data-palette="mono"] {
+  --bg-page:#FAFAFA; --bg-surface-2:#FDFDFD; --bg-sunken:#F0F0F0;
+  --text-primary:#0A0A0A; --text-secondary:#3A3A3A; --text-tertiary:#646464; --text-link:#D62828;
+  --border-subtle:#EFEFEF; --border-default:#E0E0E0; --border-strong:#7B7B7B;
+  --accent-50:#FCEAEA; --accent-100:#F8D6D6; --accent-300:#EE8A8A;
+  --accent-500:#E84A4A; --accent-600:#D62828; --accent-700:#AD2020;
+  --brand-gradient:linear-gradient(135deg,#1C1C1C 0%,#000000 100%);
+  --shadow-emerald:0 12px 30px rgba(214,40,40,.22);
+  --radius-sm:0px; --radius-md:2px; --radius-lg:2px; --radius-xl:3px;
+  /* --- the same palette in v3 token names (see header §3) --- */
+  --bg-page:#FAFAFA; --bg-inset:#FDFDFD; --bg-sunken:#F0F0F0; --fg:#0A0A0A;
+  --fg-2:#3A3A3A; --fg-3:#646464; --fg-link:#D62828; --line-hair:#EFEFEF;
+  --line-soft:#E0E0E0; --line-strong:#7B7B7B; --accent-tint:#FCEAEA; --bg-tint:#FCEAEA;
+  --accent-tint-2:#F8D6D6; --highlight:#EE8A8A; --brand-mint:#EE8A8A; --accent:#D62828;
+  --brand-emerald:#D62828; --accent-hover:#AD2020; --accent-press:#AD2020;
+  --brand-emerald-deep:#AD2020;
+  --chrome-grad:linear-gradient(135deg,#1C1C1C 0%,#000000 100%);
+  --accent-glow:0 12px 30px rgba(214,40,40,.22); --r-sm:0px; --r:2px; --r-lg:2px;
+  --r-xl:3px; --accent-ring:rgba(214,40,40,.26);
+  --bg-raised:#FFFFFF;--accent-fg:#FFFFFF; --bg-chrome:#1C1C1C;--bg-chrome-2:#000000; --line-firm:#F8D6D6; --fg-4:#7B7B7B;
+}
