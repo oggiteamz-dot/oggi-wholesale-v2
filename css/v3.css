@@ -762,20 +762,40 @@
   gap: 14px;
   margin-top: 14px;
 }
+/* Shaped like the card that is coming: a thumbnail, a title, a line of facts.
+   The first version was a plain white rectangle on a near-white ground, which
+   is indistinguishable from an empty card -- it said "nothing here" rather
+   than "not yet". */
 .skeleton-card {
-  height: 132px;
+  position: relative;
+  overflow: hidden;
+  height: 148px;
   border-radius: var(--r-lg, 20px);
   border: 1px solid var(--line-hair);
+  background-color: var(--bg-surface);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--fg) 10%, transparent) 0 0),
+    linear-gradient(color-mix(in srgb, var(--fg) 10%, transparent) 0 0),
+    linear-gradient(color-mix(in srgb, var(--fg) 10%, transparent) 0 0),
+    linear-gradient(color-mix(in srgb, var(--fg) 10%, transparent) 0 0);
+  background-repeat: no-repeat;
+  background-size: 64px 64px, 55% 13px, 38% 11px, 30% 11px;
+  background-position: 16px 16px, 92px 22px, 92px 47px, 16px 104px;
+}
+.skeleton-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     100deg,
-    var(--bg-surface) 30%,
-    color-mix(in srgb, var(--bg-sunken) 70%, var(--bg-surface)) 50%,
-    var(--bg-surface) 70%
+    transparent 25%,
+    color-mix(in srgb, var(--fg) 6%, transparent) 50%,
+    transparent 75%
   );
-  background-size: 300% 100%;
-  animation: skeleton-sweep 1.4s linear infinite;
+  transform: translateX(-100%);
+  animation: skeleton-sweep 1.5s linear infinite;
 }
-@keyframes skeleton-sweep { from { background-position: 150% 0; } to { background-position: -150% 0; } }
+@keyframes skeleton-sweep { to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
-  .skeleton-card { animation: none; background: var(--bg-sunken); }
+  .skeleton-card::after { animation: none; content: none; }
 }
