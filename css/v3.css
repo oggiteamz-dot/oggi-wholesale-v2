@@ -762,14 +762,22 @@
   gap: 14px;
   margin-top: 14px;
 }
-/* Shaped like the card that is coming: a thumbnail, a title, a line of facts.
-   The first version was a plain white rectangle on a near-white ground, which
-   is indistinguishable from an empty card -- it said "nothing here" rather
-   than "not yet". */
+
+/* ONE PLACEHOLDER, TWO CALLERS.
+   `.skeleton` already existed in components.css and the buyer catalogue and
+   the marketplace already used it as `class="skeleton card"`. Under v3 that
+   stopped working silently: `.card` sets its own background and is defined in
+   a later file, so it painted over the shimmer and the buyer's catalogue
+   showed a heading and an empty screen for as long as the reads took -- on a
+   phone, the only thing an investor would have seen. Both selectors are
+   styled here together rather than a second set being invented, because
+   this repo's own README says it best: duplicated helpers do not stay
+   identical, they wait. */
+.skeleton,
+.card.skeleton,
 .skeleton-card {
   position: relative;
   overflow: hidden;
-  height: 148px;
   border-radius: var(--r-lg, 20px);
   border: 1px solid var(--line-hair);
   background-color: var(--bg-surface);
@@ -781,7 +789,13 @@
   background-repeat: no-repeat;
   background-size: 64px 64px, 55% 13px, 38% 11px, 30% 11px;
   background-position: 16px 16px, 92px 22px, 92px 47px, 16px 104px;
+  animation: none;                      /* the sweep moves on ::after instead */
+  box-shadow: none;
 }
+/* Only the wholesaler grid sets its own height; `.skeleton` callers pass one. */
+.skeleton-card { height: 148px; }
+
+.skeleton::after,
 .skeleton-card::after {
   content: "";
   position: absolute;
@@ -797,6 +811,7 @@
 }
 @keyframes skeleton-sweep { to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
   .skeleton-card::after { animation: none; content: none; }
 }
 
