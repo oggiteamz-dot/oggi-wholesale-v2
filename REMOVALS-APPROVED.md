@@ -935,6 +935,7 @@ working tree, which is why none of them had shown up before.
 | `js/data/landed-cost.js` | 2 | One of the same. |
 | `js/components/sub-tabs.js` | 1 | The emoji `innerHTML` → the same line as the fallback branch, with `navIcon(t.path)` preferred. An unlisted tab still renders its emoji. |
 | `js/lib/router.js` | 1 | `document.dispatchEvent(new CustomEvent("v2:navigated", …))` **moved**, not removed — from below the `await r.render(...)` to above it. Byte for byte the same line. |
+| `js/components/topbar.js` | 1 | `link.textContent = "🧺";` → the drawn cart from the same icon set, with that exact line kept as the fallback when the icon set does not know the route. The badge and the fly-to-cart target are untouched: neither depends on what is inside the element. |
 
 **Why these mattered more than they look.** Three of the four were the *same
 defect as #2 in the block above*, surviving in call sites the first sweep did
