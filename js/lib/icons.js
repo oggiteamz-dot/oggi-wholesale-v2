@@ -48,6 +48,16 @@ export const NAV_ICONS = {
   "/wholesaler/import":     S('<path d="M12 20V9m0 0l-4 4m4-4l4 4M5 7V5a2 2 0 012-2h10a2 2 0 012 2v2"/>'),
   "/wholesaler/integrations": S('<path d="M9 3v5M15 3v5M6.5 8h11v5a5.5 5.5 0 01-11 0z"/><path d="M12 18.5V21"/>'),
   "/wholesaler/settings":   S('<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4L5.3 5.3"/>'),
+  // ---- inventory sub-tabs (same grid, same stroke: the strip under
+  //      "Inventory" is nine more places, not nine decorations) ----
+  "/wholesaler/inventory/products": S('<path d="M12 3l8 4.3v9.4L12 21l-8-4.3V7.3z"/><path d="M4 7.3l8 4.3 8-4.3M12 11.6V21"/>'),
+  "/wholesaler/inventory/pricing":  S('<path d="M12 4v16"/><path d="M15.5 7.8A3.4 3.4 0 0012 6c-1.9 0-3.4 1.1-3.4 2.7 0 3.6 7 2.1 7 5.7C15.6 16 14 17.2 12 17.2a3.6 3.6 0 01-3.6-2"/>'),
+  "/wholesaler/movements":          S('<path d="M4 8h13m0 0l-3.2-3.2M17 8l-3.2 3.2"/><path d="M20 16H7m0 0l3.2-3.2M7 16l3.2 3.2"/>'),
+  "/wholesaler/locations":          S('<path d="M3 21h18M4.5 21V10l7.5-5 7.5 5v11"/><path d="M9.5 21v-5h5v5M8.5 12h7"/>'),
+  "/wholesaler/suppliers":          S('<path d="M3 21h18M4 21V9.5h7V21M11 21V4h9v17"/><path d="M14 8h3M14 12h3M14 16h3M6.5 13h2M6.5 17h2"/>'),
+  "/wholesaler/labels":             S('<path d="M3.5 10.6V5a1.5 1.5 0 011.5-1.5h5.6a2 2 0 011.4.6l7.9 7.9a2 2 0 010 2.8l-5.6 5.6a2 2 0 01-2.8 0L4.1 12a2 2 0 01-.6-1.4z"/><circle cx="8" cy="8" r="1.4"/>'),
+  "/wholesaler/receive-scan":       S('<path d="M3.5 8V6a2 2 0 012-2h2M16.5 4h2a2 2 0 012 2v2M20.5 16v2a2 2 0 01-2 2h-2M7.5 20h-2a2 2 0 01-2-2v-2"/><path d="M7 12h10"/>'),
+  "/wholesaler/intelligence":       S('<path d="M9.2 18.5h5.6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.6.5.9 1 .9 1.6h5.2c0-.6.3-1.1.9-1.6A6 6 0 0012 3z"/>'),
   // ---- desks ----
   "/warehouse":     S('<path d="M4 20V9.5L12 5l8 4.5V20"/><path d="M9 20v-6h6v6"/>'),
   "/finance":       S('<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6.5 9.5h.01M17.5 14.5h.01"/>'),
