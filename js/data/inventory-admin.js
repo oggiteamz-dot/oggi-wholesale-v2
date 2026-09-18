@@ -3,6 +3,7 @@
 // never a direct UPDATE on v2_inventory_balances, per the architecture's
 // own rule (see 001_v2_inventory_core.sql header).
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { selectIn } from "../lib/chunked-in.js";
 import { getVariantStatuses } from "./inventory-signals.js";
 
 export async function getLocations(wid) {
@@ -86,8 +87,8 @@ export async function getStockTable(wid) {
   const productById = new Map(products.map((p) => [p.id, p.name]));
   const productIds = products.map((p) => p.id);
 
-  const { data: variants } = await sbCall(
-    supabase.from("v2_product_variants").select("*").in("product_id", productIds).eq("archived", false)
+  const { data: variants } = await selectIn(
+    "v2_product_variants", "*", "product_id", productIds, (q) => q.eq("archived", false)
   );
   const variantIds = (variants || []).map((v) => v.id);
   if (!variantIds.length) return [];
@@ -98,7 +99,11 @@ export async function getStockTable(wid) {
     // abandoned cart suppress real stock forever -- see migration 064. The
     // view has the identical column names plus qty_available, so this is a
     // one-identifier change with no downstream effect except accuracy.
-    sbCall(supabase.from("v2_inventory_balances_live").select("*, v2_locations(name)").in("variant_id", variantIds)),
+    // CHUNKED, 18 Sep 2026. Meridian has 875 variants; this one line put all
+    // 875 uuids into the query string -- a 32,000-character URL -- and the
+    // gateway answered 400 with an empty body. That is why the whole inventory
+    // module rendered blank for any wholesaler with a real catalogue.
+    selectIn("v2_inventory_balances_live", "*, v2_locations(name)", "variant_id", variantIds),
     getLocations(wid),
   ]);
 
@@ -378,16 +383,15 @@ export async function getSalesByProduct(wid) {
   const out = new Map((products || []).map((p) => [p.id, { unitsSold: 0, orderCount: 0, lastSold: null }]));
   if (!out.size) return out;
 
-  const { data: variants } = await sbCall(
-    supabase.from("v2_product_variants").select("id, product_id").in("product_id", [...out.keys()])
+  const { data: variants } = await selectIn(
+    "v2_product_variants", "id, product_id", "product_id", [...out.keys()]
   );
   const productOf = new Map((variants || []).map((v) => [v.id, v.product_id]));
   if (!productOf.size) return out;
 
-  const { data: lines } = await sbCall(
-    supabase.from("v2_order_items")
-      .select("order_id, variant_id, qty, v2_orders!inner(wid, created_at)")
-      .in("variant_id", [...productOf.keys()])
+  const { data: lines } = await selectIn(
+    "v2_order_items", "order_id, variant_id, qty, v2_orders!inner(wid, created_at)",
+    "variant_id", [...productOf.keys()]
   );
 
   // Orders counted DISTINCTLY per product: an order holding four sizes of one

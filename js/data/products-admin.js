@@ -1,5 +1,6 @@
 // OGGI Wholesale v2 — wholesaler product management (Batch 3)
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { selectIn } from "../lib/chunked-in.js";
 import { imagesForVariants } from "../components/image-gallery.js";
 import { getDefaultCatalog, addProductToCatalog } from "./catalogs.js";
 import { uploadProductImage } from "./uploads.js";
@@ -12,14 +13,12 @@ export async function listProductsForAdmin(wid) {
   if (!products || !products.length) return [];
 
   const productIds = products.map((p) => p.id);
-  const { data: variants } = await sbCall(
-    supabase.from("v2_product_variants").select("*").in("product_id", productIds)
-  );
+  const { data: variants } = await selectIn("v2_product_variants", "*", "product_id", productIds);
   const variantIds = (variants || []).map((v) => v.id);
 
   let balances = [];
   if (variantIds.length) {
-    const { data } = await sbCall(supabase.from("v2_inventory_by_variant").select("*").in("variant_id", variantIds));
+    const { data } = await selectIn("v2_inventory_by_variant", "*", "variant_id", variantIds);
     balances = data || [];
   }
   const balByVariant = new Map(balances.map((b) => [b.variant_id, b]));
@@ -673,8 +672,8 @@ export async function variantUsage(variantIds) {
   if (!variantIds.length) return usage;
 
   const [{ data: balances }, { data: lines }] = await Promise.all([
-    sbCall(supabase.from("v2_inventory_balances").select("variant_id, qty_on_hand").in("variant_id", variantIds)),
-    sbCall(supabase.from("v2_order_items").select("variant_id").in("variant_id", variantIds)),
+    selectIn("v2_inventory_balances", "variant_id, qty_on_hand", "variant_id", variantIds),
+    selectIn("v2_order_items", "variant_id", "variant_id", variantIds),
   ]);
   (balances || []).forEach((b) => {
     const u = usage.get(b.variant_id);

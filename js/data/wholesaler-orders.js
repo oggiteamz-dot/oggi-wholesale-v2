@@ -1,5 +1,6 @@
 // OGGI Wholesale v2 — wholesaler-side order management (Batch 3)
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { salesOrders } from "./sales-reads.js";
 import { groupPackLines } from "./prepacks.js";
 
 const STATUS_FLOW = ["new", "confirmed", "shipped", "delivered"];
@@ -11,6 +12,39 @@ export function nextStatus(current) {
 }
 
 export async function getWholesalerOrders(wid) {
+  // A SALESPERSON reads the order HEADS through migration 140. The line items
+  // below stay on the direct read: v2_order_items is not granted to `anon`
+  // either, so a rep gets heads with no lines rather than an error -- which is
+  // what /sales/orders shows anyway (reference, shop, status, total). Giving a
+  // rep every line of every order is a separate decision and not one to take
+  // silently inside a bug fix.
+  const repHeads = await salesOrders();
+  if (repHeads) {
+    // MAPPED INTO THE SAME SHAPE the wholesaler path returns, key for key.
+    // Spreading the raw row instead (`...o`) left the view reading `createdAt`
+    // off a row that only had `created_at`, and it rendered "Invalid Date" on
+    // every line -- a snake_case/camelCase mismatch that no gate can see and
+    // that looks like a data problem rather than a mapping one.
+    return repHeads.map((o) => ({
+      id: o.id,
+      buyerLabel: o.buyer_label,
+      status: o.status,
+      subtotal: Number(o.subtotal),
+      notes: o.notes,
+      createdAt: o.created_at,
+      clientId: o.client_id || null,
+      locationId: null,
+      catalogId: o.catalog_id || null,
+      updatedAt: null,
+      // A rep sees order HEADS, not every line of every order. v2_order_items
+      // is not granted to `anon` either, and widening a rep's view to the whole
+      // line detail of every order in the store is a product decision, not
+      // something to slip in inside a permissions fix. The screen shows shop,
+      // status, total and date, which is what a rep works from.
+      items: [],
+      itemsWithheld: true,
+    }));
+  }
   const { data: orders } = await sbCall(
     supabase.from("v2_orders").select("*").eq("wid", wid).order("created_at", { ascending: false })
   );
