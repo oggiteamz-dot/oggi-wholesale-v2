@@ -63,7 +63,21 @@ export function money(n, currency = "$") {
   if (n === null || n === undefined || n === "") return "—";
   const num = Number(n);
   if (!Number.isFinite(num)) return "—";
-  return `${currency}${num.toFixed(2)}`;
+  // GROUPED. `toFixed(2)` alone renders a real order total as "$279480.00",
+  // which a person has to count digits to read -- and the whole point of these
+  // screens is the figures. Grouping is the one-line difference between a
+  // number and a number somebody can take in at a glance.
+  return `${currency}${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** A whole-number figure: pieces, orders, clients, stock. Grouped, no decimals.
+ *  Money goes through money(); this is for counts, which should never carry
+ *  ".00" -- "486.00 pieces" is the kind of detail that makes a product look
+ *  like it was assembled rather than designed. */
+export function figure(n) {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return "—";
+  return num.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
 /**
