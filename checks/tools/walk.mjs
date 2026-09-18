@@ -48,7 +48,11 @@ const srv = createServer((req, res) => {
   res.end(readFileSync(f));
 });
 await new Promise((r) => srv.listen(0, r));
-const BASE = `http://localhost:${srv.address().port}`;
+// WALK_BASE POINTS THIS AT THE DEPLOYED SITE.                   19 Sep 2026
+// Worth its three lines: four defects survived a clean walk of the working
+// tree and only appeared when the same walk was run against the live deploy.
+// Left unset, it serves this working tree exactly as before.
+const BASE = process.env.WALK_BASE || `http://localhost:${srv.address().port}`;
 
 const browser = await chromium.launch();
 const report = { label: LABEL, width: WIDTH, at: new Date().toISOString(), screens: [] };
@@ -168,12 +172,24 @@ const ROLE_SETUP = {
   owner:      (p) => signIn(p, "owner"),
 };
 
-for (const [role, list] of Object.entries(ROUTES)) {
+// WALK_ONLY=WS-03,WS-07 walks just those screens, for a tight loop on a fix.
+const ONLY = (process.env.WALK_ONLY || "").split(",").map((x) => x.trim()).filter(Boolean);
+for (const [role, list0] of Object.entries(ROUTES)) {
+  const list = ONLY.length ? list0.filter((r) => ONLY.includes(r[0])) : list0;
+  if (!list.length) continue;
   const ctx = await browser.newContext({ viewport: { width: WIDTH, height: HEIGHT } });
   const page = await ctx.newPage();
   const errs = [];
   page.on("pageerror", (e) => errs.push("pageerror: " + e.message.slice(0, 160)));
   page.on("console", (m) => { if (m.type() === "error") errs.push("console: " + m.text().slice(0, 160)); });
+  // THE URL AND THE STATUS, NOT JUST "Bad Request".                19 Sep 2026
+  // A 400 from PostgREST arrives with an empty body, so the console line is
+  // the useless "Failed to load resource". The URL is the whole diagnosis:
+  // three separate defects this week were an id list too long for a query
+  // string, and you cannot see that without seeing the query string.
+  page.on("response", (r) => {
+    if (r.status() >= 400) errs.push(`HTTP ${r.status()} ${r.url().slice(0, 400)}`);
+  });
 
   let setupNote = "no session needed";
   if (ROLE_SETUP[role]) {
