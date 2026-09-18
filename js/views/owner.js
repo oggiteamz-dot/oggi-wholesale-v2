@@ -51,7 +51,8 @@ async function dashboard(outlet) {
   [
     ["Active wholesalers", `${totals.activeWholesalers} / ${totals.wholesalers}`],
     ["Total orders", totals.orders],
-    ["Total revenue", `$${totals.revenue.toFixed(0)}`],
+    // Grouped. This read "$279480" on the live owner dashboard.
+    ["Total revenue", `$${Number(totals.revenue || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`],
     ["Total clients", totals.clients],
   ].forEach(([label, value]) => {
     const c = document.createElement("div");

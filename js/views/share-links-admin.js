@@ -160,7 +160,14 @@ export async function shareLinksView(outlet) {
   // The shelf list is optional and its absence must not stop a link being
   // made, so a failure here leaves the picker empty rather than throwing.
   let catalogs = [];
-  try { catalogs = (await listCatalogs(session.wid)) || []; } catch { catalogs = []; }
+  // `listCatalogs` returns { ok, rows }, NOT an array. `|| []` cannot save a
+  // truthy object, so `catalogs.map(...)` threw "catalogs.map is not a
+  // function" and took the whole Share links screen down with it -- and the
+  // try/catch above only covers the AWAIT, not the render below, so the
+  // failure surfaced as a blank page rather than as the empty list this line
+  // was clearly trying to fall back to. Broken since the screen shipped.
+  try { catalogs = (await listCatalogs(session.wid))?.rows || []; } catch { catalogs = []; }
+  if (!Array.isArray(catalogs)) catalogs = [];
 
   let kind = "one_time";
 

@@ -88,7 +88,15 @@ export function renderLogin(outlet, onLoggedIn) {
     }
 
     const tabRow = document.createElement("div");
-    tabRow.style.cssText = "display:flex;gap:6px;margin-bottom:18px;";
+    // flex-wrap added 18 Sep 2026. Without it these four buttons are one
+    // nowrap row measuring 494px -- "Owner / Wholesaler", "Sales team",
+    // "Warehouse / Finance", "Buyer" -- inside a 390px phone. The page scrolled
+    // sideways on every phone and BUYER, the last tab and the role most of the
+    // users are, sat entirely off-screen with nothing on the page to suggest it
+    // was there. Found by measuring scrollWidth against clientWidth at 390px,
+    // not by looking: at desktop width the row fits and looks correct.
+    // Guarded by checks/check_no_horizontal_scroll.mjs.
+    tabRow.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;";
     TABS.forEach((t) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -251,6 +259,14 @@ export function renderLogin(outlet, onLoggedIn) {
       if (!result.ok) { status(statusEl, result.error, "error"); return; }
       // The session was written by staffLogin; devAuth re-resolves it on the
       // next bootstrap, but the shell needs it NOW, so hand the shape over.
+      //
+      // FIXED 18 Sep 2026: handing it to onLoggedIn was not enough. app.js
+      // passes `() => mountShell()`, a callback that ignores its argument, and
+      // mountShell() reads devAuth.getSession() — which staff-auth.js has no
+      // way to write, because it is deliberately a separate tier. The result
+      // was a desk login that succeeded on the server and returned the person
+      // to the sign-in form. Both desks were unreachable in production.
+      devAuth.adoptSession(result.session);
       onLoggedIn(result.session);
     };
     panel.querySelector("#staff-btn").addEventListener("click", go);
