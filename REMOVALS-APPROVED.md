@@ -915,3 +915,34 @@ still the fallback for any route the icon set does not cover.
 Re-run to confirm the count and see every line:
 
     ALLOW_DELETIONS=1 ./checks/check_no_feature_loss.sh
+
+---
+
+## 2026-09-18 (later) · what walking the LIVE deploy found
+
+**Approved by:** not yet. Same standing as the block above — Hadi's
+"fix any gap, do as you see fit, work autonomously" covers the work; this row
+records it so the gate is not the thing that decides.
+
+Found by walking all 46 routes against the deployed site rather than the
+working tree, which is why none of them had shown up before.
+
+| File | Lines | Replaced by |
+|---|---|---|
+| `js/data/clients.js` | 1 | **A restored `return`.** `return pairByRecency(clients, orders);` had been appended to the END of a `// ---` comment line during this morning's extraction, so it was commented out and `getClientsByRecency` returned `undefined`. That crashed `/wholesaler/clients` on `.filter` and `/wholesaler/team` on `.map`. Same one line, now on its own line. |
+| `js/data/locations.js` | 7 | Two `sbCall(supabase.from(…).in(…))` → `selectIn`. Same tables, same columns. |
+| `js/data/inventory-intelligence.js` | 7 | Three of the same. The `v2_order_items` read carried TWO id lists; the variant filter moved client-side as a `Set` — it was redundant against the server, since an order belongs to one wholesaler. |
+| `js/data/landed-cost.js` | 2 | One of the same. |
+| `js/components/sub-tabs.js` | 1 | The emoji `innerHTML` → the same line as the fallback branch, with `navIcon(t.path)` preferred. An unlisted tab still renders its emoji. |
+
+**Why these mattered more than they look.** Three of the four were the *same
+defect as #2 in the block above*, surviving in call sites the first sweep did
+not reach — and the failure mode is the dangerous one: the query 400s, the code
+destructures `data` off the error result, gets `undefined`, falls back to an
+empty Map, and the screen **renders completely**. `/wholesaler/intelligence`
+drew its full stock table with every sell-through figure at zero. It did not
+look broken. It looked like nothing had sold.
+
+Re-run to confirm the count and see every line:
+
+    ALLOW_DELETIONS=1 ./checks/check_no_feature_loss.sh
