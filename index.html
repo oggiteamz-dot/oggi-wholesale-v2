@@ -45,12 +45,25 @@
 
 <link rel="stylesheet" href="css/fonts.css" />
 <link rel="stylesheet" href="css/tokens.css" />
+<!-- Themes and palettes load AFTER tokens.css and are kept OUT of it on
+     purpose: checks/check_contrast.mjs parses tokens.css with a flat regex
+     over the whole file, so a second set of colours in there makes the gate
+     compare one theme's text against another theme's ground. See the header
+     of css/theme-dark.css. -->
+<link rel="stylesheet" href="css/theme-dark.css" />
 <link rel="stylesheet" href="css/base.css" />
 <link rel="stylesheet" href="css/components.css" />
 <link rel="stylesheet" href="css/layout.css" />
 <link rel="stylesheet" href="css/animations.css" />
 <link rel="stylesheet" href="css/mobile.css" />
 <link rel="stylesheet" href="css/brand.css" />
+<!-- The v3 art direction. AFTER components.css and brand.css, because it
+     restyles their classes; BEFORE palettes.css, which must stay last. -->
+<link rel="stylesheet" href="css/v3.css" />
+<!-- LAST, and it must stay last: palettes.css redefines the semantic colour
+     set on [data-palette] and paints the drifting-blob ground. Anything
+     loaded after it would win the cascade on equal specificity. -->
+<link rel="stylesheet" href="css/palettes.css" />
 </head>
 <body>
 <div id="app-root"></div>
