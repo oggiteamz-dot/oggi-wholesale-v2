@@ -799,3 +799,6 @@
 @media (prefers-reduced-motion: reduce) {
   .skeleton-card::after { animation: none; content: none; }
 }
+
+/* The drawn cart glyph fills its span, and takes the chrome band's colour. */
+.v2-cart-glyph svg { width: 100%; height: 100%; }
