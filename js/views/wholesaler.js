@@ -1092,12 +1092,14 @@ async function productsPane(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
 
+  const doneSkeleton = paneSkeleton(outlet, 6);
   const [products, prodLocations, prodSettings] = await Promise.all([
     listProductsForAdmin(wid), getLocations(wid), getWholesalerSettings(wid),
   ]);
   const prodFacts = normaliseFacts(prodSettings.card_facts, prodLocations);
   const prodSales = prodFacts.some((k) => ["unitsSold", "orderCount", "lastSold"].includes(k))
     ? await getSalesByProduct(wid) : new Map();
+  doneSkeleton();
 
   // Batch 8E. Hadi: "I can't create a product anymore in the products tab."
   // Since Batch 6 folded the standalone Products screen into Inventory, the
@@ -1509,10 +1511,38 @@ async function renderPacksPanel(panel, wid, product) {
   }));
 }
 
+/** Card-shaped placeholders for a pane whose data has not arrived yet.
+ *
+ *  /wholesaler/inventory waits on four reads before it paints anything, and on
+ *  a real catalogue that is six to ten seconds of a heading, a row of tabs and
+ *  white space. Nothing on the screen said "working" -- so the honest reading
+ *  of it was "broken", and the obvious response, a reload, started the wait
+ *  over. Returns a node and a remove(); the caller removes it when the real
+ *  content is ready. Deliberately in the shape of what is coming. */
+function paneSkeleton(outlet, count = 6) {
+  const grid = document.createElement("div");
+  grid.className = "skeleton-grid";
+  grid.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < count; i++) {
+    const c = document.createElement("div");
+    c.className = "skeleton-card";
+    grid.appendChild(c);
+  }
+  // Announced once for a screen reader, which gets nothing from the shapes.
+  const say = document.createElement("p");
+  say.setAttribute("role", "status");
+  say.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;";
+  say.textContent = "Loading\u2026";
+  outlet.appendChild(say);
+  outlet.appendChild(grid);
+  return () => { grid.remove(); say.remove(); };
+}
+
 async function stockPane(outlet) {
   const session = devAuth.getSession();
   const wid = session.wid;
 
+  const doneSkeleton = paneSkeleton(outlet, 6);
   const [stock, locations, suppliers, settings] = await Promise.all([
     getStockTable(wid), getLocations(wid), listSuppliers(wid), getWholesalerSettings(wid),
   ]);
@@ -1531,6 +1561,7 @@ async function stockPane(outlet) {
   // "you can either create a product inside the inventory, or you can create a
   // product inside the actual catalogs".
   const defaultCatalog = await getDefaultCatalog(wid);
+  doneSkeleton();
 
   mountNewProductBar(outlet, {
     wid, locations, suppliers, location,

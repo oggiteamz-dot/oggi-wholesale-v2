@@ -331,6 +331,12 @@
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .sub-tab:hover { color: var(--fg); }
+/* The drawn tab icon. inline-flex on the button so the 16px glyph sits on the
+   label's optical centre rather than on its baseline, which is where an emoji
+   used to hang and why the strip read as crooked. */
+.sub-tab { display: inline-flex; align-items: center; gap: 7px; }
+.sub-tab-icon { display: inline-flex; flex: none; width: 16px; height: 16px; }
+.sub-tab-icon svg { width: 100%; height: 100%; }
 .sub-tab-active, .sub-tab[aria-selected="true"] {
   background: var(--bg-surface);
   color: var(--fg);
@@ -735,4 +741,41 @@
   background: var(--bg-tint);
   font-size: 26px;
   margin-bottom: var(--s-3);
+}
+
+/* ---------------------------------------------------------------------------
+   SKELETON — the eight seconds before the stock table arrives      18 Sep 2026
+   ---------------------------------------------------------------------------
+   /wholesaler/inventory paints nothing at all until four reads return: the
+   stock table, locations, suppliers and settings. On Meridian's catalogue that
+   is six to ten seconds of a title, a row of tabs, and white. A reader cannot
+   tell that from broken, and the one thing they can do about it -- reload --
+   starts the wait again.
+   Card-shaped placeholders in the shape of what is coming, so the screen says
+   "this is loading, and it will be cards" rather than nothing. `prefers-
+   reduced-motion` stops the sweep; the shapes stay, because they are the
+   message and the animation is only the proof of life.
+--------------------------------------------------------------------------- */
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.skeleton-card {
+  height: 132px;
+  border-radius: var(--r-lg, 20px);
+  border: 1px solid var(--line-hair);
+  background: linear-gradient(
+    100deg,
+    var(--bg-surface) 30%,
+    color-mix(in srgb, var(--bg-sunken) 70%, var(--bg-surface)) 50%,
+    var(--bg-surface) 70%
+  );
+  background-size: 300% 100%;
+  animation: skeleton-sweep 1.4s linear infinite;
+}
+@keyframes skeleton-sweep { from { background-position: 150% 0; } to { background-position: -150% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-card { animation: none; background: var(--bg-sunken); }
 }
