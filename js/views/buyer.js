@@ -107,10 +107,27 @@ async function dashboard(outlet) {
   // gated by the same v2_buyer_catalogs() the per-catalogue read uses.
   const catalog = await getBuyerStore(session.accountId);
 
-  skeletonWrap.remove();
+  // THE SKELETON COMES DOWN WHEN THE SHOP GOES UP, NOT BEFORE.   19 Sep 2026
+  // This used to be a bare `skeletonWrap.remove()` on this line -- and then
+  // the function went on to await the store switcher, the reorder rail and
+  // the ordered-product ids before it appended anything at all. So the
+  // placeholder was taken away at the halfway mark and the buyer got a title
+  // over an empty screen for the SECOND half of the wait, which on a phone is
+  // the longer half. Walking the deployed site caught it: the catalogue
+  // measured 165 characters and nothing else.
+  //
+  // Idempotent, because each early return below also has to clear it and none
+  // of them should have to know whether another already did.
+  let skeletonShown = true;
+  const clearSkeleton = () => {
+    if (!skeletonShown) return;
+    skeletonShown = false;
+    skeletonWrap.remove();
+  };
+  const bail = (node) => { clearSkeleton(); outlet.appendChild(node); };
 
   if (!wholesaler) {
-    outlet.appendChild(emptyState({
+    bail(emptyState({
       icon: "🏢",
       title: `No wholesaler found for "${wid}"`,
       body: `Try one of the seeded demo wholesalers (mg, sq, omni, w1785168930020) from Switch supplier, or check the wid you logged in with.`,
@@ -119,7 +136,7 @@ async function dashboard(outlet) {
   }
 
   if (!catalog.length) {
-    outlet.appendChild(emptyState({
+    bail(emptyState({
       icon: "📦",
       title: "No products yet",
       body: `${wholesaler.name} hasn't listed any products.`,
@@ -128,7 +145,7 @@ async function dashboard(outlet) {
   }
 
   if (!location) {
-    outlet.appendChild(emptyState({ icon: "⚠️", title: "No location configured", body: "This wholesaler has no default location, so orders can't be placed yet." }));
+    bail(emptyState({ icon: "⚠️", title: "No location configured", body: "This wholesaler has no default location, so orders can't be placed yet." }));
     return;
   }
 
@@ -215,6 +232,7 @@ async function dashboard(outlet) {
     activeWid: wid,
     onSwitch: () => { window.location.hash = "#/buyer"; window.location.reload(); },
   });
+  clearSkeleton();
   if (switcher) outlet.appendChild(switcher);
 
   // ---------------------------------------------------------------- RC-01 --
