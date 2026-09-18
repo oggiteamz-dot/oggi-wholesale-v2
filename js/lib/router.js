@@ -134,9 +134,31 @@ export const router = {
         host.style.display = "contents";
         host.setAttribute("data-render", String(mine));
         outlet.appendChild(host);
+
+        // ANNOUNCE THE NAVIGATION BEFORE THE RENDER, NOT AFTER.     19 Sep 2026
+        //
+        // This line used to sit below the await. Everything that listens for it
+        // -- the sidebar highlight, the bottom bar, the drawer that closes when
+        // you leave a screen -- therefore waited for the SCREEN to finish
+        // before it would admit you had moved. On /wholesaler/inventory, which
+        // waits on four reads and takes six to ten seconds on a real
+        // catalogue, the sidebar went on pointing at the screen you had just
+        // left for the whole of it: you clicked Inventory, Inventory began
+        // loading, and the sidebar still said Team & Buyers.
+        //
+        // And when a render THREW, the event never fired at all, so the
+        // highlight was stuck on the previous screen until the next successful
+        // navigation. A "you are here" that names somewhere else is worse than
+        // none, because it is believed.
+        //
+        // Nothing here depends on the render: the path is already decided, and
+        // it is the URL these listeners are reading. A superseded render is
+        // still correct, because the newer navigation dispatches its own event
+        // afterwards and the last one wins.
+        document.dispatchEvent(new CustomEvent("v2:navigated", { detail: { path, params } }));
+
         await r.render(host, params);
         if (mine !== generation) { host.remove(); return; }   // superseded
-        document.dispatchEvent(new CustomEvent("v2:navigated", { detail: { path, params } }));
         return;
       }
     }
