@@ -4,6 +4,7 @@ import { ROLE_LABEL } from "../lib/nav-config.js";
 import { cart } from "../data/cart.js";
 
 import { esc } from "../lib/utils.js";
+import { navIcon } from "../lib/icons.js";
 /** Batch 13: a real cart icon + live item-count badge for the buyer role —
  * this build had no cart indicator in the topbar at all before this batch.
  * It doubles as the landing target for the "add to cart" fly animation
@@ -16,7 +17,24 @@ function renderCartIcon(wid) {
   link.className = "v2-cart-icon";
   link.setAttribute("aria-label", "View cart");
   link.style.cssText = "position:relative;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:var(--radius-md);text-decoration:none;font-size:18px;";
-  link.textContent = "🧺";
+  // DRAWN, NOT A BASKET EMOJI.                                 19 Sep 2026
+  // This sat on the ink chrome band, where a full-colour emoji reads as a
+  // sticker somebody stuck on the product -- and on a phone, where the role
+  // label collapses, it was the ONLY thing next to the logo. Same icon set as
+  // the navigation, so the cart is the same drawing wherever a buyer meets it.
+  // The badge still appends to this element and fly-to-cart still finds it by
+  // id, because neither depends on what is inside.
+  const cartGlyph = navIcon("/buyer/cart");
+  if (cartGlyph) {
+    const g = document.createElement("span");
+    g.className = "v2-cart-glyph";
+    g.setAttribute("aria-hidden", "true");
+    g.style.cssText = "display:inline-flex;width:21px;height:21px;";
+    g.innerHTML = cartGlyph;
+    link.appendChild(g);
+  } else {
+    link.textContent = "🧺";
+  }
 
   function refreshBadge() {
     const qty = cart.count(wid);
