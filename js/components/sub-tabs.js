@@ -25,6 +25,7 @@
 
 import { esc } from "../lib/utils.js";
 import { router } from "../lib/router.js";
+import { navIcon } from "../lib/icons.js";
 
 /**
  * @param {object}  opts
@@ -53,7 +54,17 @@ export function renderSubTabs({ tabs, active, params = {} }) {
     btn.className = "sub-tab" + (t.key === current.key ? " sub-tab-active" : "");
     btn.setAttribute("role", "tab");
     btn.setAttribute("aria-selected", String(t.key === current.key));
-    btn.innerHTML = `${t.icon ? `<span aria-hidden="true">${esc(t.icon)}</span> ` : ""}${esc(t.label)}`;
+    // DRAWN, NOT EMOJI (18 Sep 2026). Same reasoning as the navigation: an
+    // emoji is somebody else's artwork and renders as a different drawing on
+    // every operating system, so this strip looked like nine borrowed stickers
+    // sitting under a carefully set page title. navIcon is keyed by the tab's
+    // route -- which every tab already has, by rule 2 above -- and returns null
+    // for anything it does not know, so an unlisted tab keeps its emoji and
+    // nothing can render as a blank square.
+    const drawn = navIcon(t.path);
+    btn.innerHTML = drawn
+      ? `<span class="sub-tab-icon" aria-hidden="true">${drawn}</span>${esc(t.label)}`
+      : `${t.icon ? `<span aria-hidden="true">${esc(t.icon)}</span> ` : ""}${esc(t.label)}`;
     // Navigating rather than swapping in place: rule 1 above. The route
     // registration is what actually renders the pane.
     btn.addEventListener("click", () => {
