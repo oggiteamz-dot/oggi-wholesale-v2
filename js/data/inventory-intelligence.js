@@ -19,8 +19,8 @@ async function loadVariantsWithBalances(wid) {
   const productNameById = new Map(products.map((p) => [p.id, p.name]));
   const productIds = products.map((p) => p.id);
 
-  const { data: variants } = await sbCall(
-    supabase.from("v2_product_variants").select("*").in("product_id", productIds).eq("archived", false)
+  const { data: variants } = await selectIn(
+    "v2_product_variants", "*", "product_id", productIds, (q) => q.eq("archived", false)
   );
   if (!variants || !variants.length) return [];
   const variantIds = variants.map((v) => v.id);
@@ -77,10 +77,20 @@ export async function getInventoryIntelligenceReport(wid, { trailingDays } = {})
   const { data: orders } = await sbCall(supabase.from("v2_orders").select("id").eq("wid", wid).gte("created_at", since));
   const salesByVariant = new Map();
   if (orders && orders.length) {
-    const { data: items } = await sbCall(
-      supabase.from("v2_order_items").select("variant_id, qty, unit_price").in("order_id", orders.map((o) => o.id)).in("variant_id", variantIds)
+    // CHUNKED, 18 Sep 2026. This line carried TWO id lists into one query
+    // string -- every order in the window AND every variant in the catalogue.
+    // On Meridian that is a 400 with an empty body, and the screen then draws
+    // the whole stock table with every velocity figure at zero. It does not
+    // look broken; it looks like nothing sold.
+    //
+    // The variant filter is redundant against the server: an order belongs to
+    // one wholesaler, so its items are already this wholesaler's variants. It
+    // is kept as a client-side guard so the behaviour is identical to before.
+    const wanted = new Set(variantIds);
+    const { data: items } = await selectIn(
+      "v2_order_items", "variant_id, qty, unit_price", "order_id", orders.map((o) => o.id)
     );
-    (items || []).forEach((it) => {
+    (items || []).filter((it) => wanted.has(it.variant_id)).forEach((it) => {
       const cur = salesByVariant.get(it.variant_id) || { qty: 0, revenue: 0 };
       cur.qty += it.qty;
       cur.revenue += it.qty * Number(it.unit_price);
@@ -88,8 +98,11 @@ export async function getInventoryIntelligenceReport(wid, { trailingDays } = {})
     });
   }
 
-  const { data: receiveMovements } = await sbCall(
-    supabase.from("v2_inventory_movements").select("variant_id, created_at").eq("movement_type", "receive").in("variant_id", variantIds).order("created_at", { ascending: false })
+  // CHUNKED for the same reason. A variant's movements all land in one batch,
+  // so "first row seen per variant is the most recent" still holds below.
+  const { data: receiveMovements } = await selectIn(
+    "v2_inventory_movements", "variant_id, created_at", "variant_id", variantIds,
+    (q) => q.eq("movement_type", "receive").order("created_at", { ascending: false })
   );
   const lastReceivedByVariant = new Map();
   (receiveMovements || []).forEach((m) => { if (!lastReceivedByVariant.has(m.variant_id)) lastReceivedByVariant.set(m.variant_id, m.created_at); });

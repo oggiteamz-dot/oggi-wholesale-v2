@@ -8,6 +8,7 @@
 // correction/manual adjustment) have no landed-cost detail at all.
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { selectIn } from "../lib/chunked-in.js";
 
 /** Records one receipt's landed cost. `qty` and `baseCost` (the variant's
  * own per-unit cost) come from the caller since this module doesn't fetch
@@ -48,8 +49,19 @@ export async function recordReceiptCost({ variantId, locationId, qty, baseCost, 
  * report falls back to the variant's own base `cost` for those. */
 export async function getLatestLandedCosts(variantIds) {
   if (!variantIds.length) return new Map();
-  const { data } = await sbCall(
-    supabase.from("v2_receipt_costs").select("variant_id, landed_unit_cost, created_at").in("variant_id", variantIds).order("created_at", { ascending: false })
+  // CHUNKED, 18 Sep 2026. The GMROI report calls this with EVERY variant the
+  // wholesaler owns. At 37 bytes per uuid in the query string, Meridian's 875
+  // made a 32,000-character URL and the gateway answered 400 with an empty
+  // body -- and because this destructures `data` and falls back to an empty
+  // Map, the report then showed every variant at its base cost and said
+  // nothing. A silently wrong margin is worse than a missing one.
+  //
+  // Batching is safe for the "most recent wins" rule below: a variant's rows
+  // all land in the same batch, so the descending order still holds where it
+  // is read.
+  const { data } = await selectIn(
+    "v2_receipt_costs", "variant_id, landed_unit_cost, created_at", "variant_id", variantIds,
+    (q) => q.order("created_at", { ascending: false })
   );
   const byVariant = new Map();
   (data || []).forEach((row) => {

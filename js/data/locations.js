@@ -26,6 +26,7 @@
 // =============================================================================
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { selectIn } from "../lib/chunked-in.js";
 
 /** Turns a Postgres error into a sentence an operator can act on. */
 function readable(error, fallback) {
@@ -71,16 +72,20 @@ export async function locationStockTotals(wid) {
   const ids = (products || []).map((p) => p.id);
   if (!ids.length) return new Map();
 
-  const { data: variants } = await sbCall(
-    supabase.from("v2_product_variants").select("id").in("product_id", ids)
-  );
+  // CHUNKED, 18 Sep 2026. Both of these put every id into the query string.
+  // PostgREST spends 37 bytes per uuid there, so Meridian's 875 variants made
+  // a 32,000-character URL and the gateway answered 400 with an empty body --
+  // the same defect that blanked the whole inventory module, surviving here in
+  // a second call site. It scales the WRONG WAY: it works on a small catalogue
+  // and fails on a big customer. selectIn batches at 80 and merges.
+  const { data: variants } = await selectIn("v2_product_variants", "id", "product_id", ids);
   const vids = (variants || []).map((v) => v.id);
   if (!vids.length) return new Map();
 
-  const { data: balances } = await sbCall(
-    // Live view, not the table -- its qty_reserved ignores expires_at, so the
-    // per-location "reserved" figure counted abandoned carts forever (064).
-    supabase.from("v2_inventory_balances_live").select("location_id, qty_on_hand, qty_reserved").in("variant_id", vids)
+  // Live view, not the table -- its qty_reserved ignores expires_at, so the
+  // per-location "reserved" figure counted abandoned carts forever (064).
+  const { data: balances } = await selectIn(
+    "v2_inventory_balances_live", "location_id, qty_on_hand, qty_reserved", "variant_id", vids
   );
   const byLocation = new Map();
   (balances || []).forEach((b) => {

@@ -71,7 +71,8 @@ export async function getClientsByRecency(wid) {
   // for those would re-introduce the exact silent wrongness above, so we
   // don't. If such orders ever need attributing, link the account to a
   // client record; don't guess from a name.
-  // ------------------------------------------------------------------  return pairByRecency(clients, orders);
+  // ------------------------------------------------------------------
+  return pairByRecency(clients, orders);
 }
 
 /** The recency pairing, extracted 18 Sep 2026 so the WHOLESALER path and the
