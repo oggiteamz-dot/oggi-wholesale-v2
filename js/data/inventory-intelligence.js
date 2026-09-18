@@ -8,6 +8,7 @@
 // Batch 7 used for its sell-through ratio suggestion.
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { selectIn } from "../lib/chunked-in.js";
 import { getLatestLandedCosts } from "./landed-cost.js";
 import { adjustStock } from "./inventory-admin.js";
 import { getInventorySettings } from "./inventory-settings.js";
@@ -26,7 +27,7 @@ async function loadVariantsWithBalances(wid) {
 
   // Live view, not the table (064): this feeds reorder and dead-stock
   // intelligence, so a phantom "reserved" here becomes a wrong buying decision.
-  const { data: balances } = await sbCall(supabase.from("v2_inventory_balances_live").select("*").in("variant_id", variantIds));
+  const { data: balances } = await selectIn("v2_inventory_balances_live", "*", "variant_id", variantIds);
   const balByVariant = new Map();
   (balances || []).forEach((b) => {
     const cur = balByVariant.get(b.variant_id) || { onHand: 0, reserved: 0 };

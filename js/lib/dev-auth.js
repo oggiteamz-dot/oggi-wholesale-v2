@@ -142,6 +142,31 @@ export const devAuth = {
     return bootstrapped;
   },
 
+  /** Adopt a session that was established by another module.
+   *
+   * ⚠️ WHY THIS EXISTS — a shipped bug, found 18 Sep 2026.
+   * The two desks (warehouse, finance) sign in through js/data/staff-auth.js,
+   * which is deliberately its OWN tier with its own table and its own storage
+   * key. It wrote that key and handed the session to login.js, which passed it
+   * to onLoggedIn... which is `() => mountShell()` in app.js — a callback that
+   * takes no argument. mountShell() then asked getSession(), which returns this
+   * module's cache, which staff-auth had no way to write. It was still null.
+   *
+   * So: v2_staff_login returned ok, the desk session was in localStorage, and
+   * the person was rendered the sign-in form again. Both desks were completely
+   * unreachable in production, and nobody had noticed because v2_staff_accounts
+   * had ZERO rows — the feature had never once been signed into.
+   *
+   * The alternative fix was to re-run bootstrap(), which would resolve the desk
+   * session correctly but also register a SECOND onAuthStateChange listener
+   * every time anyone logs in. One cache, one writer, no listener leak. */
+  adoptSession(session) {
+    if (!session || !ROLES.includes(session.role)) return false;
+    cachedSession = session;
+    bootstrapped = true;
+    return true;
+  },
+
   /** Synchronous, unchanged contract. Returns null until bootstrap() has
    * resolved once (app.js guarantees that happens before the first
    * mountShell() call, so no existing call site ever observes the

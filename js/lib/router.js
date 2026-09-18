@@ -26,15 +26,36 @@ function compile(pattern) {
   return { regex: new RegExp(`^/${regexStr}/?$`), paramNames };
 }
 
+// Increments on every navigation. A render that started under an older
+// generation has been superseded and must not touch the outlet again.
+let generation = 0;
+let listening = false;
+
 export const router = {
   init(outletEl) {
     outlet = outletEl;
-    window.addEventListener("hashchange", () => this._resolve());
+    // ONCE. init() is called from mountShell(), and mountShell() runs again on
+    // every sign-in, sign-out and role switch. Each call used to add ANOTHER
+    // hashchange listener, so after signing in, one navigation fired _resolve()
+    // twice; after switching role, three times. See the generation guard below
+    // for what that actually did to the screen.
+    if (!listening) {
+      window.addEventListener("hashchange", () => this._resolve());
+      listening = true;
+    }
     this._resolve();
   },
 
   register(pattern, render) {
-    routes.push({ pattern, render, ...compile(pattern) });
+    // REPLACE, don't accumulate. registerXRoutes() is called once per shell
+    // mount by design ("registering is cheap"), but `routes` is module-level
+    // and was never cleared, so the array grew by ~60 entries every time
+    // anyone signed in. _resolve() returns on the first match so the duplicates
+    // were harmless to correctness -- they were a slow leak, and they made the
+    // array a misleading thing to read while debugging the bug above.
+    const at = routes.findIndex((r) => r.pattern === pattern);
+    const entry = { pattern, render, ...compile(pattern) };
+    if (at >= 0) routes[at] = entry; else routes.push(entry);
     return this;
   },
 
@@ -70,15 +91,51 @@ export const router = {
     return routes.some((r) => path.match(r.regex));
   },
 
+  /**
+   * ⚠️ THE CONCURRENCY GUARD — read this before simplifying it.
+   *
+   * View functions are async and they APPEND as they go: header first, then a
+   * round trip, then the rows. `outlet.innerHTML = ""` at the top only clears
+   * what is there at that instant, so two _resolve() runs overlapping on the
+   * same outlet interleave -- the second clears the screen while the first is
+   * still awaiting its data, and the first then appends its rows on top of the
+   * second's. The result is a screen with everything on it TWICE.
+   *
+   * That is exactly what the warehouse desk showed on 18 Sep 2026: three stat
+   * cards and an empty state, then the same three stat cards and the same
+   * empty state again. It was reachable at all for the first time that day,
+   * which is why nobody had seen it.
+   *
+   * The duplicate listener in init() is what made two runs overlap; fixing that
+   * removes today's cause. This guard removes the CLASS: any render that has
+   * been superseded stops touching the outlet, whatever started it -- a fast
+   * double-tap on a nav item is enough.
+   */
   async _resolve() {
     const path = this.currentPath();
+    const mine = ++generation;
     for (const r of routes) {
       const m = path.match(r.regex);
       if (m) {
         const params = {};
         r.paramNames.forEach((name, i) => (params[name] = decodeURIComponent(m[i + 1])));
+        // EACH RENDER GETS ITS OWN CONTAINER.
+        // Checking the generation only AFTER the render is too late: by then a
+        // superseded view has already appended its header, its stat strip and
+        // its rows into the shared outlet, on top of whatever the newer render
+        // put there. Giving every render its own host means an abandoned one
+        // takes its DOM with it when it goes.
+        //
+        // `display: contents` so the wrapper is invisible to layout -- the
+        // view's own children remain the outlet's layout children, and no
+        // existing grid, flex or :first-child rule can tell the difference.
         outlet.innerHTML = "";
-        await r.render(outlet, params);
+        const host = document.createElement("div");
+        host.style.display = "contents";
+        host.setAttribute("data-render", String(mine));
+        outlet.appendChild(host);
+        await r.render(host, params);
+        if (mine !== generation) { host.remove(); return; }   // superseded
         document.dispatchEvent(new CustomEvent("v2:navigated", { detail: { path, params } }));
         return;
       }

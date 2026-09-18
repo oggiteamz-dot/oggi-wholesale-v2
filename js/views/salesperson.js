@@ -10,6 +10,27 @@ import { cart } from "../data/cart.js";
 import { listClientOverrides, setClientOverride, removeClientOverride, listVariantsForPicker } from "../data/client-pricing.js";
 
 import { esc, pageHeader } from "../lib/utils.js";
+
+/** A date that is missing or unparseable prints as a dash, not as the string
+ *  "Invalid Date". Every order on this screen showed that on 18 Sep 2026
+ *  because the rep's rows arrived as `created_at` and this line read
+ *  `createdAt` -- and "Invalid Date" reads as broken DATA, which sends the
+ *  next person looking in the wrong place entirely. */
+function fmtOrderDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
+}
+
+/** "0 line item(s)" is a lie when the lines were withheld rather than absent.
+ *  A salesperson reads order heads (migration 140); the line detail of every
+ *  order in the store is a separate permission. Say which it is. */
+function fmtLines(order) {
+  if (order.itemsWithheld) return "open the order for its lines";
+  const n = (order.items || []).length;
+  return `${n} line item${n === 1 ? "" : "s"}`;
+}
+
 function timeAgo(iso) {
   if (!iso) return "Never ordered";
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -282,7 +303,7 @@ async function ordersView(outlet) {
     card.innerHTML = `
       <div>
         <div style="font-weight:600;">${esc(order.buyerLabel)}</div>
-        <div style="font-size:12px;color:var(--text-tertiary);">${new Date(order.createdAt).toLocaleDateString()} · ${order.items.length} line item(s)</div>
+        <div style="font-size:12px;color:var(--text-tertiary);">${esc(fmtOrderDate(order.createdAt))} · ${esc(fmtLines(order))}</div>
       </div>
       <div style="text-align:right;">
         <span class="badge ${STATUS_BADGE[order.status] || "badge-neutral"}">${order.status}</span>

@@ -148,9 +148,25 @@ h2, h3 { font-weight: 700; }
    rather than on flat grey. Fixed so it does not scroll away. */
 body {
   background-color: var(--bg-page);
-  background-image:
-    radial-gradient(720px 460px at 100% 0%, var(--brand-tint), transparent 60%),
-    radial-gradient(520px 360px at 0% 100%, var(--brand-tint), transparent 55%);
+  /* THE TWO FULL-PAGE RADIAL GRADIENTS WERE REMOVED HERE, 18 Sep 2026.
+     They were 720x460 and 520x360 washes of --brand-tint pinned to the top
+     right and bottom left corners, and they had two problems.
+
+     1. --brand-tint is #EFFBF5, near-white, and it is a RAW BRAND token that
+        no theme overrides. In dark mode it stayed near-white, so a page whose
+        ground is #060F0C was painted with two enormous pale clouds and came
+        out looking like smudged grey glass. Nobody had seen it because dark
+        mode did not exist until today.
+     2. Even in light it is the thing the v3 art direction exists to replace:
+        a wash of colour over the whole page. The agreed direction is a
+        neutral near-white ground where all the colour comes from a handful of
+        small soft clouds of the ACCENT drifting across it. Two fixed corner
+        washes are the opposite of that, and they also do not follow a palette,
+        so on the cobalt or burgundy palette the page kept a green cast.
+
+     The replacement is body::before / body::after in css/palettes.css: eight
+     small accent clouds on two layers, moving by transform only, derived from
+     --accent-600 so every palette and both themes move with them. */
   background-attachment: fixed;
   background-repeat: no-repeat;
 }

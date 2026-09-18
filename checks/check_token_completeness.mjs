@@ -169,13 +169,13 @@ const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, " ");
 // become a graveyard. `--surface-sunken` was on this list when it was written
 // and came straight off it, because all five of its uses were repointed at
 // `--bg-sunken` in the same change.
-const LEGACY_INLINE_TOKENS = new Set([
-  "--danger", "--danger-600", "--danger-bg",
-  "--success", "--success-600",
-  "--warning", "--warning-600",
-  "--info-600",
-  "--surface", "--surface-2", "--surface-subtle",
-]);
+// EMPTIED 18 Sep 2026. All eleven are now defined in css/tokens.css (see the
+// block headed "THE ELEVEN INLINE LEGACY TOKENS, now real"), so there is
+// nothing left to allowlist. Four of them had no inline fallback and were
+// live rendering defects; the rest were relying on a fallback value that
+// duplicated a token. This is the shrink-to-zero the comment above predicted.
+// Do not repopulate it to make a new undefined token pass — define the token.
+const LEGACY_INLINE_TOKENS = new Set([]);
 
 const JS_DIR = join(ROOT, "js");
 const jsFiles = [];

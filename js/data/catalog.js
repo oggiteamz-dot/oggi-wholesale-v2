@@ -8,6 +8,7 @@
 // possible values (e.g. a size filter across a whole catalog).
 
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { selectIn } from "../lib/chunked-in.js";
 import { sortSizes } from "../lib/size-order.js";
 
 const NEW_BADGE_DAYS = 30;
@@ -117,9 +118,7 @@ export async function getCatalog(wid) {
 
   let availability = [];
   if (variantIds.length) {
-    const { data } = await sbCall(
-      supabase.from("v2_inventory_by_variant").select("*").in("variant_id", variantIds)
-    );
+    const { data } = await selectIn("v2_inventory_by_variant", "*", "variant_id", variantIds);
     availability = data || [];
   }
   const availByVariant = new Map(availability.map((a) => [a.variant_id, a]));

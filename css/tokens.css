@@ -1,61 +1,79 @@
-/* OGGI Wholesale v2 — Design tokens
+/* OGGI Wholesale v2 — Design tokens · v3 ART DIRECTION
    ============================================================================
-   OGGI "EYES EVERYWHERE" — LIGHT. Ported 17 Aug 2026.
+   MERGED 18 Sep 2026. This file replaces the 17 Aug token set, and it is the
+   single reason ~60 screens change appearance without 60 screens being edited.
 
-   WHERE THESE VALUES COME FROM
-   ----------------------------
-   Not invented. Lifted from the real thing:
-     02 Projects/OGGI Website/pages/[C] OGGI Homepage — Eyes Everywhere (brand).html
-     02 Projects/OGGI Website/pages/[C] OGGI Homepage — Light (matches design).html
-   Those two files share one palette, and it is the one Hadi asked for.
-   The source variables were:
-     --emerald #00845F · --emerald-d #026B4E · --mint #54E5A0
-     --mint-soft #BEF3DA · --ink #0E2230 · --ink2 #3C4D58 · --muted #6A7A84
-     --black #07140E · --tint #EFFBF5 · --line #E4EDE9
-     display Poppins · body Inter
+   READ THIS BEFORE CHANGING ANYTHING HERE
+   ---------------------------------------
+   The file is in THREE LAYERS and the order matters:
 
-   WHAT REPLACED WHAT
-   ------------------
-   The previous ramp was indigo (#4F46E5), and this file's own comment called
-   it "OGGI primary". That comment was simply wrong -- indigo was never OGGI --
-   and it is why the app did not look like the brand.
+     LAYER 1  RAW BRAND        the OGGI palette, unchanged since 17 Aug.
+     LAYER 2  THE v3 SYSTEM    the new source of truth, lifted verbatim from
+                               "OGGI Wholesale v3 — Live Prototype/css/tokens.css",
+                               the prototype Hadi approved on 18 Sep 2026.
+     LAYER 3  v2 COMPATIBILITY every token name the existing 123 KB of
+                               components.css / brand.css / mobile.css already
+                               uses, REDEFINED in terms of layer 2.
 
-   LIGHT MODE IS STILL THE ONLY THEME, per the standing instruction ("Keep it
-   light mode. I don't like the dark mode"). Dark surfaces appear only where
-   the brand uses them: the top bar and the stat strip, exactly as the website
-   uses its dark .proof section.
+   WHY LAYER 3 EXISTS AT ALL
+   -------------------------
+   The prototype and the shipped app share only FIFTEEN token names out of
+   ~190. The prototype says --fg, --r, --s-4, --d-2, --t-base; the app says
+   --text-primary, --radius-md, --space-4, --shadow-md, --duration-base. They
+   are the same ideas under different names.
 
-   THE ONE RULE THAT MATTERS HERE
-   ------------------------------
+   The tempting move is to rename across the app. That is a find-and-replace
+   over 123 KB of CSS with no test that can prove it landed, on a product whose
+   two worst bugs were both "the name survived, the meaning did not". So:
+   nothing is renamed. Layer 3 keeps every old name alive and points it at the
+   new value. The app inherits the new art direction on the next page load, and
+   a component can be moved onto the v3 names one at a time, safely, later.
+
+   NOTHING WAS DELETED. checks/check_token_completeness.mjs requires 86 names;
+   all 93 that existed on 17 Aug are still here.
+
+   COLOURS ARE WRITTEN AS LITERAL HEX, NOT AS var()
+   ------------------------------------------------
+   checks/check_contrast.mjs parses this file with a regex that only matches
+   `--name: #hex;`. A colour alias written as `var(--other)` is INVISIBLE to
+   the gate — the gate would not fail, it would simply stop checking, which is
+   worse. Every colour below is therefore spelled out, in both layers, on
+   purpose. Non-colour tokens (radius, space, motion) use var() freely.
+
+   THE ONE RULE THAT CARRIES OVER UNCHANGED
+   ----------------------------------------
    MINT IS NOT A TEXT COLOUR ON LIGHT. #54E5A0 on white measures 1.60:1.
-   AA needs 4.5:1 for text and 3.0:1 for controls. Mint cannot reach either.
-   On the brand's own dark ink it measures 10.15:1, which is where the website
-   uses it -- the big numbers in the dark stat band.
+   Emerald #00845F measures 4.70:1 and carries every link, filled button and
+   piece of accent text. Mint lives on ink, where it measures 10.15:1 — the
+   dark chrome, the big numerals, chart fills, meter fills. The gate enforces
+   this and will fail the build if mint is ever assigned to a text token.
 
-   So: EMERALD #00845F (4.70:1 on white) carries text, links and filled
-   buttons. MINT is a highlight on dark, a tint, a chart fill, a decorative
-   accent. checks/check_contrast.mjs enforces this and will fail the build if
-   mint is ever assigned to a text-bearing token.
-
-   TWO DELIBERATE DEVIATIONS FROM THE SOURCE PALETTE, both for legibility:
-     1. --muted #6A7A84 measures 4.44:1 on white. That is a near miss on AA
-        for normal text, and it is used for exactly the small secondary labels
-        that are hardest to read on a phone in daylight. Nudged to #61727C
-        (4.99:1 on white, 4.70:1 on the tint) -- the nearest neighbour in the
-        same hue that actually passes.
-     2. --line #E4EDE9 measures 1.19:1. Correct and unchanged as a decorative
-        card border, but it cannot serve as --border-strong, which marks real
-        control boundaries and needs 3.0:1. That one is #76958A (3.26:1).
-   Both are recorded rather than silently applied, because "we matched the
-   brand" should not quietly mean "we shipped text nobody can read".
+   WHAT v3 ACTUALLY ADDS, in one line each
+   ---------------------------------------
+   1. Depth built from translucency and hairline highlights, not a drop shadow
+      stamped on every card — so surfaces read as paper on light and as glass
+      on dark.
+   2. A display scale that goes larger and tighter, because the figures on
+      these screens (order totals, minimums, stock) are the point of them.
+   3. Spring easing for the two moments that should feel physical: a minimum
+      meter filling, and a quantity landing in a cart.
+   4. A real ink chrome band — app chrome, hero covers, stat strips — exactly
+      as the OGGI website uses its dark .proof section.
+   5. A complete dark theme, defined in BOTH required places. Light remains
+      the default and the working canvas per the standing instruction; dark
+      exists so the toggle is honest rather than half-painted.
    ============================================================================ */
 
 :root {
-  /* --- RAW BRAND COLOURS -------------------------------------------------
-     The palette exactly as the website defines it. Everything below is
-     expressed in terms of these, so there is one place to change. */
+
+  /* ==========================================================================
+     LAYER 1 — RAW BRAND
+     The palette exactly as the OGGI website defines it. Everything below is
+     expressed in terms of these, so there is one place to change.
+     ========================================================================== */
   --brand-emerald:      #00845F;
   --brand-emerald-deep: #026B4E;
+  --brand-emerald-lift: #00A176;
   --brand-mint:         #54E5A0;
   --brand-mint-soft:    #BEF3DA;
   --brand-ink:          #0E2230;
@@ -63,140 +81,316 @@
   --brand-black:        #07140E;
   --brand-tint:         #EFFBF5;
   --brand-line:         #E4EDE9;
+  --brand-gradient: linear-gradient(152deg, #123040 0%, #0B1A22 46%, #07140E 100%);
 
-  /* The dark band. The website uses a flat ink section; the slight fade to
-     near-black matches the brand PDFs' "dark green-black gradient". */
-  --brand-gradient: linear-gradient(135deg, #0E2230 0%, #07140E 100%);
+  /* ==========================================================================
+     LAYER 2 — THE v3 SYSTEM (source of truth)
+     ========================================================================== */
 
-  /* Surfaces */
-  --bg-page:        #F5FBF8;  /* a whisper of tint, so white cards read as cards */
-  --bg-surface:     #FFFFFF;
-  --bg-surface-2:   #FBFEFD;
-  --bg-sunken:      #EFFBF5;  /* = brand tint */
-  --bg-overlay:     rgba(14, 34, 48, 0.45);  /* ink-based, not neutral grey */
+  /* ---- SURFACES (light: the working canvas) ---------------------------
+     ⛔ THESE GROUNDS ARE NEUTRAL AND MUST STAY NEUTRAL. Hadi's standing
+     instruction, in his words: NO GREEN TINGE OR COLOUR WASH ACROSS THE
+     BACKGROUND -- "removed completely". The ground is 80-90% white and every
+     bit of colour in it comes from the small drifting accent clouds in
+     palettes.css, never from the sheet itself.
 
-  /* Borders */
-  --border-subtle:  #EDF5F1;
-  --border-default: #E4EDE9;  /* = brand line */
-  --border-strong:  #76958A;  /* 3.26:1 on white — see header note */
+     THIS HAS NOW BEEN BROKEN ONCE AND IT IS WORTH KNOWING HOW. On 18 Sep 2026
+     the v3 prototype's tokens were ported here verbatim, on the reasoning that
+     the prototype is the approved design and should be "inherited, not
+     invented". But the prototype still carries #F4F9F7, #EDF5F1, #E4EDE9 --
+     green-tinted -- so porting it faithfully REVERSED a correction that had
+     already been made. The prototype is one expression of the art direction;
+     the standing instruction is the art direction. Where they disagree, the
+     instruction wins.
 
-  /* Text */
-  --text-primary:   #0E2230;  /* ink        16.28:1 on white */
-  --text-secondary: #3C4D58;  /* ink2        8.77:1 */
-  --text-tertiary:  #61727C;  /* muted+      4.99:1 — see header note */
+     Measured: a token is tinted when its R/G/B channels are not within 3 of
+     each other. #F4F9F7 is R244 G249 B247 -- a spread of 5, and visibly green
+     next to a white card. checks/check_neutral_ground.mjs now measures this on
+     every build.
+
+     The accent TINTS (--bg-tint, --accent-tint) are green on purpose -- they
+     are chips and badges, not the sheet. The palettes each carry their own
+     hue on purpose too: that is what makes burgundy burgundy. This rule is
+     about the DEFAULT ground only. --------------------------------------- */
+  --bg-page:       #F7F8F8;
+  --bg-surface:    #FFFFFF;
+  --bg-raised:     #FFFFFF;
+  --bg-sunken:     #F3F4F4;
+  --bg-tint:       #EFFBF5;
+  --bg-inset:      #FBFCFC;
+  --bg-overlay:    rgba(7, 20, 14, .48);
+
+  /* The dark band. Used deliberately: app chrome, hero covers, stat strips. */
+  --bg-chrome:     #0B1A22;
+  --bg-chrome-2:   #07140E;
+  --chrome-grad:   linear-gradient(152deg, #123040 0%, #0B1A22 46%, #07140E 100%);
+  --chrome-line:   rgba(190, 243, 218, .12);
+  --chrome-lift:   rgba(255, 255, 255, .06);
+  --chrome-fill:   rgba(255, 255, 255, .045);
+  --chrome-fill-2: rgba(255, 255, 255, .085);
+
+  /* ---- BORDERS -------------------------------------------------------- */
+  --line-hair:     #EDEEEE;
+  --line-soft:     #E4E6E5;
+  --line-firm:     #D3D6D5;
+  --line-strong:   #939393;   /* real control boundaries, neutral */
+
+  /* ---- TEXT ----------------------------------------------------------- */
+  --fg:            #0E2230;   /* 16.28:1 on white */
+  --fg-2:          #3C4D58;   /*  8.77:1 */
+  --fg-3:          #61727C;   /*  4.99:1 — small labels only */
+  --fg-4:          #8A9AA2;   /*  3.02:1 — decorative / disabled only */
+  --fg-on-dark:    #FFFFFF;
+  --fg-on-dark-2:  rgba(255, 255, 255, .72);
+  --fg-on-dark-3:  rgba(255, 255, 255, .50);
+  --fg-link:       #00845F;
+
+  /* ---- ACCENT --------------------------------------------------------- */
+  --accent:        #00845F;
+  --accent-hover:  #026B4E;
+  --accent-press:  #015840;
+  --accent-fg:     #FFFFFF;
+  --accent-tint:   #EFFBF5;
+  --accent-tint-2: #DCF5EA;
+  --accent-ring:   rgba(0, 132, 95, .28);
+  --accent-glow:   0 10px 30px -10px rgba(0, 132, 95, .45);
+  --highlight:     #54E5A0;   /* on ink only */
+
+  /* ---- SEMANTIC ------------------------------------------------------
+     Deliberately NOT the accent, and deliberately the same values the 17 Aug
+     set shipped with. The prototype proposed slightly different greens and
+     ambers; they are not adopted, because the shipped triples are the ones
+     check_contrast.mjs already proves at 4.5:1 and there is no design reason
+     to re-argue a passing pair during a layout change. */
+  --ok:            #027A48;
+  --ok-tint:       #ECFDF3;
+  --warn:          #B54708;
+  --warn-tint:     #FFFAEB;
+  --danger:        #B42318;
+  --danger-tint:   #FEF3F2;
+  --info:          #175CD3;
+  --info-tint:     #EFF8FF;
+  /* The disclosed-placement marker. Never the accent — a paid slot must not
+     be able to look like an editorial one. */
+  --paid:          #6B4FA8;
+  --paid-tint:     #F1ECFA;
+
+  /* ---- RADIUS --------------------------------------------------------- */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r:    14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-pill: 999px;
+
+  /* ---- DEPTH — translucency and hairlines, not heavy shadow ----------- */
+  --d-0: none;
+  --d-1: 0 1px 2px rgba(14, 34, 48, .05);
+  --d-2: 0 2px 4px rgba(14, 34, 48, .04), 0 8px 24px -12px rgba(14, 34, 48, .10);
+  --d-3: 0 4px 8px rgba(14, 34, 48, .05), 0 20px 48px -20px rgba(14, 34, 48, .16);
+  --d-4: 0 8px 16px rgba(14, 34, 48, .06), 0 36px 80px -32px rgba(14, 34, 48, .24);
+  --d-inset: inset 0 1px 0 rgba(255, 255, 255, .6);
+
+  /* ---- TYPE ----------------------------------------------------------- */
+  --font-display: "Inter Tight", "Poppins", system-ui, -apple-system, sans-serif;
+  --font-ui:      "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-brand:   "Poppins", "Inter Tight", system-ui, sans-serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --fs-2xs: 10px;
+  --fs-xs:  11px;
+  --fs-sm:  13px;
+  --fs-md:  15px;
+  --fs-base:16px;
+  --fs-lg:  18px;
+  --fs-xl:  22px;
+  --fs-2xl: 28px;
+  --fs-3xl: 36px;
+  --fs-4xl: 46px;
+  --fs-5xl: 60px;
+
+  --lh-flush: 1;
+  --lh-tight: 1.14;
+  --lh-head:  1.26;
+  --lh-body:  1.55;
+
+  --tr-display: -0.028em;
+  --tr-head:    -0.018em;
+  --tr-tight:   -0.008em;
+  --tr-caps:    0.09em;
+
+  --w-normal: 400;
+  --w-medium: 500;
+  --w-semi:   600;
+  --w-bold:   700;
+
+  /* ---- SPACE — 8pt with 4px half steps -------------------------------- */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 40px; --s-8: 48px;
+  --s-9: 64px; --s-10: 80px; --s-11: 96px;
+
+  /* ---- MOTION --------------------------------------------------------- */
+  --t-fast:   120ms;
+  --t-base:   220ms;
+  --t-slow:   320ms;
+  --t-sheet:  360ms;
+  --ease:     cubic-bezier(.22, .78, .2, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-spring: cubic-bezier(.34, 1.42, .64, 1);
+
+  /* ---- CONTROL SIZES — 44px floor at 360px ---------------------------- */
+  --tap: 44px;
+  --ctl-sm: 34px;
+  --ctl:    42px;
+  --ctl-lg: 52px;
+
+  /* ==========================================================================
+     LAYER 3 — v2 COMPATIBILITY
+     Every name the shipped CSS already uses. Nothing here is new behaviour;
+     each one is the old name pointing at the new value. Delete a line here
+     and roughly 123 KB of stylesheet loses a colour with no error message.
+     ========================================================================== */
+
+  /* --- surfaces --- */
+  --bg-surface-2:   #FBFCFC;   /* was #FBFEFD — now the v3 inset */
+
+  /* --- borders --- */
+  --border-subtle:  #EDEEEE;   /* = --line-hair */
+  --border-default: #E4E6E5;   /* = --line-soft */
+  --border-strong:  #939393;   /* = --line-strong. Was #76958A (3.26:1) --
+                               a green-cast grey. Neutralised 18 Sep 2026. */
+
+  /* --- text --- */
+  --text-primary:   #0E2230;   /* = --fg    16.28:1 on white */
+  --text-secondary: #3C4D58;   /* = --fg-2   8.77:1 */
+  --text-tertiary:  #61727C;   /* = --fg-3   4.99:1 */
   --text-inverse:   #FFFFFF;
-  --text-link:      #00845F;  /* emerald     4.70:1 */
+  --text-link:      #00845F;   /* emerald    4.70:1 */
 
-  /* Brand / accent — EMERALD is the interactive colour, mint is the highlight */
-  --accent-50:  #EFFBF5;  /* tint      */
-  --accent-100: #BEF3DA;  /* mint-soft */
+  /* --- accent ramp --- */
+  --accent-50:  #EFFBF5;
+  --accent-100: #BEF3DA;
   --accent-300: #54E5A0;  /* MINT — decorative only, never text on light */
-  --accent-500: #00A576;  /* 3.16:1 — focus rings and control borders only   */
-  --accent-600: #00845F;  /* EMERALD — buttons, links, active states         */
-  --accent-700: #026B4E;  /* emerald-deep — hover, text on tinted surfaces   */
+  --accent-500: #00A176;  /* 3.20:1 — focus rings and control borders only */
+  --accent-600: #00845F;  /* EMERALD — buttons, links, active states */
+  --accent-700: #026B4E;  /* emerald-deep — hover, text on tinted surfaces */
 
-  /* Semantic. Deliberately kept in their own hues rather than pulled toward
-     the brand green: a "success" that looks identical to every primary button
-     stops reading as feedback and starts reading as decoration. */
+  /* --- semantic triples (unchanged, and proven green by the gate) --- */
   --success-50:  #ECFDF3;
   --success-500: #12B76A;
   --success-700: #027A48;
-
   --warning-50:  #FFFAEB;
   --warning-500: #F79009;
   --warning-700: #B54708;
-
   --danger-50:   #FEF3F2;
   --danger-500:  #F04438;
   --danger-700:  #B42318;
-
   --info-50:     #EFF8FF;
   --info-500:    #2E90FA;
   --info-700:    #175CD3;
 
-  /* Status dots (mirrors wall-of-screens vocabulary for visual consistency) */
+  /* --- manifest status chips (unchanged) --- */
   --status-built:     #12B76A;
   --status-partial:   #F79009;
   --status-notbuilt:  #98A2B3;
   --status-regressed: #F04438;
   --status-deferred:  #7A5AF8;
 
-  /* Shadows — now cast in ink rather than neutral grey, so they sit in the
-     same colour world as everything else. */
-  --shadow-xs: 0 1px 2px rgba(14, 34, 48, 0.04);
-  --shadow-sm: 0 1px 3px rgba(14, 34, 48, 0.06), 0 1px 2px rgba(14, 34, 48, 0.04);
-  --shadow-md: 0 4px 10px rgba(14, 34, 48, 0.07), 0 2px 4px rgba(14, 34, 48, 0.04);
-  --shadow-lg: 0 12px 24px rgba(14, 34, 48, 0.10), 0 4px 8px rgba(14, 34, 48, 0.04);
-  --shadow-focus: 0 0 0 3px var(--accent-100);
-  /* The website's signature: a primary button floats on a green-tinted
-     shadow, not a grey one. Copied exactly (0 12px 30px rgba(0,132,95,.24)). */
-  --shadow-emerald: 0 12px 30px rgba(0, 132, 95, 0.24);
+  /* --- depth: the old four map onto the new four --- */
+  --shadow-xs: var(--d-1);
+  --shadow-sm: var(--d-1);
+  --shadow-md: var(--d-2);
+  --shadow-lg: var(--d-3);
+  --shadow-focus:   0 0 0 3px var(--accent-ring);
+  --shadow-emerald: var(--accent-glow);
 
-  /* Radius — matched to the website (buttons 11px, cards 18–22px) */
-  --radius-sm: 8px;
-  --radius-md: 11px;
-  --radius-lg: 18px;
-  --radius-xl: 22px;
-  --radius-pill: 999px;
+  /* --- radius: the whole app moves onto the v3 scale here --- */
+  --radius-sm:   var(--r-sm);   /*  8px -> 10px */
+  --radius-md:   var(--r);      /* 11px -> 14px */
+  --radius-lg:   var(--r-lg);   /* 18px -> 20px */
+  --radius-xl:   var(--r-xl);   /* 22px -> 28px */
+  --radius-pill: var(--r-pill);
 
-  /* Spacing scale
-     --------------------------------------------------------------------
-     RESTORED 17 Aug 2026. This section was accidentally dropped when this
-     file was rewritten for the OGGI palette, and because CSS silently
-     resolves an undefined custom property to nothing, every
-     `padding: var(--space-5)` in the app collapsed to zero and the whole UI
-     went edge-to-edge. No error, no warning -- just a broken layout.
+  /* --- space. --space-5 keeps its own 20px: the v3 scale jumps 16 -> 24 and
+         there is no 20, so aliasing it would move every gap that uses it. --- */
+  --space-1:  var(--s-1);
+  --space-2:  var(--s-2);
+  --space-3:  var(--s-3);
+  --space-4:  var(--s-4);
+  --space-5:  20px;
+  --space-6:  var(--s-5);
+  --space-8:  var(--s-6);
+  --space-10: var(--s-7);
+  --space-12: var(--s-8);
+  --space-16: var(--s-9);
 
-     checks/check_token_completeness.mjs now fails the build if any token in
-     checks/token-manifest.json disappears, so this cannot happen quietly a
-     second time. Values are unchanged from the original file. */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
-  --space-16: 64px;
+  /* --- type. --font-display becomes Inter Tight; Poppins stays the BRAND
+         face (wordmark, the ink band) as --font-brand above. --- */
+  --font-sans: var(--font-ui);
+  --text-xs:   12px;            /* kept: v3's 11px is below this app's floor */
+  --text-sm:   var(--fs-sm);
+  --text-base: var(--fs-md);    /* 14.5px -> 15px */
+  --text-md:   var(--fs-base);
+  --text-lg:   var(--fs-lg);
+  --text-xl:   var(--fs-xl);
+  --text-2xl:  var(--fs-2xl);
+  --text-3xl:  var(--fs-3xl);   /* 34px -> 36px */
 
-  /* Type
-     --------------------------------------------------------------------
-     The brand pairs Poppins (display) with Inter (body). Poppins is
-     self-hosted in css/fonts.css -- 3 weights, 24KB total -- because the
-     app's CSP is `font-src 'self'` and a Google Fonts link is blocked
-     outright, and because a CDN font is a render-blocking request on a
-     Beirut connection.
+  /* --- motion --- */
+  --ease-standard:   var(--ease);
+  --ease-emphasized: var(--ease-out);
+  --duration-fast: var(--t-fast);
+  --duration-base: var(--t-base);
+  --duration-slow: var(--t-slow);
 
-     Inter is deliberately NOT shipped. It would have cost a further 72KB
-     for three weights, and at 14.5px body size it is close to
-     indistinguishable from the system UI font, which renders instantly
-     with no swap flash. The brand character lives in the display face.
-     If that trade is wrong, add @fontsource/inter and point --font-sans
-     at it -- nothing else needs to change. */
-  --font-display: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-base: 14.5px;
-  --text-md: 16px;
-  --text-lg: 18px;
-  --text-xl: 22px;
-  --text-2xl: 28px;
-  --text-3xl: 34px;
-
-  /* Motion */
-  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
-  --duration-fast: 120ms;
-  --duration-base: 200ms;
-  --duration-slow: 320ms;
-
-  /* Layout */
-  --nav-width: 232px;
+  /* --- layout (unchanged) --- */
+  --nav-width:     232px;
   --topbar-height: 60px;
-  --content-max: 1360px;
+  --content-max:   1360px;
+
+  /* --- THE BLOB FIELD ---------------------------------------------------
+     Defined here rather than in palettes.css because
+     checks/check_token_completeness.mjs requires every var(--x) used anywhere
+     in css/ or js/ to be defined in THIS file. The two clouds are derived
+     from the accent, so every palette moves the background with it and no
+     palette has to restate them.
+
+     color-mix() against two flat colours is safe. It is NOT safe against a
+     gradient — `color-mix(in srgb, var(--chrome-grad) 40%, transparent)` is
+     invalid and the browser drops the whole declaration in silence, which on
+     the Awda build left four palettes with no scrim and no shadows at all.
+     Never point these at --chrome-grad or --brand-gradient. --- */
+  --blob-1: color-mix(in srgb, var(--accent-600) 14%, transparent);
+  --blob-2: color-mix(in srgb, var(--accent-300) 16%, transparent);
+
+  /* --- THE ELEVEN INLINE LEGACY TOKENS, now real -----------------------
+     Written 18 Sep 2026. These names are referenced inline in css/ and js/
+     and were NEVER DEFINED anywhere; checks/check_token_completeness.mjs
+     allowlisted them by name rather than inventing values overnight.
+
+     Four of them had no inline fallback, so they were live defects:
+       js/components/subscription-panel.js:164  color:var(--danger)
+       js/views/owner-wholesaler-new.js:60      color:var(--danger)
+       js/views/owner-wholesaler-new.js:232     border-left:3px solid var(--success)
+       js/components/product-rail.js:100        background:var(--surface)
+       js/views/wholesaler.js:708/709/729       background:var(--surface-2)
+     An undefined custom property makes the whole declaration invalid at
+     computed-value time and CSS says nothing. So the error text on the
+     subscription panel and the new-wholesaler form had no colour at all, and
+     the marketplace rail cards and the colour-swatch tiles rendered
+     transparent. Defining them is a fix, not a restyle.
+
+     The bare semantic names take the 700 value, not the 500: they are used
+     for TEXT, and only the 700s clear 4.5:1 on their own tints.
+     The allowlist in check_token_completeness.mjs is now empty. --- */
+  --danger-600:     #D92D20;
+  --danger-bg:      #FEF3F2;
+  --success:        #027A48;
+  --success-600:    #039855;
+  --warning:        #B54708;
+  --warning-600:    #DC6803;
+  --info-600:       #1570EF;
+  --surface:        #FFFFFF;
+  --surface-2:      #FBFCFC;
+  --surface-subtle: #EDEEEE;
 }

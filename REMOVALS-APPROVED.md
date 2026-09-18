@@ -875,3 +875,43 @@ migration 108's phone-keyed re-application check, and it is why the single form
 now has a field beside the shop name.
 
 **ALLOW_DELETIONS=1 — approved, two lines, both accounted for above.**
+
+---
+
+# 18 September 2026 — the v3 art-direction pass
+
+**29 lines removed from protected code. Every one is a REPLACEMENT, not a
+removal: the behaviour it described still exists, in the line that took its
+place.** `checks/check_no_feature_loss.sh` is a pure zero-deletion policy and
+cannot tell those apart, which is the correct trade — it would rather stop a
+rewrite and be argued with than let a deletion through quietly.
+
+⚠️ **These have NOT been approved by Hadi yet.** They were made during an
+autonomous overnight run and are listed here so the first thing he can do is
+disagree with any of them. Nothing on this list removes a capability.
+
+| File | Lines | What went, and what replaced it |
+|---|---|---|
+| `js/lib/router.js` | 3 | `await r.render(outlet, params)` → the same render into its own `display:contents` host, with a generation check. Fixes the warehouse desk drawing its whole screen twice. |
+| `js/components/sidenav.js` | 4 | The `startsWith` active test → a longest-match test. The old one lit two nav items at once on every sub-route. The emoji icon line → the drawn icon with the emoji as fallback. |
+| `js/components/bottomnav.js` | 2 | Same icon swap, same fallback. |
+| `js/views/login.js` | 1 | `display:flex;gap:6px` → the same plus `flex-wrap:wrap`, because the row was 494px inside a 390px phone. |
+| `js/data/inventory-admin.js` | 9 | Four `sbCall(supabase.from(…).in(…))` calls → the identical query through `selectIn`, which batches the id list. Same table, same columns, same filters. |
+| `js/data/products-admin.js` | 6 | As above, four call sites. |
+| `js/data/catalog.js` | 3 | As above, one call site. |
+| `js/data/inventory-intelligence.js` | 1 | As above, one call site. |
+
+**Why the `in.(…)` rewrites were not optional.** Meridian has 875 variants.
+`.in("variant_id", [875 uuids])` is a 32,000-character URL and the gateway
+answers 400 with an empty body, which blanked eleven wholesaler screens. It also
+scales the wrong way: the bigger the wholesaler, the more broken. The
+replacement runs the same query in batches of 80, in parallel, and merges.
+
+**The one thing on this list that changes what a user sees, on purpose:** the
+navigation icons. Emoji render as a different drawing on every operating
+system, so two wholesalers were not looking at the same product. The emoji are
+still the fallback for any route the icon set does not cover.
+
+Re-run to confirm the count and see every line:
+
+    ALLOW_DELETIONS=1 ./checks/check_no_feature_loss.sh

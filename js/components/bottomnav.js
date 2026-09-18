@@ -48,6 +48,7 @@
 // =============================================================================
 
 import { NAV_BY_ROLE, splitNav, shortLabel } from "../lib/nav-config.js";
+import { navIcon } from "../lib/icons.js";
 import { router } from "../lib/router.js";
 import { esc } from "../lib/utils.js";
 
@@ -124,7 +125,7 @@ function renderMoreHub(items, role) {
     // will come from a database the moment per-tenant nav is configurable.
     // Escaping now costs nothing and removes a future injection path.
     a.innerHTML =
-      `<span class="bottomnav-hub-icon" aria-hidden="true">${esc(item.icon)}</span>` +
+      `<span class="bottomnav-hub-icon" aria-hidden="true">${navIcon(item.path) || esc(item.icon)}</span>` +
       `<span class="bottomnav-hub-label">${esc(item.label)}</span>` +
       `<span class="bottomnav-hub-chevron" aria-hidden="true">›</span>`;
     a.addEventListener("click", closeMoreHub);
@@ -192,7 +193,7 @@ export function renderBottomNav(container, role) {
     }
 
     el.innerHTML =
-      `<span class="bottomnav-icon" aria-hidden="true">${esc(item.icon)}</span>` +
+      `<span class="bottomnav-icon" aria-hidden="true">${navIcon(item.path) || esc(item.icon)}</span>` +
       `<span class="bottomnav-label">${esc(shortLabel(item))}</span>`;
     container.appendChild(el);
   });

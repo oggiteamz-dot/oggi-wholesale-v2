@@ -1,0 +1,738 @@
+/* =============================================================================
+   OGGI Wholesale v2 — THE v3 ART DIRECTION
+   =============================================================================
+
+   WHAT THIS FILE IS
+   -----------------
+   The look, applied to the classes the app already uses. Written 18 Sep 2026
+   from "OGGI Wholesale v3 — Live Prototype", the design Hadi approved.
+
+   WHY IT IS A LAYER AND NOT A REWRITE OF components.css
+   -----------------------------------------------------
+   components.css is 3,025 lines and 577 styled classes, and it is CORRECT --
+   it holds behaviour, states, responsive rules and a great deal of hard-won
+   detail (the order sheet alone is 105 rules). Rewriting it to change how
+   things LOOK would put every one of those at risk for no gain, on a product
+   whose two worst bugs were both "something survived the rename and stopped
+   working".
+
+   So this file changes surface, depth, type, colour and motion, and touches
+   structure only where the structure is the problem (rows that should be
+   cards). It loads AFTER components.css and BEFORE palettes.css.
+
+   THE DIRECTION, IN FIVE LINES
+   ----------------------------
+   1. Light, neutral, near-white ground. Colour lives in the drifting accent
+      clouds and in the ink band -- never in a wash across the page.
+   2. CARDS, NOT ROWS. Hadi: rows make products "unsatisfying and very
+      difficult to see".
+   3. An INK BAND carries the chrome and the headline figures, exactly as the
+      OGGI website uses its dark .proof section. Mint is legible there (10.15:1)
+      and nowhere else.
+   4. Depth from translucency and a hairline top highlight, not a drop shadow
+      stamped on every box.
+   5. Figures are the point of these screens, so they are set large, tight and
+      tabular.
+   ============================================================================= */
+
+/* =============================================================================
+   1 · THE SHELL
+   ============================================================================= */
+
+/* The page sits above the drifting cloud field (css/palettes.css). */
+#app-root { position: relative; z-index: 1; }
+
+#app-body { background: transparent; }
+#view-outlet { background: transparent; }
+
+/* ---- 1.1 THE INK BAND ------------------------------------------------------
+   The topbar was a white strip with a hairline under it -- correct, and
+   anonymous. The brand's own site puts its name on ink, and the whole v3
+   direction hangs off having one dark surface to hold the identity and the
+   numbers. */
+#topbar {
+  background: var(--chrome-grad);
+  border-bottom: 1px solid var(--chrome-line);
+  box-shadow: 0 1px 0 var(--chrome-lift) inset;
+  color: var(--fg-on-dark);
+  height: 64px;
+  padding-inline: var(--s-5);
+}
+#topbar .brand {
+  color: var(--fg-on-dark);
+  font-family: var(--font-brand);
+  font-weight: 700;
+  letter-spacing: var(--tr-tight);
+}
+/* THE LOGO, ON INK.
+   brand.css swaps the literal "O" for brand/oggi-logo.png -- the DARK logo,
+   chosen when this bar was white. The bar is ink now, so it takes the white
+   file, which has been sitting unused in brand/ since 17 Aug.
+   The first version of this rule painted a mint tile over the whole thing and
+   the logo vanished: the mark is a background-image with font-size:0, so
+   setting `background` here did not tint it, it REPLACED it, and there was no
+   error because a hidden letter and a missing image look identical. */
+#topbar .brand .brand-mark {
+  width: 58px; height: 30px;
+  border-radius: 0;
+  background: url("../brand/oggi-logo-white.png") center / contain no-repeat;
+  box-shadow: none;
+}
+#topbar .brand .env-tag {
+  color: var(--brand-mint);
+  background: var(--chrome-fill-2);
+  border: 1px solid var(--chrome-line);
+}
+#topbar .who { color: var(--fg-on-dark-2); }
+#topbar .who strong { color: var(--fg-on-dark); font-weight: 600; }
+/* Buttons sitting on the ink band cannot use the light-mode button styles. */
+#topbar .btn,
+#topbar .btn-ghost,
+#topbar .btn-secondary {
+  background: var(--chrome-fill);
+  border: 1px solid var(--chrome-line);
+  color: var(--fg-on-dark);
+}
+#topbar .btn:hover,
+#topbar .btn-ghost:hover,
+#topbar .btn-secondary:hover {
+  background: var(--chrome-fill-2);
+  color: var(--fg-on-dark);
+}
+
+/* ---- 1.2 THE SIDE NAVIGATION ----------------------------------------------- */
+#sidenav {
+  background: transparent;
+  border-right: 1px solid var(--line-hair);
+  padding: var(--s-4) var(--s-3);
+}
+#sidenav .nav-section-label {
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tr-caps);
+  color: var(--fg-4);
+  padding: var(--s-4) var(--s-3) var(--s-2);
+}
+#sidenav a.nav-item {
+  border-radius: var(--r-sm);
+  padding: 10px var(--s-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--w-medium);
+  color: var(--fg-2);
+  min-height: var(--tap);                /* 44px at every width, not just phones */
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+#sidenav a.nav-item:hover { background: var(--bg-sunken); color: var(--fg); }
+/* The active item is a filled ink pill, not a tinted rectangle: it is the one
+   thing on the screen that says where you are, and a pale green wash said it
+   too quietly to find at a glance. */
+#sidenav a.nav-item.active {
+  background: var(--bg-chrome);
+  color: var(--fg-on-dark);
+  font-weight: var(--w-semi);
+  box-shadow: var(--d-2);
+}
+#sidenav a.nav-item.active .nav-icon { color: var(--brand-mint); }
+#sidenav a.nav-item .nav-icon {
+  width: 20px; height: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none;
+  opacity: .9;
+}
+#sidenav a.nav-item .nav-icon svg { width: 18px; height: 18px; display: block; }
+
+/* =============================================================================
+   2 · THE PAGE
+   ============================================================================= */
+
+.page-header { margin-bottom: var(--s-5); align-items: flex-end; }
+.page-header .page-title-group h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-3xl);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-display);
+  font-weight: var(--w-bold);
+  margin-bottom: 6px;
+}
+.page-header .page-title-group p {
+  color: var(--fg-3);
+  font-size: var(--fs-md);
+  max-width: 64ch;
+  line-height: var(--lh-body);
+}
+
+/* =============================================================================
+   3 · SURFACES — depth from translucency and a hairline, never a stamped shadow
+   ============================================================================= */
+
+.card,
+.stat-card,
+.detail-card,
+.pcard,
+.chart-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--line-hair);
+  border-radius: var(--r-lg);
+  box-shadow: var(--d-2);
+  position: relative;
+}
+/* The hairline top highlight. One pixel of white along the top edge is what
+   makes a light card read as a lifted sheet of paper rather than a rectangle
+   with a border. */
+.card::before,
+.stat-card::before,
+.detail-card::before {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.9), transparent);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  pointer-events: none;
+}
+.card:hover { box-shadow: var(--d-3); }
+
+/* =============================================================================
+   4 · THE FIGURES — the reason these screens exist
+   ============================================================================= */
+
+/* THE STAT STRIP. Five white boxes with small grey labels is a report; the
+   brand's own site puts its numbers in mint on ink and they read from across a
+   room. The whole strip becomes one ink surface and the cards become panes of
+   it, so a dashboard has a centre of gravity. */
+/* THE STAT STRIP.
+   Five white boxes with small grey labels is a report; the brand's own site
+   puts its numbers in mint on ink and they read from across a room.
+
+   ⚠️ NOT one continuous seamed band, which was the first attempt. `auto-fit`
+   wraps, and Meridian has SIX figures, so the sixth sat alone on a second row
+   and the four empty cells beside it showed as a dead grey rectangle inside
+   what was supposed to be a single surface. Separate rounded ink panes with a
+   real gap look right at any count, which matters because the count differs
+   per role and per time frame and nobody is going to check all of them. */
+.stat-grid {
+  gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin-bottom: var(--s-5);
+}
+.stat-grid > .stat-card,
+.stat-grid > .card {
+  background: var(--chrome-grad);
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--d-2);
+  padding: var(--s-4) var(--s-5) var(--s-5);
+  position: relative;
+  overflow: hidden;
+}
+/* a mint hairline along the top of each pane, the ink-surface equivalent of
+   the white highlight the light cards get */
+.stat-grid > .stat-card::before,
+.stat-grid > .card::before {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(84,229,160,.5), transparent);
+  display: block;
+}
+.stat-grid .stat-label {
+  color: var(--fg-on-dark-3);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tr-caps);
+  font-weight: var(--w-semi);
+}
+.stat-grid .stat-value {
+  color: var(--brand-mint);
+  font-family: var(--font-display);
+  font-size: var(--fs-3xl);
+  line-height: var(--lh-flush);
+  letter-spacing: var(--tr-display);
+  font-weight: var(--w-bold);
+  font-variant-numeric: tabular-nums;
+  margin-top: 10px;
+}
+/* A stat card outside the strip keeps the light treatment. */
+.stat-card .stat-value {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tr-head);
+}
+
+/* Any figure anywhere lines up in a column. One declaration, disproportionate
+   effect on whether a table of money looks professional. */
+.num, .stat-value, td, .os-num, .money, .figure { font-variant-numeric: tabular-nums; }
+
+/* =============================================================================
+   5 · CONTROLS
+   ============================================================================= */
+
+.btn {
+  border-radius: var(--r-pill);
+  font-family: var(--font-ui);
+  font-weight: var(--w-semi);
+  font-size: var(--fs-sm);
+  min-height: var(--ctl);
+  padding-inline: var(--s-4);
+  transition: transform var(--t-fast) var(--ease),
+              box-shadow var(--t-fast) var(--ease),
+              background var(--t-fast) var(--ease);
+}
+.btn:active { transform: translateY(1px); }
+.btn-sm { min-height: var(--ctl-sm); font-size: var(--fs-xs); padding-inline: var(--s-3); }
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 1px solid transparent;
+  box-shadow: var(--accent-glow);
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary {
+  background: var(--bg-surface);
+  border: 1px solid var(--line-firm);
+  color: var(--fg);
+}
+.btn-secondary:hover { background: var(--bg-sunken); border-color: var(--line-strong); }
+.btn-ghost { color: var(--fg-2); }
+.btn-ghost:hover { background: var(--bg-sunken); color: var(--fg); }
+/* A disabled control must say why. The sentence belongs next to it in the
+   markup; this only makes sure the control does not look merely broken. */
+.btn:disabled, .btn[disabled] { opacity: .45; cursor: not-allowed; box-shadow: none; }
+
+.input, select, textarea {
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-firm);
+  background: var(--bg-surface);
+  min-height: var(--ctl);
+  font-size: var(--fs-md);
+  font-family: var(--font-ui);
+  color: var(--fg);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+/* ---- tabs, pills and chips ---- */
+.sub-tabs {
+  gap: 6px;
+  padding: 5px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-hair);
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  flex-wrap: wrap;                       /* nine inventory tabs on a phone */
+}
+.sub-tab {
+  border: 0; background: transparent;
+  border-radius: var(--r-pill);
+  padding: 8px 14px;
+  min-height: var(--ctl-sm);
+  font-size: var(--fs-sm);
+  font-weight: var(--w-medium);
+  color: var(--fg-2);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.sub-tab:hover { color: var(--fg); }
+.sub-tab-active, .sub-tab[aria-selected="true"] {
+  background: var(--bg-surface);
+  color: var(--fg);
+  font-weight: var(--w-semi);
+  box-shadow: var(--d-1);
+}
+
+.badge, .pill, .tag {
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--w-semi);
+  letter-spacing: 0;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+}
+.badge-neutral { background: var(--bg-sunken); color: var(--fg-2); border-color: var(--line-hair); }
+.badge-info    { background: var(--info-tint); color: var(--info); }
+.badge-warning { background: var(--warn-tint); color: var(--warn); }
+.badge-danger  { background: var(--danger-tint); color: var(--danger); }
+.badge-success { background: var(--ok-tint); color: var(--ok); }
+
+/* =============================================================================
+   6 · EMPTY STATES — a screen with nothing in it still has a job
+   ============================================================================= */
+.empty-state, .chart-empty, .po-empty {
+  background: var(--bg-inset);
+  border: 1px dashed var(--line-firm);
+  border-radius: var(--r-lg);
+  padding: var(--s-7) var(--s-5);
+  text-align: center;
+  color: var(--fg-3);
+}
+.empty-state strong, .po-empty strong {
+  display: block;
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  letter-spacing: var(--tr-head);
+  margin-bottom: 6px;
+}
+
+/* =============================================================================
+   7 · MOTION — two moments, and only two
+   Everything else is a 120ms colour change. These are the ones that should
+   feel physical: a screen arriving, and a figure changing.
+   ============================================================================= */
+@keyframes v3-rise {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+#view-outlet > * { animation: v3-rise var(--t-base) var(--ease-out) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  #view-outlet > * { animation: none; }
+  .btn:active { transform: none; }
+}
+
+/* =============================================================================
+   8 · PRODUCT CARDS — "cards, not rows"
+   -----------------------------------------------------------------------------
+   Hadi's words: rows make products "unsatisfying and very difficult to see".
+   The photograph is the product in this business, so it gets the space, and
+   every card in a rail is the same height whatever the length of the name.
+   ============================================================================= */
+
+.pcard, .product-card, .tile, .rail-card {
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--line-hair);
+  box-shadow: var(--d-2);
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base) var(--ease-out);
+}
+.pcard:hover, .product-card:hover, .tile:hover {
+  transform: translate3d(0, -3px, 0);
+  box-shadow: var(--d-3);
+}
+/* The photo well. A tinted gradient behind the image so a product shot with a
+   transparent or white background still reads as sitting ON something, and a
+   missing image is a considered empty frame rather than a grey hole. */
+.pcard-img, .product-card-img, .tile-img, .rail-img, .pcard-photo {
+  background:
+    linear-gradient(160deg, var(--bg-inset) 0%, var(--bg-sunken) 100%);
+  position: relative;
+}
+.pcard-img img, .product-card-img img, .tile-img img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+
+/* The reference code. A wholesale buyer orders by code, so it is set in mono
+   and it is the first thing on the card, above the name. */
+.pcard-ref, .tile-ref, .prod-ref, .os-ref {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .02em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+
+/* The price. Unit price large, the "from" qualifier small beside it — never
+   the same size, because they are not the same claim. */
+.pcard-price, .price, .pc-price {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: var(--w-bold);
+  letter-spacing: var(--tr-head);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.pcard-price small, .price small, .pc-was {
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  font-weight: var(--w-medium);
+  color: var(--fg-3);
+  letter-spacing: 0;
+}
+
+/* =============================================================================
+   9 · THE ORDER SHEET — the colour x size matrix
+   -----------------------------------------------------------------------------
+   The single most important surface in the product, and the one whose record
+   shape the 2.0 rewrite lost. Every colour is its own row with its own
+   photograph; sizes run across. Nothing here changes that structure — it only
+   makes the grid readable at a glance and the cells comfortable to hit.
+   ============================================================================= */
+
+.os-sheet, .os-pane {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line-hair);
+  background: var(--bg-surface);
+  box-shadow: var(--d-2);
+  overflow: hidden;
+}
+.os-grid { border-collapse: separate; border-spacing: 0; }
+/* Sticky size header and sticky colour column: on an 8-colour product you
+   cannot see the size you are typing under once you scroll, and typing the
+   wrong size is an expensive mistake in this business. */
+.os-grid thead th, .os-corner, .os-rowhead {
+  position: sticky;
+  background: var(--bg-surface);
+  z-index: 2;
+}
+.os-grid thead th { top: 0; }
+.os-rowhead, .os-corner { left: 0; }
+.os-corner { z-index: 3; }
+.os-grid thead th {
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tr-caps);
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: var(--w-semi);
+  border-bottom: 1px solid var(--line-soft);
+}
+.os-rowname { font-weight: var(--w-semi); color: var(--fg); }
+.os-rowimg, .os-cthumb {
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line-hair);
+  object-fit: cover;
+}
+.os-cdot, .os-chip-dot, .os-rowdot, .pb-colour-dot {
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(14, 34, 48, .18);   /* so #FFFFFF is still a swatch */
+  box-shadow: inset 0 1px 2px rgba(255,255,255,.35);
+}
+/* Every cell is a tap target first and a number second. */
+.os-cell, .os-stepcell {
+  min-width: var(--tap);
+  min-height: var(--tap);
+  border-radius: var(--r-xs);
+  font-variant-numeric: tabular-nums;
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.os-cell:focus-within {
+  box-shadow: 0 0 0 2px var(--accent-ring);
+  background: var(--accent-tint);
+}
+/* A cell holding a quantity is filled, not merely non-empty — a buyer scanning
+   a 64-cell grid for what they have already entered should not have to read. */
+.os-cell.has-qty, .os-cell[data-qty]:not([data-qty="0"]) {
+  background: var(--accent-tint);
+  box-shadow: inset 0 0 0 1px var(--accent-tint-2);
+  font-weight: var(--w-semi);
+}
+.os-num { font-family: var(--font-display); letter-spacing: var(--tr-tight); }
+.os-warn, .pf-error { color: var(--danger); font-weight: var(--w-medium); }
+.os-hint, .pf-hint { color: var(--fg-3); font-size: var(--fs-sm); line-height: var(--lh-body); }
+
+/* THE MINIMUM METER.
+   ⚠️ A meter's fill must be a BLOCK. The v3 prototype shipped with the fill as
+   an inline <i>, which ignores height:100%, so every minimum meter in it had
+   rendered as an empty track since the day it was built and nobody saw it --
+   an empty track and a zero-progress track look the same. Both halves are
+   pinned here so neither can regress. */
+.meter, .os-meter, .minimum-meter {
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--bg-sunken);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(14,34,48,.08);
+}
+.meter > *, .os-meter > *, .minimum-meter > * {
+  display: block;                 /* NOT inline. See above. */
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--brand-mint));
+  transition: width var(--t-slow) var(--ease-spring);
+}
+
+/* =============================================================================
+   10 · TABLES BECOME CARDS ON A PHONE
+   -----------------------------------------------------------------------------
+   A horizontally scrolling table on a phone is a table nobody reads. Below
+   720px every data table collapses to one card per row, with each cell
+   labelled from its column header via the data-label the markup already
+   carries. Tables WITHOUT data-label keep scrolling rather than turning into
+   an unlabelled list of values, which would be worse than the scroll.
+   ============================================================================= */
+.data-table th {
+  font-family: var(--font-ui);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tr-caps);
+  color: var(--fg-3);
+  border-bottom: 1px solid var(--line-soft);
+}
+.data-table td { border-bottom: 1px solid var(--line-hair); font-size: var(--fs-sm); }
+.data-table tbody tr { transition: background var(--t-fast) var(--ease); }
+.data-table tbody tr:hover { background: var(--bg-inset); }
+
+@media (max-width: 720px) {
+  .data-table:has(td[data-label]) { display: block; }
+  .data-table:has(td[data-label]) thead { display: none; }
+  .data-table:has(td[data-label]) tbody,
+  .data-table:has(td[data-label]) tr { display: block; }
+  .data-table:has(td[data-label]) tr {
+    background: var(--bg-surface);
+    border: 1px solid var(--line-hair);
+    border-radius: var(--r);
+    box-shadow: var(--d-1);
+    padding: var(--s-3);
+    margin-bottom: var(--s-3);
+  }
+  .data-table:has(td[data-label]) td {
+    display: flex; justify-content: space-between; gap: var(--s-4);
+    border: 0; padding: 6px 0; text-align: right;
+  }
+  .data-table:has(td[data-label]) td::before {
+    content: attr(data-label);
+    font-size: var(--fs-xs);
+    letter-spacing: var(--tr-caps);
+    text-transform: uppercase;
+    color: var(--fg-3);
+    font-weight: var(--w-semi);
+    text-align: left;
+    flex: none;
+  }
+}
+
+/* =============================================================================
+   11 · THE STICKY ORDER BAR
+   -----------------------------------------------------------------------------
+   The running total while filling a sheet. It was a pale strip that scrolled
+   with the page; it is now an ink bar that stays, because "what have I built
+   so far" is the question a buyer asks every few seconds.
+   ============================================================================= */
+.order-bar, .os-editstick, .buyer-dock, .review-bar {
+  background: var(--chrome-grad);
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--d-4);
+  color: var(--fg-on-dark);
+}
+.order-bar .btn-primary, .review-bar .btn-primary { box-shadow: none; }
+.order-bar strong, .review-bar strong {
+  color: var(--brand-mint);
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tr-head);
+}
+
+/* =============================================================================
+   12 · PHONE
+   ============================================================================= */
+@media (max-width: 880px) {
+  .page-header .page-title-group h1 { font-size: var(--fs-2xl); }
+  .stat-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s-2); }
+  .stat-grid .stat-value { font-size: var(--fs-2xl); }
+  #view-outlet { padding-bottom: 96px; }   /* clear of the bottom bar */
+}
+@media (max-width: 400px) {
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .sub-tabs { width: 100%; }
+}
+
+/* =============================================================================
+   13 · FIXES FOUND BY LOOKING AT THE PHONE
+   -----------------------------------------------------------------------------
+   Every rule in this block answers something visible in a 390px screenshot and
+   invisible at desktop width.
+   ============================================================================= */
+
+/* 13.1 THE BOTTOM BAR'S ICONS HAD NO SIZE.
+   mobile.css sets `.bottomnav-icon { font-size: 19px }` -- correct for an
+   emoji, meaningless for an <svg>, which has no intrinsic size and collapsed
+   to nothing. The bar rendered as five bare words. */
+#bottomnav .bottomnav-icon,
+#bottomnav .bottomnav-hub-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+}
+#bottomnav .bottomnav-icon svg,
+#bottomnav .bottomnav-hub-icon svg { width: 21px; height: 21px; display: block; }
+#bottomnav {
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  backdrop-filter: saturate(160%) blur(14px);
+  border-top: 1px solid var(--line-hair);
+}
+#bottomnav .bottomnav-item.active,
+#bottomnav .bottomnav-item[aria-current="page"] { color: var(--accent); }
+
+/* 13.2 THE STORE CHIPS RAN OFF THE EDGE.
+   The row is `overflow-x:auto` with no affordance, so on a phone the last
+   store was sliced down the middle and looked like a rendering fault rather
+   than something to scroll. A right-edge fade says "there is more", and the
+   scrollbar is hidden because a visible one inside a card is uglier than the
+   problem. */
+[data-slot="chips"] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+/* On a phone the row WRAPS instead of scrolling. A fade at the edge tells you
+   there is more; it does not tell you HOW MUCH more, and a buyer who works
+   with six suppliers needs to see that they have six. The scroller was also
+   slicing the active store down the middle, which reads as a rendering fault
+   rather than as something to swipe. */
+@media (max-width: 880px) {
+  [data-slot="chips"] { flex-wrap: wrap; overflow-x: visible; }
+  [data-slot="chips"] > * { flex: 0 0 auto; }
+}
+[data-slot="chips"]::-webkit-scrollbar { display: none; }
+[data-slot="chips"] > * { scroll-snap-align: start; }
+
+/* 13.3 THE RUNNING-ORDER BAR.
+   Its real class is .order-bar (js/components/order-bar.js). It was a pale
+   strip lying on top of the product grid, reading as part of the page. It is
+   the one thing on the screen that answers "what have I built so far", so it
+   becomes an ink bar that sits above everything and stays there. */
+/* ⚠️ SCOPED TO THE FILLED STATE. components.css has
+   `.order-bar.order-bar-empty { background: var(--bg-sunken) }` -- two classes,
+   so it out-specifies a bare `.order-bar` and keeps its pale background. The
+   first version of this block did not account for that: the BACKGROUND stayed
+   pale and the TEXT colours below turned white-on-ink, so the empty bar
+   rendered as ghost text on near-white and looked broken.
+   An empty order bar SHOULD be quiet -- it is not the subject of the screen
+   until it holds something. So: quiet when empty, ink when it has weight. */
+.order-bar:not(.order-bar-empty) {
+  background: var(--chrome-grad);
+  border: 1px solid var(--chrome-line);
+  border-top-color: var(--chrome-lift);
+  box-shadow: 0 -8px 34px -10px rgba(7, 20, 14, .45);
+  color: var(--fg-on-dark);
+}
+.order-bar:not(.order-bar-empty) .order-bar-summary { color: var(--fg-on-dark-2); }
+.order-bar:not(.order-bar-empty) .order-bar-pieces,
+.order-bar:not(.order-bar-empty) .order-bar-total {
+  color: var(--brand-mint);
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  letter-spacing: var(--tr-head);
+  font-variant-numeric: tabular-nums;
+}
+.order-bar:not(.order-bar-empty) .order-bar-sep { color: var(--fg-on-dark-3); }
+/* The quiet state: a glass pill, readable, clearly not empty-because-broken. */
+.order-bar.order-bar-empty {
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--line-hair);
+  box-shadow: var(--d-2);
+}
+.order-bar.order-bar-empty .order-bar-idle { color: var(--fg-3); }
+.order-bar-cta { box-shadow: none; }
+
+/* 13.4 Any rail scrolls without a scrollbar and fades at its right edge, so a
+   half-visible card reads as "keep going" rather than as clipping. */
+.rail, .product-rail, .rail-scroll, .os-grid-scroll, .table-wrap {
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar, .product-rail::-webkit-scrollbar,
+.rail-scroll::-webkit-scrollbar { display: none; }
+
+/* 13.5 Emoji left in the markup are at least sized and vertically centred
+   rather than sitting on the text baseline at whatever size the font gives
+   them. The topbar cart and the empty-state glyphs still use them; they are
+   replaced where the icon set covers the route, and this is the floor for the
+   rest. */
+.empty-state .empty-icon, .po-empty-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px;
+  border-radius: var(--r-lg);
+  background: var(--bg-tint);
+  font-size: 26px;
+  margin-bottom: var(--s-3);
+}

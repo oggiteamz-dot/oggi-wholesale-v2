@@ -1,11 +1,22 @@
 // OGGI Wholesale v2 — client directory (Batch 4)
 import { supabase, sbCall } from "../lib/supabase-client.js";
+import { salesClients, salesOrders } from "./sales-reads.js";
 
 /** Clients sorted by recency of their last order (most recent first, nulls
  * — never-ordered clients — last). This is the actual "recency-sorted
  * client list" feature, not just an alphabetical list, computed from real
  * order history rather than a stored-and-drifting last_order_at column. */
 export async function getClientsByRecency(wid) {
+  // A SALESPERSON READS THROUGH migration 140's definer functions.
+  // The two table reads below run as `anon` for a rep and are refused with
+  // 42501 -- see js/data/sales-reads.js. Everything after this branch is
+  // untouched and shared, so the recency pairing, the banned-client rule and
+  // the client_id matching below apply identically to both roles.
+  const repClients = await salesClients();
+  if (repClients) {
+    const repOrders = (await salesOrders()) || [];
+    return pairByRecency(repClients, repOrders);
+  }
   const [{ data: clients }, { data: orders }] = await Promise.all([
     // CHANGED 20 Aug 2026 (migration 059): this used to filter
     // .eq("active", true), which meant a BANNED client silently vanished
@@ -60,7 +71,13 @@ export async function getClientsByRecency(wid) {
   // for those would re-introduce the exact silent wrongness above, so we
   // don't. If such orders ever need attributing, link the account to a
   // client record; don't guess from a name.
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------------  return pairByRecency(clients, orders);
+}
+
+/** The recency pairing, extracted 18 Sep 2026 so the WHOLESALER path and the
+ *  SALESPERSON path share one copy rather than two that can drift. It was
+ *  inline in getClientsByRecency; nothing about it changed. */
+function pairByRecency(clients, orders) {
   const lastOrderByClient = new Map();
   const orderCountByClient = new Map();
   const totalByClient = new Map();
