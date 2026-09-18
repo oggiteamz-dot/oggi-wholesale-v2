@@ -934,6 +934,7 @@ working tree, which is why none of them had shown up before.
 | `js/data/inventory-intelligence.js` | 7 | Three of the same. The `v2_order_items` read carried TWO id lists; the variant filter moved client-side as a `Set` — it was redundant against the server, since an order belongs to one wholesaler. |
 | `js/data/landed-cost.js` | 2 | One of the same. |
 | `js/components/sub-tabs.js` | 1 | The emoji `innerHTML` → the same line as the fallback branch, with `navIcon(t.path)` preferred. An unlisted tab still renders its emoji. |
+| `js/lib/router.js` | 1 | `document.dispatchEvent(new CustomEvent("v2:navigated", …))` **moved**, not removed — from below the `await r.render(...)` to above it. Byte for byte the same line. |
 
 **Why these mattered more than they look.** Three of the four were the *same
 defect as #2 in the block above*, surviving in call sites the first sweep did
@@ -942,6 +943,14 @@ destructures `data` off the error result, gets `undefined`, falls back to an
 empty Map, and the screen **renders completely**. `/wholesaler/intelligence`
 drew its full stock table with every sell-through figure at zero. It did not
 look broken. It looked like nothing had sold.
+
+**And one the screenshots caught rather than the errors.** The navigation event
+fired only *after* a screen finished rendering, so on `/wholesaler/inventory` —
+six to ten seconds of reads — the sidebar went on pointing at the screen you had
+just left for the whole of it. When a render threw, it never fired at all and
+the highlight stayed wrong until the next successful navigation. A "you are
+here" that names somewhere else is worse than none, because it is believed.
+Nothing about that event depended on the render: the path is already decided.
 
 Re-run to confirm the count and see every line:
 
