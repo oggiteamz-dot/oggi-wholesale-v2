@@ -24,8 +24,13 @@ import { registerPublicRoutes, isPublicPath } from "./views/public-order.js";
 
 const root = document.getElementById("app-root");
 
-function mountShell() {
-  const session = devAuth.getSession();
+function mountShell(established) {
+  // `established` is a session handed over by a login flow that has just
+  // succeeded. It wins over the cache for exactly one render, because a tier
+  // that keeps its own session (the two desks) may have established one that
+  // devAuth's cache does not yet know about. Everything after this render
+  // reads devAuth.getSession() as before — adoptSession() has made them agree.
+  const session = established || devAuth.getSession();
   root.innerHTML = "";
 
   // ---------------------------------------------------------------------
@@ -74,7 +79,13 @@ function mountShell() {
   if (!session || !session.role) {
     const outlet = document.createElement("div");
     root.appendChild(outlet);
-    renderLogin(outlet, () => mountShell());
+    // The argument is forwarded, not dropped. It used to be `() => mountShell()`,
+    // which silently discarded the session every caller took the trouble to
+    // pass — harmless for the tiers that also write devAuth's cache, fatal for
+    // the desks, which are their own tier and do not. Belt and braces with
+    // devAuth.adoptSession(): either one alone fixes it, and a future tier that
+    // forgets one of them still works.
+    renderLogin(outlet, (established) => mountShell(established));
     return;
   }
 
