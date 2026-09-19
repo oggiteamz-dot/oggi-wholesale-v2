@@ -28,6 +28,7 @@ import { esc, pageHeader } from "../lib/utils.js";
 // order history sees exactly the screen they saw yesterday.
 import { renderStoreSwitcher } from "../components/store-switcher.js";
 import { renderProductRail } from "../components/product-rail.js";
+import { productThumbRow } from "../components/product-thumb.js";
 import { listBuyItAgain } from "../data/reorder.js";
 import { listPopularNow, popularTitle, popularSubtitle } from "../data/popular.js";
 import { listSimilarProducts, similarSubtitle } from "../data/similar.js";
@@ -902,8 +903,43 @@ async function ordersView(outlet) {
         </div>
         <div style="font-weight:700;">${currency}${order.subtotal.toFixed(2)}</div>
       </div>
-      <div style="font-size:13px;color:var(--text-secondary);">${order.items.map((i) => i.isPack ? `${i.packQty}× ${esc(i.productName)} pack` : `${i.qty}× ${esc(i.productName)} (${esc(i.color)}/${esc(i.size)})`).join(", ")}</div>
     `;
+
+    // -----------------------------------------------------------------------
+    // WHAT THEY BOUGHT, AS A PICTURE.                            19 Sep 2026
+    //
+    // This was one line: every item joined with commas into a grey sentence.
+    //
+    //   29× M-112 Carrot Fit Jean (Washed Black/32), 29× K-605 Insulated
+    //   Work Jacket (Dark Indigo/S), 29× W-205 Straight Leg Jean — Mid Rise…
+    //
+    // A shop owner opening My Orders is asking "which order was that one" and
+    // a wall of product codes cannot answer it. Hadi asked twice for the
+    // photographs and named it a gate; checks/check_ordered_lines_show_a_picture.mjs
+    // now fails the build if a line ever renders without a picture.
+    //
+    // The photographs were already in the database — 280 of 370 order lines
+    // carried one and the screen showed none of them. Migration 141 put
+    // imageUrl on the item; this draws it.
+    //
+    // The text stays underneath the pictures rather than being replaced by
+    // them: a buyer confirming a size or a colour needs the words, and an
+    // image-only row would have traded one unreadable screen for another.
+    // -----------------------------------------------------------------------
+    card.appendChild(productThumbRow(order.items, {
+      px: 62,
+      onLineClick: (line) => {
+        if (line.productId) window.location.hash = `#/buyer?product=${encodeURIComponent(line.productId)}`;
+      },
+    }));
+
+    const lines = document.createElement("div");
+    lines.style.cssText = "margin-top:10px;font-size:12px;color:var(--text-secondary);line-height:1.7;";
+    lines.innerHTML = order.items.map((i) => i.isPack
+      ? `<span style="white-space:nowrap;"><strong>${i.packQty}×</strong> ${esc(i.productName)} pack</span>`
+      : `<span style="white-space:nowrap;"><strong>${i.qty}×</strong> ${esc(i.productName)}${i.color || i.size ? ` <span style="color:var(--text-tertiary);">(${esc([i.color, i.size].filter(Boolean).join("/"))})</span>` : ""}</span>`
+    ).join('<span style="color:var(--text-tertiary);"> · </span>');
+    card.appendChild(lines);
     const reorderBtn = document.createElement("button");
     reorderBtn.className = "btn btn-secondary btn-sm";
     reorderBtn.style.marginTop = "10px";
