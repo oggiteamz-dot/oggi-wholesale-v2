@@ -817,3 +817,33 @@
 
 /* The drawn cart glyph fills its span, and takes the chrome band's colour. */
 .v2-cart-glyph svg { width: 100%; height: 100%; }
+
+/* ---------------------------------------------------------------------------
+   PRODUCT THUMBNAILS — the ordered line, as a picture           19 Sep 2026
+   ---------------------------------------------------------------------------
+   Sizing and the placeholder live in js/components/product-thumb.js, inline,
+   so a tile is correct the instant it is constructed and cannot be left
+   half-styled by a stylesheet that has not loaded. What belongs here is only
+   what a stylesheet does better: state.
+--------------------------------------------------------------------------- */
+.p-thumb {
+  transition: transform var(--t-fast, 140ms) var(--ease, ease),
+              box-shadow var(--t-fast, 140ms) var(--ease, ease);
+}
+button.p-thumb:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--d-2, 0 6px 16px rgba(0, 0, 0, .12));
+}
+button.p-thumb:focus-visible {
+  outline: 2px solid var(--accent-500, #0e7a5f);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .p-thumb { transition: none; }
+  button.p-thumb:hover { transform: none; }
+}
+/* On a phone the row is the fastest way to recognise an order, so the tiles
+   get bigger rather than smaller — the opposite of the usual instinct. */
+@media (max-width: 560px) {
+  .p-thumb-row { gap: 6px; }
+}
