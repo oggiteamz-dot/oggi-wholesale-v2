@@ -957,3 +957,28 @@ Nothing about that event depended on the render: the path is already decided.
 Re-run to confirm the count and see every line:
 
     ALLOW_DELETIONS=1 ./checks/check_no_feature_loss.sh
+
+
+---
+
+## 2026-09-19 · the image gate
+
+**Approved by:** Hadi, 19 Sep 2026 — *"Save this as a primary thing that it has
+to always have. This is a gate."* He also chose the half that makes it
+achievable: the gate passes on image-or-placeholder, because twenty products on
+the system genuinely have no photograph and hiding those lines would be worse
+than admitting it.
+
+| File | Lines | Replaced by |
+|---|---|---|
+| `js/views/buyer.js` | 1 | The order card's contents, which was one comma-joined sentence of product codes (`` `${i.qty}× ${esc(i.productName)} (${esc(i.color)}/${esc(i.size)})` ``.join(", ")), → `productThumbRow()` plus the SAME text underneath, now per-item with the quantity bolded. Nothing is dropped: every item still names its quantity, product, colour and size. The pictures are added above them, not instead of them — a buyer confirming a size needs the words. |
+
+**Why the words stayed.** The obvious version of this change replaces the text
+with the pictures. That trades one unreadable screen for another: a row of
+denim thumbnails cannot tell you whether you ordered the 32 or the 34, and that
+is the question a buyer opens this screen to answer.
+
+**What was NOT removed, and is worth recording:** `v2_get_buyer_orders` gained
+a key and lost none. Migration 141 asserts all fourteen item keys survive by
+calling the function and reading them back, because a silent rename is how a
+screen loses a field and nobody notices until a customer does.
