@@ -21,11 +21,11 @@
 //   usage: node tools/walk.mjs <outDir> [label]
 // =============================================================================
 import { chromium } from "playwright";
-import { createServer } from "node:http";
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, extname, dirname } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROUTES, TOTAL } from "./routes.mjs";
+import { serveTree, signIn, PW, WID } from "./browser.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const OUT = process.argv[2];
@@ -34,25 +34,10 @@ const WIDTH = Number(process.env.WALK_WIDTH || 1280);
 const HEIGHT = Number(process.env.WALK_HEIGHT || 900);
 mkdirSync(OUT, { recursive: true });
 
-const PW = "OggiDemo-2026";
-const WID = "demo-meridian";
-const MIME = { ".html":"text/html",".css":"text/css",".js":"text/javascript",".json":"application/json",
-  ".woff2":"font/woff2",".png":"image/png",".svg":"image/svg+xml",".ico":"image/x-icon",".webmanifest":"application/manifest+json" };
-
-const srv = createServer((req, res) => {
-  let p = decodeURIComponent(req.url.split("?")[0]);
-  if (p === "/") p = "/index.html";
-  const f = join(ROOT, p);
-  if (!existsSync(f) || f.endsWith("/")) { res.writeHead(404); return res.end("nf"); }
-  res.writeHead(200, { "Content-Type": MIME[extname(f)] || "text/plain" });
-  res.end(readFileSync(f));
-});
-await new Promise((r) => srv.listen(0, r));
-// WALK_BASE POINTS THIS AT THE DEPLOYED SITE.                   19 Sep 2026
-// Worth its three lines: four defects survived a clean walk of the working
-// tree and only appeared when the same walk was run against the live deploy.
-// Left unset, it serves this working tree exactly as before.
-const BASE = process.env.WALK_BASE || `http://localhost:${srv.address().port}`;
+// The server and the six sign-ins now live in checks/tools/browser.mjs, so
+// this walker and check_ordered_lines_show_a_picture.mjs cannot drift into two
+// different ideas of how a buyer logs in. Nothing about either changed.
+const { BASE, close: closeServer } = await serveTree();
 
 const browser = await chromium.launch();
 const report = { label: LABEL, width: WIDTH, at: new Date().toISOString(), screens: [] };
@@ -72,104 +57,16 @@ async function injectSession(page, session) {
   return { session };
 }
 
-/** Sign in through the app's own login screen, the way a person does.
- *  Field ids are the REAL ones, read off the running app by
- *  checks/tools/probe-login.mjs -- the first version of this guessed the
- *  order of whatever inputs happened to be visible and silently logged the
- *  buyer into nothing. */
-const FORMS = {
-  // Field ids read off the running app by checks/tools/probe-login.mjs, and
-  // credentials verified by calling the login RPCs directly
-  // (checks/tools/probe-auth.mjs) BEFORE trusting any form. That order matters:
-  // the first version of this walker guessed the field order, logged nobody in,
-  // and reported four roles as "226 chars" -- which is the sign-in screen's own
-  // length, not an empty screen. A harness that fails silently is worse than no
-  // harness, because it produces a report.
-  owner:      { tab: "Owner / Wholesaler",  fields: [["email", "demo-owner@oggiwholesale.app"], ["password", PW]] },
-  wholesaler: { tab: "Owner / Wholesaler",  fields: [["email", "demo-meridian@oggiwholesale.app"], ["password", PW]] },
-  sales:      { tab: "Sales team",          fields: [["#sales-user", "rep-meridian"], ["#sales-pass", PW]] },
-  buyer:      { tab: "Buyer",               fields: [["#mkt-id", "03 999 000"], ["#mkt-pass", PW]] },
-  warehouse:  { tab: "Warehouse / Finance", fields: [["#staff-wid", WID], ["#staff-user", "wh-meridian"], ["#staff-pass", PW]] },
-  finance:    { tab: "Warehouse / Finance", fields: [["#staff-wid", WID], ["#staff-user", "fin-meridian"], ["#staff-pass", PW]] },
-};
-
-async function signIn(page, kind) {
-  const form = FORMS[kind];
-  await page.goto(BASE + "/#/login", { waitUntil: "networkidle" });
-  await page.waitForTimeout(1000);
-  await page.evaluate((tab) => {
-    const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === tab);
-    if (b) b.click();
-  }, form.tab);
-  await page.waitForTimeout(800);
-  const filled = await page.evaluate((fields) => {
-    const set = (e, v) => {
-      const d = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
-      d.set.call(e, v);
-      e.dispatchEvent(new Event("input", { bubbles: true }));
-      e.dispatchEvent(new Event("change", { bubbles: true }));
-    };
-    const visible = () => [...document.querySelectorAll("input")].filter((i) => i.offsetParent !== null);
-    for (const [sel, val] of fields) {
-      let el = null;
-      if (sel === "email")         el = visible().find((i) => i.type === "email" || i.type === "text");
-      else if (sel === "password") el = visible().find((i) => i.type === "password");
-      else                          el = document.querySelector(sel);
-      if (!el) return `field ${sel} not present`;
-      set(el, val);
-    }
-    return null;
-  }, form.fields);
-  if (filled) return { ok: false, why: filled };
-  await page.waitForTimeout(250);
-  await page.evaluate(() => {
-    const b = [...document.querySelectorAll("button")].filter((x) => x.offsetParent !== null)
-      .find((x) => x.textContent.trim().toLowerCase() === "sign in");
-    if (b) b.click();
-  });
-  await page.waitForTimeout(5000);
-  // The marketplace buyer signs in to OGGI, not to a shop, so a successful
-  // login lands on "You buy from 6 wholesalers. Which one are you shopping
-  // today?" -- which is the product working correctly, and which the first
-  // version of this walker read as a failed login because the sign-in
-  // screen's own heading is still in the DOM behind it.
-  const picked = await page.evaluate((wantName) => {
-    if (!/Which one are you shopping/i.test(document.body.innerText)) return null;
-    const b = [...document.querySelectorAll("button")].find((x) => x.textContent.includes(wantName));
-    if (b) { b.click(); return wantName; }
-    return "no store button matched";
-  }, "Meridian");
-  if (picked) await page.waitForTimeout(4000);
-
-  const state = await page.evaluate(() => {
-    let local = null;
-    try { local = JSON.parse(localStorage.getItem("oggi-v2-dev-session") || "null"); } catch {}
-    const txt = document.body.innerText;
-    return {
-      local,
-      stillOnLogin: /Sign in to continue/.test(txt),
-      // whatever the screen says went wrong, rather than a generic failure
-      // Only look for a message inside the status line the form writes, not
-      // anywhere on the page: "Have an invite code but no account yet?" is
-      // permanent footer text and was being reported as the failure reason.
-      message: (document.querySelector("#staff-status, #sales-status, #mkt-status, #si-status")?.textContent || "").trim() || null,
-    };
-  });
-  return {
-    ok: !state.stillOnLogin,
-    session: state.local,
-    why: state.stillOnLogin ? (state.message || "still on the sign-in screen after submit") : "",
-  };
-}
+const signIn2 = (page, kind) => signIn(page, kind, BASE);
 
 const ROLE_SETUP = {
   public:     null,
-  buyer:      (p) => signIn(p, "buyer"),
-  sales:      (p) => signIn(p, "sales"),
-  wholesaler: (p) => signIn(p, "wholesaler"),
-  warehouse:  (p) => signIn(p, "warehouse"),
-  finance:    (p) => signIn(p, "finance"),
-  owner:      (p) => signIn(p, "owner"),
+  buyer:      (p) => signIn2(p, "buyer"),
+  sales:      (p) => signIn2(p, "sales"),
+  wholesaler: (p) => signIn2(p, "wholesaler"),
+  warehouse:  (p) => signIn2(p, "warehouse"),
+  finance:    (p) => signIn2(p, "finance"),
+  owner:      (p) => signIn2(p, "owner"),
 };
 
 // WALK_ONLY=WS-03,WS-07 walks just those screens, for a tight loop on a fix.
@@ -276,7 +173,7 @@ for (const [role, list0] of Object.entries(ROUTES)) {
   }
   await ctx.close();
 }
-await browser.close(); srv.close();
+await browser.close(); closeServer();
 writeFileSync(join(OUT, "report.json"), JSON.stringify(report, null, 1));
 const empty = report.screens.filter((s) => s.chars < 120);
 const withErr = report.screens.filter((s) => s.errors.length);

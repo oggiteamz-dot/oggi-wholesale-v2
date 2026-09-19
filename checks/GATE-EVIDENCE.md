@@ -3957,3 +3957,51 @@ has to refuse.
 
 141 migrations, no errors; **75 JS gates pass**; **49 SQL gates proved / 0 red**;
 9 seed-missing; `check_anon_scope.sh` unchanged and still green.
+
+---
+
+## `check_ordered_lines_show_a_picture.mjs` — 19 Sep 2026
+
+Hadi, having asked once before: *"you again did not show the images of the
+products. Save this as a primary thing that it has to always have. This is a
+gate."* The second asking is why this is a build failure and not a fix.
+
+The photographs were never missing. Measured on production the morning it was
+written: **370 order lines, 280 with a photograph on the variant, 0 shown.**
+`v2_get_buyer_orders` already joined the variant and the product to read the
+sku and the name, and never put the image column into the object it returned.
+Migration 141 adds it; `js/components/product-thumb.js` draws it.
+
+**2 sabotages, both red.**
+
+1. **The thumbnail row removed from `buyer.js`** — the screen exactly as it was
+   that morning. Reported:
+
+```
+✗ 3 order cards carry 0 pictures between them; every line is text only
+✗ no product tiles found to check
+```
+
+2. **A dead storage URL with the `error` handler deleted** — the sneaky one.
+   An `<img>` that 404s is still in the DOM, still has a `src`, and sits *on
+   top of* the placeholder, so the reader gets the browser's broken-image glyph
+   and the naive check ("a placeholder exists") passes. The gate asserts the
+   failed image is **removed**, not merely covered:
+
+```
+✗ 15 tile(s) show neither a loaded photograph nor the placeholder —
+  a reader sees an empty box or a broken-image glyph:
+      M-112 Carrot Fit Jean · Washed Black · 30
+      W-207 Barrel Leg Jean · Ecru · 34
+      …
+```
+
+The first version of this gate would have passed sabotage 2. It asserted
+`loaded || hasPlaceholder`, and a broken image lying over a placeholder
+satisfies that. The strengthened condition is `hasImgEl && !loaded &&
+!failedFlag` — an image element that neither loaded nor was cleaned up.
+
+**It passes on image-or-placeholder, deliberately.** Twenty products on the
+system genuinely have no photograph and Hadi chose the placeholder over hiding
+them. `naturalWidth > 0` is the test for "loaded", not "has a src" — pixels
+arrived, or they did not.
